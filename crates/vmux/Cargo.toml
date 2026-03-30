@@ -23,4 +23,5 @@ moonshine-save = { workspace = true }
 vmux_core = { path = "../vmux_core" }
 vmux_input = { path = "../vmux_input" }
 vmux_layout = { path = "../vmux_layout" }
+vmux_settings = { path = "../vmux_settings" }
 vmux_webview = { path = "../vmux_webview" }

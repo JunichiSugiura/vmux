@@ -1,0 +1,171 @@
+//! CEF pane spawn (mesh + webview) for layout leaves.
+
+use bevy::prelude::*;
+use bevy_cef::prelude::*;
+use vmux_settings::VmuxAppSettings;
+
+use crate::session_save::save_session_snapshot_to_file;
+
+use crate::{
+    Active, LayoutNode, LayoutTree, LastVisitedUrl, Pane, PaneLastUrl, Root, SavedLayoutNode,
+    SessionLayoutSnapshot, SessionSavePath, allowed_navigation_url, initial_webview_url,
+};
+
+/// Marker for the primary vmux webview entity.
+#[derive(Component)]
+pub struct VmuxWebview;
+
+/// CEF page zoom; `0.0` matches typical desktop browsers at 100%.
+pub const CEF_PAGE_ZOOM_LEVEL: f64 = 0.0;
+
+/// Reports `location.href` to Bevy via `window.cef.emit({ url })` (pageshow, SPA history, retry until `cef` exists).
+pub const URL_TRACK_PRELOAD: &str = r#"(function(){function e(){try{if(typeof window!=="undefined"&&window.cef&&typeof window.cef.emit==="function")window.cef.emit({url:location.href});}catch(_){}}function t(){e()}var n=history.pushState,r=history.replaceState;history.pushState=function(){n.apply(history,arguments);setTimeout(t,0)};history.replaceState=function(){r.apply(history,arguments);setTimeout(t,0)};window.addEventListener("popstate",function(){setTimeout(t,0)});window.addEventListener("pageshow",function(){setTimeout(t,0)});var i=0,o=setInterval(function(){e();(window.cef&&window.cef.emit||++i>200)&&clearInterval(o)},50)})();"#;
+
+/// Move keyboard shortcuts and tmux-style focus to whichever pane the cursor is over.
+fn activate_pane_on_pointer_hover(
+    trigger: On<Pointer<Move>>,
+    mut commands: Commands,
+    active: Query<Entity, (With<Pane>, With<Active>)>,
+) {
+    let ent = trigger.entity;
+    if active.contains(ent) {
+        return;
+    }
+    for e in active.iter() {
+        commands.entity(e).remove::<Active>();
+    }
+    commands.entity(ent).insert(Active);
+}
+
+pub fn spawn_pane(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<WebviewExtendStandardMaterial>,
+    start_url: &str,
+    with_active: bool,
+) -> Entity {
+    let mut b = commands.spawn((
+        VmuxWebview,
+        Pane,
+        PaneLastUrl(start_url.to_string()),
+        WebviewSource::new(start_url.to_string()),
+        PreloadScripts::from([URL_TRACK_PRELOAD.to_string()]),
+        ZoomLevel(CEF_PAGE_ZOOM_LEVEL),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::ONE))),
+        MeshMaterial3d(materials.add(WebviewExtendStandardMaterial {
+            base: StandardMaterial {
+                unlit: true,
+                ..default()
+            },
+            extension: WebviewMaterial::default(),
+        })),
+    ));
+    if with_active {
+        b.insert(Active);
+    }
+    b.observe(activate_pane_on_pointer_hover);
+    b.id()
+}
+
+pub fn spawn_saved_recursive(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<WebviewExtendStandardMaterial>,
+    node: &SavedLayoutNode,
+    first_active: &mut bool,
+    default_webview_url: &str,
+) -> LayoutNode {
+    match node {
+        SavedLayoutNode::Split {
+            axis,
+            ratio,
+            left,
+            right,
+        } => LayoutNode::Split {
+            axis: *axis,
+            ratio: *ratio,
+            left: Box::new(spawn_saved_recursive(
+                commands,
+                meshes,
+                materials,
+                left,
+                first_active,
+                default_webview_url,
+            )),
+            right: Box::new(spawn_saved_recursive(
+                commands,
+                meshes,
+                materials,
+                right,
+                first_active,
+                default_webview_url,
+            )),
+        },
+        SavedLayoutNode::Leaf { url } => {
+            let u = url.trim();
+            let start = if !u.is_empty() && allowed_navigation_url(u) {
+                u.to_string()
+            } else {
+                default_webview_url.to_string()
+            };
+            let active = *first_active;
+            *first_active = false;
+            LayoutNode::leaf(spawn_pane(commands, meshes, materials, &start, active))
+        }
+    }
+}
+
+pub fn setup_vmux_panes(
+    mut commands: Commands,
+    mut snapshot: ResMut<SessionLayoutSnapshot>,
+    last: Option<Res<LastVisitedUrl>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
+    path: Option<Res<SessionSavePath>>,
+    settings: Res<VmuxAppSettings>,
+) {
+    let mut migrated = false;
+    if snapshot.parsed_root().is_none()
+        && let Some(last) = last.as_ref()
+    {
+        let u = last.0.trim();
+        if !u.is_empty() && allowed_navigation_url(u) {
+            snapshot.set_root(&SavedLayoutNode::leaf_url(last.0.clone()));
+            migrated = true;
+        }
+    }
+
+    let fallback = settings.default_webview_url.as_str();
+    let root_node = if let Some(saved) = snapshot.parsed_root() {
+        let mut first_active = true;
+        spawn_saved_recursive(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &saved,
+            &mut first_active,
+            fallback,
+        )
+    } else {
+        let start_url = initial_webview_url(last.as_deref(), fallback);
+        LayoutNode::leaf(spawn_pane(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            &start_url,
+            true,
+        ))
+    };
+
+    commands.spawn((
+        Root,
+        LayoutTree {
+            root: root_node,
+            revision: 0,
+        },
+    ));
+
+    if migrated && let Some(p) = path.as_ref() {
+        save_session_snapshot_to_file(&mut commands, p.0.clone());
+    }
+}

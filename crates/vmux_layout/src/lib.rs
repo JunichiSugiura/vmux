@@ -1,9 +1,46 @@
-//! Hierarchical pane layout tree (runtime), pixel solver, and session snapshot types.
+//! Hierarchical pane layout tree (runtime), pixel solver, session snapshot types, and pane layout systems.
 //!
-//! Use [`LayoutPlugin`] to register reflected layout types with the Bevy app.
+//! [`LayoutPlugin`] registers reflected layout types, [`VmuxWorldCamera`], and `PostUpdate` pane layout
+//! + CEF resize sync (after Bevy’s [`camera_system`](bevy::render::camera::camera_system)).
+
+mod input_root;
+mod input_chords;
+mod pane_layout;
+mod pane_ops;
+mod pane_spawn;
+mod session_path;
+mod session_save;
+mod url;
 
 use bevy::prelude::*;
+use bevy::render::camera::camera_system;
+use bevy_cef::prelude::render_standard_materials;
 use serde::{Deserialize, Serialize};
+
+pub use input_chords::tmux_prefix_commands;
+pub use input_root::{
+    AppInputRoot, PREFIX_TIMEOUT_SECS, VmuxPrefixChordSet, VmuxPrefixState,
+};
+pub use pane_layout::{apply_pane_layout, sync_cef_sizes_after_pane_layout};
+pub use pane_ops::{
+    cycle_pane_focus, rebuild_session_snapshot, split_active_pane, try_cycle_pane_focus,
+    try_kill_active_pane, try_split_active_pane,
+};
+pub use pane_spawn::{
+    setup_vmux_panes, spawn_pane, spawn_saved_recursive, CEF_PAGE_ZOOM_LEVEL, URL_TRACK_PRELOAD,
+    VmuxWebview,
+};
+pub use session_path::SessionSavePath;
+pub use session_save::save_session_snapshot_to_file;
+pub use url::{allowed_navigation_url, initial_webview_url};
+pub use vmux_settings::{default_webview_url, VmuxAppSettings};
+
+/// Z distance of the world camera from the webview plane at z = 0 (used for frustum sizing).
+pub const CAMERA_DISTANCE: f32 = 3.0;
+
+/// Marker for the vmux world-facing camera used to size the webview plane.
+#[derive(Component)]
+pub struct VmuxWorldCamera;
 
 /// Marks the focused pane (paired with [`Pane`]).
 #[derive(Component, Default, Debug, Clone, Copy, Reflect)]
@@ -217,6 +254,11 @@ impl SessionLayoutSnapshot {
     }
 }
 
+/// Last document URL for the primary webview; persisted with moonshine-save (see `vmux` crate).
+#[derive(Resource, Default, Clone, Reflect)]
+#[reflect(Resource)]
+pub struct LastVisitedUrl(pub String);
+
 /// Logical pixel rectangle (origin top-left, +y down) for layout solving.
 #[derive(Debug, Clone, Copy)]
 pub struct PixelRect {
@@ -326,7 +368,7 @@ fn layout_node_to_saved_inner(
     }
 }
 
-/// Registers reflected layout types (components + session snapshot resource).
+/// Registers reflected layout types (components + session snapshot resource) and pane layout systems.
 #[derive(Default)]
 pub struct LayoutPlugin;
 
@@ -337,6 +379,27 @@ impl Plugin for LayoutPlugin {
             .register_type::<Root>()
             .register_type::<PaneLastUrl>()
             .register_type::<LayoutAxis>()
-            .register_type::<SessionLayoutSnapshot>();
+            .register_type::<SessionLayoutSnapshot>()
+            .register_type::<LastVisitedUrl>()
+            .init_resource::<LastVisitedUrl>()
+            .add_systems(Startup, setup_vmux_panes)
+            .add_systems(
+                PostUpdate,
+                (
+                    apply_pane_layout
+                        .after(camera_system)
+                        .before(render_standard_materials),
+                    sync_cef_sizes_after_pane_layout
+                        .after(apply_pane_layout)
+                        .before(render_standard_materials),
+                ),
+            )
+            .add_systems(
+                Update,
+                (
+                    split_active_pane.after(VmuxPrefixChordSet),
+                    cycle_pane_focus.after(VmuxPrefixChordSet),
+                ),
+            );
     }
 }

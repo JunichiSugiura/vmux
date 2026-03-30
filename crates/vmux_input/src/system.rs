@@ -1,8 +1,9 @@
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
+use vmux_layout::{AppInputRoot, VmuxPrefixState};
 
-use crate::component::{AppAction, AppInputRoot, VmuxPrefixState};
+use crate::component::AppAction;
 
 pub(crate) fn spawn_app_input(mut commands: Commands) {
     let mut input_map = InputMap::<AppAction>::default();

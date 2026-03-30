@@ -1,0 +1,14 @@
+---
+description: Run cargo check after Rust or Cargo manifest changes
+globs: "**/*.rs,**/Cargo.toml,**/Cargo.lock"
+alwaysApply: false
+---
+
+# Verify builds with cargo check
+
+After changing Rust sources or workspace or crate manifests, run a compile check from the repo root before finishing:
+
+- Default: `cargo check` (or `cargo check -p <crate>` when edits are confined to one workspace member).
+- If `CEF_PATH` points at a missing tree and the build fails in `cef-dll-sys`, use `env -u CEF_PATH cargo check` (or match whatever the project `Makefile` / docs use for local checks).
+
+Do not only suggest the command; run it when you have shell access and fix errors the check reports.

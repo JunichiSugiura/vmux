@@ -38,5 +38,6 @@ notify = "6"
 
 [patch.crates-io]
 winit = { path = "patches/winit-0.30.13" }
+wgpu-hal = { path = "patches/wgpu-hal-27.0.4" }
 bevy_cef = { path = "patches/bevy_cef-0.5.2" }
 bevy_cef_core = { path = "patches/bevy_cef_core-0.5.2" }

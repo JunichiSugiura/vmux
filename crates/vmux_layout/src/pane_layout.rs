@@ -33,29 +33,49 @@ const MAX_CEF_BACKING_LONG_SIDE: f32 = 1536.0;
 /// during window resize, `Camera::logical_viewport_size()` can lag behind [`Window`]; using the
 /// smaller/stale viewport for `solve_layout` while normalizing with a different effective size
 /// widens pane and chrome strips (notably the active pane’s status bar spilling past the split).
-/// Root [`PixelRect`] for [`solve_layout`], inset from the window by `edge_gap_px` (clamped).
-fn layout_root_area(vw: f32, vh: f32, edge_gap_px: f32) -> PixelRect {
-    if !edge_gap_px.is_finite() || edge_gap_px <= 0.0 || !vw.is_finite() || !vh.is_finite() {
+/// Root [`PixelRect`] for [`solve_layout`], inset from the window by per-edge padding (clamped).
+fn layout_root_area(
+    vw: f32,
+    vh: f32,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> PixelRect {
+    if !vw.is_finite() || !vh.is_finite() || vw <= 0.0 || vh <= 0.0 {
         return PixelRect {
             x: 0.0,
             y: 0.0,
-            w: vw,
-            h: vh,
+            w: vw.max(0.0),
+            h: vh.max(0.0),
         };
     }
-    // Leave at least one minimal pane worth of span in each axis for the inner region.
+    // Leave at least MIN_SPAN total inner width/height for the grid.
     const MIN_SPAN: f32 = 2.0 * crate::MIN_PANE_PX;
-    let max_g_w = ((vw - MIN_SPAN) * 0.5).max(0.0);
-    let max_g_h = ((vh - MIN_SPAN) * 0.5).max(0.0);
-    let g = edge_gap_px.max(0.0).min(max_g_w).min(max_g_h);
-    let w = (vw - 2.0 * g).max(0.0);
-    let h = (vh - 2.0 * g).max(0.0);
-    PixelRect {
-        x: g,
-        y: g,
-        w,
-        h,
+    let max_lr = (vw - MIN_SPAN).max(0.0);
+    let max_tb = (vh - MIN_SPAN).max(0.0);
+
+    let mut l = left.max(0.0).min(max_lr);
+    let mut r = right.max(0.0).min(max_lr);
+    let mut t = top.max(0.0).min(max_tb);
+    let mut b = bottom.max(0.0).min(max_tb);
+
+    let sum_lr = l + r;
+    if sum_lr > max_lr && sum_lr > 0.0 {
+        let s = max_lr / sum_lr;
+        l *= s;
+        r *= s;
     }
+    let sum_tb = t + b;
+    if sum_tb > max_tb && sum_tb > 0.0 {
+        let s = max_tb / sum_tb;
+        t *= s;
+        b *= s;
+    }
+
+    let w = (vw - l - r).max(0.0);
+    let h = (vh - t - b).max(0.0);
+    PixelRect { x: l, y: t, w, h }
 }
 
 fn layout_viewport_px(window: &Window, camera: &Camera) -> (f32, f32) {
@@ -205,7 +225,9 @@ pub fn apply_pane_layout(
     let half_w = half_h * aspect;
 
     let entity_alive = |e: Entity| panes.contains(e);
-    let area = layout_root_area(vw, vh, settings.window_padding_px);
+    let s = settings.window_padding_px;
+    let top = settings.window_padding_top_px;
+    let area = layout_root_area(vw, vh, s, top, s, s);
     let mut rects = solve_layout(&layout.root, area, entity_alive, settings.pane_border_spacing_px);
     rects.sort_by(|a, b| {
         let cy_a = a.1.y + a.1.h * 0.5;
@@ -308,7 +330,9 @@ pub fn apply_pane_chrome_layout(
     let half_w = half_h * aspect;
 
     let entity_alive = |e: Entity| panes.contains(e);
-    let area = layout_root_area(vw, vh, settings.window_padding_px);
+    let s = settings.window_padding_px;
+    let top = settings.window_padding_top_px;
+    let area = layout_root_area(vw, vh, s, top, s, s);
     let rects = solve_layout(&layout.root, area, entity_alive, settings.pane_border_spacing_px);
     let rect_map: HashMap<Entity, PixelRect> = rects.into_iter().collect();
 

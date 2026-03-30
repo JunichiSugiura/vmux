@@ -11,7 +11,17 @@
 //! | next / previous pane (focus) | [`select_pane_next`] |
 
 pub use crate::PaneSwapDir;
-pub use crate::neighbor_pane_in_direction as select_pane_neighbor;
+use crate::PixelRect;
+use bevy::prelude::Entity;
+
+/// [`neighbor_pane_in_direction`](crate::neighbor_pane_in_direction) without focus memory (geometry only).
+pub fn select_pane_neighbor(
+    rects: &[(Entity, PixelRect)],
+    active: Entity,
+    dir: crate::PaneSwapDir,
+) -> Option<Entity> {
+    crate::neighbor_pane_in_direction(rects, active, dir, None)
+}
 
 pub use crate::pane_ops::try_cycle_pane_focus as select_pane_next;
 pub use crate::pane_ops::try_kill_active_pane as kill_pane;

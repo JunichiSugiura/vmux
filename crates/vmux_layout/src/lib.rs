@@ -12,6 +12,8 @@ mod pane_spawn;
 pub mod tmux;
 mod url;
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use bevy::render::camera::camera_system;
 use bevy_cef::prelude::render_standard_materials;
@@ -466,14 +468,39 @@ pub struct PixelRect {
     pub h: f32,
 }
 
-/// Tmux **[select-pane](https://man.openbsd.org/tmux.1#select-pane)** (`-L` / `-R` / `-U` / `-D`): pick the adjacent pane in that direction from solved layout rects.
-pub fn neighbor_pane_in_direction(
+/// When focus lands on a pane, the pane entity we switched **from** (used to break geometric ties
+/// in [`neighbor_pane_in_direction`], e.g. returning to the last-used pane on the right column).
+#[derive(Resource, Default)]
+pub struct PaneFocusIncoming(pub HashMap<Entity, Entity>);
+
+#[derive(Resource, Default)]
+struct PaneFocusPrev(Option<Entity>);
+
+fn track_pane_focus_incoming(
+    active: Query<Entity, (With<Pane>, With<Active>)>,
+    mut prev: ResMut<PaneFocusPrev>,
+    mut incoming: ResMut<PaneFocusIncoming>,
+) {
+    let Ok(cur) = active.single() else {
+        return;
+    };
+    if prev.0 == Some(cur) {
+        return;
+    }
+    if let Some(old) = prev.0 {
+        incoming.0.insert(cur, old);
+    }
+    prev.0 = Some(cur);
+}
+
+fn collect_directional_neighbors(
     rects: &[(Entity, PixelRect)],
     active: Entity,
     dir: PaneSwapDir,
-) -> Option<Entity> {
-    let ar = rects.iter().find(|(e, _)| *e == active).map(|(_, r)| *r)?;
-    // Pixel tolerance for gaps and float edges (matches typical pane-border spacing scale).
+) -> Vec<(Entity, f32, f32)> {
+    let Some(ar) = rects.iter().find(|(e, _)| *e == active).map(|(_, r)| *r) else {
+        return Vec::new();
+    };
     const TOL: f32 = 4.0;
 
     #[inline]
@@ -483,8 +510,7 @@ pub fn neighbor_pane_in_direction(
         (right - left).max(0.0)
     }
 
-    let mut best: Option<(Entity, f32, f32)> = None;
-
+    let mut out = Vec::new();
     for &(e, o) in rects {
         if e == active {
             continue;
@@ -523,9 +549,16 @@ pub fn neighbor_pane_in_direction(
                 (ov, ov > 1.0, gap)
             }
         };
-        if !ok {
-            continue;
+        if ok {
+            out.push((e, overlap, gap));
         }
+    }
+    out
+}
+
+fn pick_best_directional_neighbor(candidates: &[(Entity, f32, f32)]) -> Option<Entity> {
+    let mut best: Option<(Entity, f32, f32)> = None;
+    for &(e, overlap, gap) in candidates {
         let take = match best {
             None => true,
             Some((_, bo, bg)) => overlap > bo + 1.0e-3 || (overlap - bo).abs() <= 1.0e-3 && gap < bg,
@@ -535,6 +568,28 @@ pub fn neighbor_pane_in_direction(
         }
     }
     best.map(|(e, _, _)| e)
+}
+
+/// Tmux **[select-pane](https://man.openbsd.org/tmux.1#select-pane)** (`-L` / `-R` / `-U` / `-D`): pick the adjacent pane in that direction from solved layout rects.
+///
+/// `prefer_if_valid`: if set and that pane is still a valid neighbor in `dir`, it is chosen instead
+/// of the geometric tie-break (same overlap + gap as another candidate).
+pub fn neighbor_pane_in_direction(
+    rects: &[(Entity, PixelRect)],
+    active: Entity,
+    dir: PaneSwapDir,
+    prefer_if_valid: Option<Entity>,
+) -> Option<Entity> {
+    let candidates = collect_directional_neighbors(rects, active, dir);
+    if candidates.is_empty() {
+        return None;
+    }
+    if let Some(p) = prefer_if_valid {
+        if p != active && candidates.iter().any(|(e, _, _)| *e == p) {
+            return Some(p);
+        }
+    }
+    pick_best_directional_neighbor(&candidates)
 }
 
 const MIN_PANE_PX: f32 = 48.0;
@@ -688,12 +743,15 @@ impl Plugin for LayoutPlugin {
             .register_type::<SessionLayoutSnapshot>()
             .register_type::<LastVisitedUrl>()
             .init_resource::<LastVisitedUrl>()
+            .init_resource::<PaneFocusIncoming>()
+            .init_resource::<PaneFocusPrev>()
             .init_resource::<PendingNavigationLoads>()
             .add_observer(pane_lifecycle::warn_if_pane_despawn_still_in_layout)
             .add_systems(Startup, setup_vmux_panes)
             .add_systems(
                 PostUpdate,
                 (
+                    track_pane_focus_incoming.before(apply_pane_layout),
                     apply_pane_layout
                         .after(camera_system)
                         .before(render_standard_materials),

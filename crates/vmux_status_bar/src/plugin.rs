@@ -13,11 +13,21 @@ use vmux_layout::{
 };
 use vmux_server::{EmbeddedServeDirRequest, EmbeddedServeDirStartup, PendingEmbeddedServeDir};
 
+/// After this many seconds without a base URL from the embedded server, pane chrome uses [`STATUS_CHROME_UNAVAILABLE_HTML`].
+const STATUS_UI_EMBEDDED_WAIT_SECS: f32 = 5.0;
+
+/// Visible fallback when `dist/index.html` is missing, the loopback server never reports a port, or startup is stuck.
+const STATUS_CHROME_UNAVAILABLE_HTML: &str = r#"<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><style>html,body{margin:0;background:#1a1a1a;color:#9aa0a6;font:12px system-ui,-apple-system,sans-serif;height:100%;}body{display:flex;align-items:center;justify-content:center;text-align:center;padding:8px 12px;}p{margin:0;line-height:1.4;}small{display:block;margin-top:6px;opacity:.75;font-size:11px;}</style></head><body><div><p>Status bar UI did not load.</p><small>Run <code style="color:#bdc1c6">make status-ui</code> or set <code style="color:#bdc1c6">VMUX_STATUS_UI_URL</code>.</small></div></body></html>"#;
+
 #[derive(Resource, Default)]
 pub struct StatusUiBaseUrl(pub Option<String>);
 
 #[derive(Resource, Default)]
 pub struct StatusUiUrlReceiver(pub Option<crossbeam_channel::Receiver<String>>);
+
+/// When true, chrome strips use inline HTML instead of waiting on a loopback URL (missing dist, server failure, or timeout).
+#[derive(Resource, Default)]
+struct StatusUiChromeUnavailable(pub bool);
 
 #[derive(Resource, Default)]
 struct StatusUiEmitState {
@@ -70,6 +80,8 @@ fn startup_status_server(mut commands: Commands, mut pending: ResMut<PendingEmbe
             "vmux status bar: missing {}; add `crates/vmux_status_bar/dist/` or set VMUX_STATUS_UI_URL",
             dist.display()
         );
+        commands.insert_resource(StatusUiChromeUnavailable(true));
+        return;
     }
 
     let (tx, rx) = crossbeam_channel::bounded::<String>(1);
@@ -94,11 +106,46 @@ fn poll_status_url(mut ready: ResMut<StatusUiBaseUrl>, rx: ResMut<StatusUiUrlRec
     }
 }
 
+fn timeout_status_embedded(
+    time: Res<Time>,
+    mut wait_started: Local<Option<f32>>,
+    ready: Res<StatusUiBaseUrl>,
+    mut unavailable: ResMut<StatusUiChromeUnavailable>,
+    rx: Res<StatusUiUrlReceiver>,
+) {
+    if unavailable.0 || ready.0.is_some() {
+        *wait_started = None;
+        return;
+    }
+    if rx.0.is_none() {
+        *wait_started = None;
+        return;
+    }
+    let now = time.elapsed_secs();
+    let start = wait_started.get_or_insert(now);
+    if now - *start >= STATUS_UI_EMBEDDED_WAIT_SECS {
+        bevy::log::warn!(
+            "vmux status bar: embedded HTTP server did not report a URL within {}s; using inline fallback",
+            STATUS_UI_EMBEDDED_WAIT_SECS
+        );
+        unavailable.0 = true;
+        *wait_started = None;
+    }
+}
+
 fn apply_status_url_to_chrome(
     ready: Res<StatusUiBaseUrl>,
+    unavailable: Res<StatusUiChromeUnavailable>,
     mut commands: Commands,
     mut q: Query<(Entity, &mut WebviewSource), With<PaneChromeNeedsUrl>>,
 ) {
+    if unavailable.0 {
+        for (e, mut src) in &mut q {
+            *src = WebviewSource::inline(STATUS_CHROME_UNAVAILABLE_HTML);
+            commands.entity(e).remove::<PaneChromeNeedsUrl>();
+        }
+        return;
+    }
     let Some(url) = ready.0.as_ref() else {
         return;
     };
@@ -151,6 +198,7 @@ impl Plugin for StatusBarHostedPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<StatusUiBaseUrl>()
             .init_resource::<StatusUiUrlReceiver>()
+            .init_resource::<StatusUiChromeUnavailable>()
             .init_resource::<StatusUiEmitState>()
             .add_systems(
                 Startup,
@@ -162,7 +210,10 @@ impl Plugin for StatusBarHostedPlugin {
                 Update,
                 (
                     poll_status_url,
-                    apply_status_url_to_chrome.after(poll_status_url),
+                    timeout_status_embedded.after(poll_status_url),
+                    apply_status_url_to_chrome
+                        .after(poll_status_url)
+                        .after(timeout_status_embedded),
                     emit_status_to_active_chrome.after(apply_status_url_to_chrome),
                 ),
             );

@@ -7,7 +7,7 @@ use leafwing_input_manager::prelude::*;
 use vmux_core::{SessionSavePath, SessionSaveQueue};
 use vmux_layout::{
     Active, LayoutAxis, LayoutTree, LoadingBarMaterial, Pane, PaneChromeLoadingBar, PaneChromeOwner,
-    PaneChromeStrip, PaneLastUrl,
+    PaneChromeStrip, PaneLastUrl, PaneFocusIncoming,
     PaneSwapDir, Root, SessionLayoutSnapshot, VmuxWorldCamera, layout_viewport_for_workspace,
     layout_workspace_pane_rects, try_cycle_pane_focus, try_kill_active_pane,
     try_mirror_pane_layout, try_rotate_window, try_select_pane_direction, try_split_active_pane,
@@ -25,11 +25,12 @@ pub struct PaneSpawnAssets<'w> {
     pub loading_bar_materials: ResMut<'w, Assets<LoadingBarMaterial>>,
 }
 
-/// Bundles `Res<Time>` + `Res<ButtonInput>` so [`tmux_prefix_commands`] stays within Bevy’s system-parameter limit (16).
+/// Bundles chord input resources so [`tmux_prefix_commands`] stays within Bevy’s system-parameter limit (16).
 #[derive(SystemParam)]
 pub struct TmuxChordInput<'w> {
     pub time: Res<'w, Time>,
     pub keys: Res<'w, ButtonInput<KeyCode>>,
+    pub pane_focus_incoming: Res<'w, PaneFocusIncoming>,
 }
 
 pub(crate) fn spawn_app_input(mut commands: Commands) {
@@ -221,7 +222,15 @@ pub fn tmux_prefix_commands(
                 default_url,
             );
         } else {
-            try_select_pane_direction(&mut commands, &mut tree, active_ent, dir, &rects);
+            let prefer = input.pane_focus_incoming.0.get(&active_ent).copied();
+            try_select_pane_direction(
+                &mut commands,
+                &mut tree,
+                active_ent,
+                dir,
+                &rects,
+                prefer,
+            );
         }
         return;
     }

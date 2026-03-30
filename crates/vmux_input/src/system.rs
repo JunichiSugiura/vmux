@@ -6,16 +6,15 @@ use bevy_cef::prelude::*;
 use leafwing_input_manager::prelude::*;
 use vmux_core::{SessionSavePath, SessionSaveQueue};
 use vmux_layout::{
-    Active, LayoutAxis, LayoutTree, LoadingBarMaterial, Pane, PaneChromeLoadingBar, PaneChromeOwner,
-    PaneChromeStrip, PaneLastUrl, PaneFocusIncoming,
-    PaneSwapDir, Root, SessionLayoutSnapshot, VmuxWorldCamera, layout_viewport_for_workspace,
-    layout_workspace_pane_rects, try_cycle_pane_focus, try_kill_active_pane,
-    try_mirror_pane_layout, try_rotate_window, try_select_pane_direction, try_split_active_pane,
-    try_swap_active_pane, try_toggle_zoom_pane,
+    layout_viewport_for_workspace, layout_workspace_pane_rects, try_cycle_pane_focus,
+    try_kill_active_pane, try_mirror_pane_layout, try_rotate_window, try_select_pane_direction,
+    try_split_active_pane, try_swap_active_pane, try_toggle_zoom_pane, Active, LayoutAxis,
+    LayoutTree, LoadingBarMaterial, Pane, PaneChromeLoadingBar, PaneChromeOwner, PaneChromeStrip,
+    PaneFocusIncoming, PaneLastUrl, PaneSwapDir, Root, SessionLayoutSnapshot, VmuxWorldCamera,
 };
 use vmux_settings::VmuxAppSettings;
 
-use crate::component::{AppAction, AppInputRoot, PREFIX_TIMEOUT_SECS, VmuxPrefixState};
+use crate::component::{AppAction, AppInputRoot, VmuxPrefixState, PREFIX_TIMEOUT_SECS};
 
 /// Asset stores used when spawning panes from tmux chord handlers (keeps system param count low).
 #[derive(SystemParam)]
@@ -42,6 +41,16 @@ pub(crate) fn spawn_app_input(mut commands: Commands) {
     input_map.insert(
         AppAction::Quit,
         ButtonlikeChord::modified(ModifierKey::Control, KeyCode::KeyQ),
+    );
+    #[cfg(target_os = "macos")]
+    input_map.insert(
+        AppAction::ToggleCommandPalette,
+        ButtonlikeChord::modified(ModifierKey::Super, KeyCode::KeyT),
+    );
+    #[cfg(not(target_os = "macos"))]
+    input_map.insert(
+        AppAction::ToggleCommandPalette,
+        ButtonlikeChord::modified(ModifierKey::Control, KeyCode::KeyT),
     );
     commands.spawn((
         AppInputRoot,
@@ -206,9 +215,7 @@ pub fn tmux_prefix_commands(
         let Ok(active_ent) = active.single() else {
             return;
         };
-        let rects = layout_workspace_pane_rects(vw, vh, &tree, &settings, |e| {
-            panes.get(e).is_ok()
-        });
+        let rects = layout_workspace_pane_rects(vw, vh, &tree, &settings, |e| panes.get(e).is_ok());
         if ctrl {
             try_swap_active_pane(
                 &mut tree,
@@ -223,14 +230,7 @@ pub fn tmux_prefix_commands(
             );
         } else {
             let prefer = input.pane_focus_incoming.0.get(&active_ent).copied();
-            try_select_pane_direction(
-                &mut commands,
-                &mut tree,
-                active_ent,
-                dir,
-                &rects,
-                prefer,
-            );
+            try_select_pane_direction(&mut commands, &mut tree, active_ent, dir, &rects, prefer);
         }
         return;
     }

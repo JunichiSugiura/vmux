@@ -22,11 +22,23 @@ struct BundledSettings {
     /// Inset from the window inner edge to the layout grid (logical px; 0 = edge-to-edge). Mirrors tmux `window-*` naming.
     #[serde(alias = "window_edge_gap_px")]
     window_padding_px: f32,
+    /// Top inset (layout px). `0` means same as `window_padding_px` (RON serde does not accept bare floats for `Option`).
+    #[serde(default)]
+    window_padding_top_px: f32,
     /// Corner radius for pane tiles in layout pixels (0 = square).
     pane_border_radius_px: f32,
 }
 
 static BUNDLED_SETTINGS: OnceLock<VmuxAppSettings> = OnceLock::new();
+
+#[inline]
+fn resolve_window_padding_top_px(window_padding_px: f32, window_padding_top_px: f32) -> f32 {
+    if window_padding_top_px > 0.0 {
+        window_padding_top_px
+    } else {
+        window_padding_px
+    }
+}
 
 fn bundled_settings() -> &'static VmuxAppSettings {
     BUNDLED_SETTINGS.get_or_init(|| {
@@ -37,6 +49,10 @@ fn bundled_settings() -> &'static VmuxAppSettings {
             default_webview_url: bundled.default_webview_url,
             pane_border_spacing_px: bundled.pane_border_spacing_px,
             window_padding_px: bundled.window_padding_px,
+            window_padding_top_px: resolve_window_padding_top_px(
+                bundled.window_padding_px,
+                bundled.window_padding_top_px,
+            ),
             pane_border_radius_px: bundled.pane_border_radius_px,
         }
     })
@@ -58,8 +74,11 @@ pub struct VmuxAppSettings {
     pub default_webview_url: String,
     /// Logical pixels between adjacent panes at each split (0 = flush). Named like tmux `pane-border-*` options.
     pub pane_border_spacing_px: f32,
-    /// Inset from the window inner edge to the layout grid (logical px; 0 = edge-to-edge). Named like tmux `window-*` options.
+    /// Inset from the window **left, right, and bottom** inner edges to the pane grid (layout px).
     pub window_padding_px: f32,
+    /// Inset from the window **top** inner edge (layout px). Use a larger value than [`window_padding_px`]
+    /// when the title bar / traffic lights overlap content (e.g. full-size content view on macOS).
+    pub window_padding_top_px: f32,
     /// Corner radius for pane tiles in layout pixels (0 = square).
     pub pane_border_radius_px: f32,
 }
@@ -86,6 +105,10 @@ fn parse_settings_ron(s: &str) -> Result<VmuxAppSettings, ron::error::SpannedErr
         default_webview_url: parsed.default_webview_url,
         pane_border_spacing_px: parsed.pane_border_spacing_px,
         window_padding_px: parsed.window_padding_px,
+        window_padding_top_px: resolve_window_padding_top_px(
+            parsed.window_padding_px,
+            parsed.window_padding_top_px,
+        ),
         pane_border_radius_px: parsed.pane_border_radius_px,
     })
 }

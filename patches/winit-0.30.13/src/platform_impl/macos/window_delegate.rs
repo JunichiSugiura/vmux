@@ -888,9 +888,9 @@ impl WindowDelegate {
     }
 
     pub fn set_blur(&self, blur: bool) {
-        // NOTE: in general we want to specify the blur radius, but the choice of 80
-        // should be a reasonable default.
-        let radius = if blur { 80 } else { 0 };
+        // NOTE: in general we want to specify the blur radius; larger reads more like
+        // macOS sheet / vibrancy behind transparent content.
+        let radius = if blur { 120 } else { 0 };
         let window_number = unsafe { self.window().windowNumber() };
         unsafe {
             ffi::CGSSetWindowBackgroundBlurRadius(

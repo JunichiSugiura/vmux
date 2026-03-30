@@ -1,6 +1,8 @@
 //! vmux — Bevy + embedded CEF webview library.
 
 pub mod core;
+#[cfg(target_os = "macos")]
+mod macos_liquid_glass;
 mod system;
 
 pub use core::{CAMERA_DISTANCE, VmuxWorldCamera};
@@ -23,6 +25,9 @@ fn vmux_primary_window() -> Window {
     Window {
         transparent: true,
         composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
+        // Match liquid-glass / NSGlassEffectView expectations (winit macOS extensions).
+        titlebar_transparent: true,
+        fullsize_content_view: true,
         ..default()
     }
 }
@@ -40,13 +45,16 @@ impl Plugin for VmuxScenePlugin {
         app.add_systems(
             Startup,
             (
+                system::normalize_window_padding_from_legacy_save,
                 system::configure_primary_window,
+                system::sync_clear_color_from_primary_window,
                 system::spawn_camera,
                 system::spawn_directional_light,
-            ),
+            )
+                .chain(),
         );
         #[cfg(target_os = "macos")]
-        app.add_systems(Update, system::apply_macos_window_blur);
+        app.add_systems(Update, macos_liquid_glass::apply_macos_liquid_glass);
     }
 }
 
@@ -67,9 +75,5 @@ impl Plugin for VmuxPlugin {
             SessionPlugin,
             VmuxWebviewPlugin::default(),
         ));
-        #[cfg(target_os = "macos")]
-        {
-            app.insert_resource(ClearColor(Color::NONE));
-        }
     }
 }

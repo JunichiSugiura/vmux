@@ -26,3 +26,7 @@ vmux_layout = { path = "../vmux_layout" }
 vmux_session = { path = "../vmux_session" }
 vmux_settings = { path = "../vmux_settings" }
 vmux_webview = { path = "../vmux_webview" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+liquid-glass-rs = "0.1.1"
+raw-window-handle = "0.6"

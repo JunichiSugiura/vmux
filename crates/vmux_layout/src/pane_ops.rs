@@ -213,15 +213,20 @@ pub fn try_rotate_window(
 }
 
 /// Tmux **[select-pane](https://man.openbsd.org/tmux.1#select-pane)** (`-L` / `-R` / `-U` / `-D`): move focus to the adjacent pane in that direction (layout unchanged).
+///
+/// `prefer_if_valid`: see [`neighbor_pane_in_direction`](crate::neighbor_pane_in_direction).
 pub fn try_select_pane_direction(
     commands: &mut Commands,
     layout_tree: &mut LayoutTree,
     active_ent: Entity,
     dir: PaneSwapDir,
     rects: &[(Entity, PixelRect)],
+    prefer_if_valid: Option<Entity>,
 ) -> bool {
     clear_zoom_pane(layout_tree);
-    let Some(next) = neighbor_pane_in_direction(rects, active_ent, dir) else {
+    let Some(next) =
+        neighbor_pane_in_direction(rects, active_ent, dir, prefer_if_valid)
+    else {
         return false;
     };
     if next == active_ent {

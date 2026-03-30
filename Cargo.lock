@@ -7664,6 +7664,7 @@ dependencies = [
  "bevy",
  "bevy_cef",
  "bevy_winit",
+ "leafwing-input-manager",
  "liquid-glass-rs",
  "raw-window-handle",
  "vmux_core",

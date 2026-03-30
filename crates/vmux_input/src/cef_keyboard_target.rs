@@ -13,8 +13,9 @@
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy_cef::prelude::{CefKeyboardTarget, CefSuppressKeyboardInput, CefSuppressPointerInput};
-use vmux_core::Active;
 use vmux_core::input_root::{AppInputRoot, VmuxPrefixState};
+use vmux_core::Active;
+use vmux_core::VmuxCommandPaletteState;
 use vmux_layout::Pane;
 
 /// Drop keyboard messages before they reach CEF while a tmux-style prefix chord is in progress.
@@ -47,10 +48,12 @@ pub fn sync_cef_pointer_suppression_for_prefix(
     mut keyboard: ResMut<CefSuppressKeyboardInput>,
     prefix_q: Query<&VmuxPrefixState, With<AppInputRoot>>,
     keys: Res<ButtonInput<KeyCode>>,
+    palette: Option<Res<VmuxCommandPaletteState>>,
 ) {
+    let palette_on = palette.map(|p| p.open).unwrap_or(false);
     let Ok(prefix) = prefix_q.single() else {
-        pointer.0 = false;
-        keyboard.0 = false;
+        pointer.0 = palette_on;
+        keyboard.0 = palette_on;
         return;
     };
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
@@ -58,7 +61,8 @@ pub fn sync_cef_pointer_suppression_for_prefix(
     let double_prefix = prefix.awaiting && ctrl && just_b;
     let first_prefix = !prefix.awaiting && ctrl && just_b;
     let chord_continuation = prefix.awaiting && !double_prefix;
-    let on = first_prefix || chord_continuation;
+    let prefix_on = first_prefix || chord_continuation;
+    let on = prefix_on || palette_on;
     pointer.0 = on;
     keyboard.0 = on;
 }

@@ -20,6 +20,7 @@ debug = ["bevy_cef/debug", "vmux_webview/debug"]
 bevy = { workspace = true }
 bevy_winit = { workspace = true }
 bevy_cef = { workspace = true }
+leafwing-input-manager = { workspace = true }
 vmux_core = { path = "../vmux_core" }
 vmux_input = { path = "../vmux_input" }
 vmux_layout = { path = "../vmux_layout" }

@@ -1,50 +1,47 @@
 //! Default CEF webview spawn and window/camera layout.
 
-mod layout;
 mod system;
-mod tmux;
 
 use bevy::prelude::*;
-use bevy::render::camera::camera_system;
+use bevy_cef::prelude::{CefExtensions, CefPlugin, CommandLineConfig, JsEmitEventPlugin};
 
-pub use layout::rebuild_session_snapshot;
 pub use system::{go_back, go_forward, reload};
-pub use vmux_layout::LayoutPlugin;
+pub use vmux_layout::{CEF_PAGE_ZOOM_LEVEL, LayoutPlugin, VmuxWebview, rebuild_session_snapshot};
+pub use vmux_settings::{VmuxAppSettings, cef_root_cache_path, default_webview_url};
 
-/// Marker for the primary vmux webview entity.
-#[derive(Component)]
-pub struct VmuxWebview;
+/// Webview stack plus [`CefPlugin`] configuration (command line, extensions, CEF cache root).
+#[derive(Clone, Debug)]
+pub struct VmuxWebviewPlugin {
+    pub command_line_config: CommandLineConfig,
+    pub extensions: CefExtensions,
+    pub root_cache_path: Option<String>,
+}
 
-/// URL for the default webview plane.
-pub const WEBVIEW_URL: &str = "https://github.com/not-elm/bevy_cef";
-
-/// CEF page zoom; `0.0` matches typical desktop browsers at 100%.
-pub const CEF_PAGE_ZOOM_LEVEL: f64 = 0.0;
-
-#[derive(Default)]
-pub struct VmuxWebviewPlugin;
+impl Default for VmuxWebviewPlugin {
+    fn default() -> Self {
+        Self {
+            command_line_config: CommandLineConfig::default(),
+            extensions: CefExtensions::default(),
+            root_cache_path: vmux_settings::cef_root_cache_path(),
+        }
+    }
+}
 
 impl Plugin for VmuxWebviewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(LayoutPlugin);
-        app.add_systems(Startup, layout::setup_vmux_panes)
-            .add_systems(
-                Update,
-                (
-                    system::go_back,
-                    system::go_forward,
-                    system::reload,
-                    tmux::tmux_prefix_commands,
-                    layout::split_active_pane,
-                    layout::cycle_pane_focus,
-                ),
-            )
-            .add_systems(
-                PostUpdate,
-                (
-                    layout::apply_pane_layout.after(camera_system),
-                    layout::sync_cef_sizes_after_pane_layout.after(layout::apply_pane_layout),
-                ),
-            );
+        let cef_plugin = CefPlugin {
+            command_line_config: self.command_line_config.clone(),
+            extensions: self.extensions.clone(),
+            root_cache_path: self.root_cache_path.clone(),
+        };
+        app.add_plugins((
+            cef_plugin,
+            LayoutPlugin,
+            JsEmitEventPlugin::<vmux_core::WebviewDocumentUrlEmit>::default(),
+        ))
+        .add_systems(
+            Update,
+            (system::go_back, system::go_forward, system::reload),
+        );
     }
 }

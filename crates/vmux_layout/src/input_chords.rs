@@ -1,16 +1,19 @@
-//! Tmux-style chord: **Ctrl+B** (prefix), then **%** / **"** / **o** / **x** within [`PREFIX_TIMEOUT_SECS`](vmux_input::PREFIX_TIMEOUT_SECS).
+//! Tmux-style **Ctrl+B** chord handling (splits / focus / kill-pane).
 
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
 
-use vmux_core::SessionSavePath;
-use vmux_input::{AppInputRoot, PREFIX_TIMEOUT_SECS, VmuxPrefixState};
-use vmux_layout::{Active, LayoutAxis, LayoutTree, Pane, PaneLastUrl, Root, SessionLayoutSnapshot};
-
-use crate::layout::{try_cycle_pane_focus, try_kill_active_pane, try_split_active_pane};
+use crate::input_root::{AppInputRoot, PREFIX_TIMEOUT_SECS, VmuxPrefixState};
+use crate::{
+    Active, LayoutAxis, LayoutTree, Pane, PaneLastUrl, Root, SessionLayoutSnapshot, SessionSavePath,
+};
+use crate::pane_ops::{
+    try_cycle_pane_focus, try_kill_active_pane, try_split_active_pane,
+};
+use vmux_settings::VmuxAppSettings;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn tmux_prefix_commands(
+pub fn tmux_prefix_commands(
     time: Res<Time>,
     keys: Res<ButtonInput<KeyCode>>,
     mut prefix_q: Query<&mut VmuxPrefixState, With<AppInputRoot>>,
@@ -23,10 +26,12 @@ pub(crate) fn tmux_prefix_commands(
     pane_last: Query<&PaneLastUrl>,
     webview_src: Query<&WebviewSource>,
     path: Option<Res<SessionSavePath>>,
+    settings: Res<VmuxAppSettings>,
 ) {
     let Ok(mut prefix) = prefix_q.single_mut() else {
         return;
     };
+    let default_url = settings.default_webview_url.as_str();
 
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
@@ -67,6 +72,7 @@ pub(crate) fn tmux_prefix_commands(
             &pane_last,
             &webview_src,
             path.as_ref(),
+            default_url,
         );
         return;
     }
@@ -90,6 +96,7 @@ pub(crate) fn tmux_prefix_commands(
             &pane_last,
             &webview_src,
             path.as_ref(),
+            default_url,
         );
         return;
     }
@@ -118,10 +125,13 @@ pub(crate) fn tmux_prefix_commands(
             &mut commands,
             &mut tree,
             active_ent,
+            &mut meshes,
+            &mut materials,
             &mut snapshot,
             &pane_last,
             &webview_src,
             path.as_ref(),
+            default_url,
         );
     }
 }

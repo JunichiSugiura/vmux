@@ -56,7 +56,10 @@ fn ensure_mesh_webview_placeholder(
     }
 }
 
-fn render_standard_materials(
+/// Applies [`RenderTextureMessage`] updates to [`WebviewExtendStandardMaterial`] meshes.
+///
+/// Vmux (and similar apps) may schedule this explicitly so pane layout / CEF resize run first in `PostUpdate`.
+pub fn render_standard_materials(
     mut commands: Commands,
     mut er: MessageReader<RenderTextureMessage>,
     mut images: ResMut<Assets<Image>>,

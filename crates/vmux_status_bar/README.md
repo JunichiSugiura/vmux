@@ -1,6 +1,6 @@
 # vmux status bar (Dioxus web)
 
-Rust + **Dioxus** web app served from loopback by `vmux` (see `vmux_webview::StatusBarHostedPlugin`) and loaded in the active pane’s CEF strip.
+Rust + **Dioxus** web app served from loopback by `vmux` (see `vmux_status_bar::StatusBarServerPlugin`) and loaded in the active pane’s CEF strip.
 
 - **`src/main.rs`** — `dioxus::launch` entry.
 - **`src/app.rs`** — root **App** component (status strip markup).

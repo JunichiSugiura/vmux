@@ -7,9 +7,9 @@ use bevy::window::PrimaryWindow;
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::Browsers;
 
+use vmux_core::color_tokens as color;
 use vmux_core::pane_corner_clip::{PANE_CORNER_CLIP_FULL, PANE_CORNER_CLIP_STATUS_BAR_BOTTOM};
 use vmux_settings::VmuxAppSettings;
-use vmux_ui::utils::color;
 
 use crate::loading_bar::{
     LOADING_BAR_ANIM_TIME_SCALE, LOADING_BAR_DEPTH_BIAS_ABOVE_CHROME, LOADING_BAR_HEIGHT_PX,

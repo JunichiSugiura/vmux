@@ -5,6 +5,9 @@
 //! (before [`ServerPlugin`]’s [`spawn_embedded_serve_dir_system`] on [`Startup`]). Shutdown flags
 //! are registered automatically; [`ServerPlugin`] stops all servers on
 //! [`AppExit`](bevy::app::AppExit).
+//!
+//! [`DioxusWarmupRegistry`] + [`dioxus_embedded_warmup_system`] preload Dioxus WASM bundles for any
+//! hosted UI that registers a [`DioxusWarmupDescriptor`] (history pane, status chrome, etc.).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -13,6 +16,10 @@ use std::time::Instant;
 use bevy::app::AppExit;
 use bevy::prelude::*;
 use crossbeam_channel::Sender;
+
+mod dioxus_warmup;
+
+pub use dioxus_warmup::{DioxusUiWarmupWebview, EmbeddedDioxusUiSurface, dioxus_ui_warmup_bundle};
 
 fn embedded_http_runtime() -> Arc<tokio::runtime::Runtime> {
     static RT: OnceLock<Arc<tokio::runtime::Runtime>> = OnceLock::new();
@@ -51,6 +58,75 @@ pub struct EmbeddedServeDirRequest {
 /// Queued embedded servers; each entry is spawned on the next [`spawn_embedded_serve_dir_system`] run.
 #[derive(Resource, Default)]
 pub struct PendingEmbeddedServeDir(pub Vec<EmbeddedServeDirRequest>);
+
+/// Queue a [`ServeDir`] root and return the channel that receives the loopback base URL once bound.
+///
+/// Call from [`EmbeddedServeDirStartup::FillPending`] startup systems; [`ServerPlugin`] spawns the
+/// server and sends `http://127.0.0.1:{port}/`.
+pub fn push_pending_embedded_serve_dir(
+    pending: &mut PendingEmbeddedServeDir,
+    root: PathBuf,
+) -> crossbeam_channel::Receiver<String> {
+    let (tx, rx) = crossbeam_channel::bounded::<String>(1);
+    let flag = Arc::new(Mutex::new(false));
+    pending.0.push(EmbeddedServeDirRequest {
+        root,
+        tx,
+        shutdown: flag,
+    });
+    rx
+}
+
+/// Update ordering: poll embedded UI base URLs, then spawn hidden CEF warmups for registered Dioxus
+/// surfaces ([`DioxusWarmupRegistry`]).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DioxusUiWarmupSet {
+    PollUrls,
+    Warmup,
+}
+
+/// One Dioxus bundle to preload when its loopback URL is ready.
+#[derive(Clone)]
+pub struct DioxusWarmupDescriptor {
+    pub surface: EmbeddedDioxusUiSurface,
+    pub name: &'static str,
+    pub should_spawn: fn(&mut World) -> Option<String>,
+}
+
+/// Populated when hosted plugins call [`register_serve_plugin_dioxus_warmup`] or
+/// `vmux_ui::register_ui_plugin_dioxus_warmup` (after [`ServerPlugin`] initialized this resource).
+/// [`ServerPlugin`] runs [`dioxus_embedded_warmup_system`].
+#[derive(Resource, Default)]
+pub struct DioxusWarmupRegistry(pub Vec<DioxusWarmupDescriptor>);
+
+fn world_has_warmup_for_surface(world: &mut World, surface: EmbeddedDioxusUiSurface) -> bool {
+    let mut q = world.query::<&DioxusUiWarmupWebview>();
+    for w in q.iter(world) {
+        if w.surface == surface {
+            return true;
+        }
+    }
+    false
+}
+
+/// Exclusive [`Update`] system: spawns hidden webviews for each [`DioxusWarmupDescriptor`] when
+/// `should_spawn` returns a URL and no warmup exists for that surface.
+pub fn dioxus_embedded_warmup_system(world: &mut World) {
+    let registry = world.resource::<DioxusWarmupRegistry>().0.clone();
+    for desc in &registry {
+        if world_has_warmup_for_surface(world, desc.surface) {
+            continue;
+        }
+        let Some(url) = (desc.should_spawn)(world) else {
+            continue;
+        };
+        world.spawn(dioxus_ui_warmup_bundle(
+            desc.surface,
+            desc.name,
+            url,
+        ));
+    }
+}
 
 /// Startup ordering: fill [`PendingEmbeddedServeDir`], then [`spawn_embedded_serve_dir_system`],
 /// then drain `tx` URLs so pane setup can use loopback bases immediately (same frame as startup).
@@ -143,6 +219,36 @@ async fn run_embedded_serve_dir(
     }
 }
 
+/// Plugins that register embedded static assets via [`PendingEmbeddedServeDir`].
+///
+/// Add [`ServerPlugin`] before any plugin implementing this trait.
+///
+/// For Dioxus bundles served from loopback, implement [`ServePlugin::dioxus_warmup_descriptor`]
+/// and call [`register_serve_plugin_dioxus_warmup`] in your plugin’s [`Plugin::build`].
+pub trait ServePlugin: Plugin {
+    /// Optional Dioxus warmup for this [`ServeDir`] surface; [`None`] when not applicable.
+    fn dioxus_warmup_descriptor() -> Option<DioxusWarmupDescriptor> {
+        None
+    }
+}
+
+/// Push a single descriptor when [`ServePlugin::dioxus_warmup_descriptor`] returns [`Some`].
+pub fn push_dioxus_warmup_descriptor(app: &mut App, d: Option<DioxusWarmupDescriptor>) {
+    if let Some(d) = d {
+        app.world_mut()
+            .resource_mut::<DioxusWarmupRegistry>()
+            .0
+            .push(d);
+    }
+}
+
+/// Register [`ServePlugin::dioxus_warmup_descriptor`] into [`DioxusWarmupRegistry`].
+///
+/// Requires [`ServerPlugin`] (which initializes [`DioxusWarmupRegistry`]) to run **before** this plugin.
+pub fn register_serve_plugin_dioxus_warmup<P: ServePlugin>(app: &mut App) {
+    push_dioxus_warmup_descriptor(app, P::dioxus_warmup_descriptor());
+}
+
 fn shutdown_registered_servers(
     mut reader: MessageReader<AppExit>,
     registry: ResMut<VmuxServerShutdownRegistry>,
@@ -165,6 +271,7 @@ impl Plugin for ServerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PendingEmbeddedServeDir>()
             .init_resource::<VmuxServerShutdownRegistry>()
+            .init_resource::<DioxusWarmupRegistry>()
             .configure_sets(
                 Startup,
                 EmbeddedServeDirStartup::SpawnEmbedded.after(EmbeddedServeDirStartup::FillPending),
@@ -173,9 +280,18 @@ impl Plugin for ServerPlugin {
                 Startup,
                 EmbeddedServeDirStartup::DrainChannels.after(EmbeddedServeDirStartup::SpawnEmbedded),
             )
+            .configure_sets(
+                Update,
+                DioxusUiWarmupSet::Warmup.after(DioxusUiWarmupSet::PollUrls),
+            )
             .add_systems(
                 Startup,
                 spawn_embedded_serve_dir_system.in_set(EmbeddedServeDirStartup::SpawnEmbedded),
+            )
+            .add_systems(
+                Update,
+                dioxus_embedded_warmup_system
+                    .in_set(DioxusUiWarmupSet::Warmup),
             )
             .add_systems(Last, shutdown_registered_servers);
     }

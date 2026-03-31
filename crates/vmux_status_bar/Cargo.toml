@@ -1,6 +1,6 @@
 [package]
 name = "vmux_status_bar"
-description = "Status bar: Dioxus WASM UI + Bevy StatusBarHostedPlugin"
+description = "Status bar: Dioxus WASM UI + re-exports hosted status plugin from vmux_ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -20,14 +20,9 @@ serde_json = { workspace = true }
 url = "2"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-bevy = { workspace = true }
-bevy_ecs = { workspace = true }
-bevy_cef = { workspace = true }
-crossbeam-channel = { workspace = true }
-hostname = "0.4"
 vmux_core = { path = "../vmux_core" }
 vmux_layout = { path = "../vmux_layout" }
-vmux_server = { path = "../vmux_server" }
+vmux_ui = { path = "../vmux_ui", default-features = false, features = ["bevy"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { workspace = true }

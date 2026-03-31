@@ -7,13 +7,23 @@ use crate::cef::{
 use crate::payload::HistoryEntryWire;
 
 use dioxus::prelude::*;
+use vmux_ui::dioxus_ext::{attributes, merge_attributes};
+use vmux_ui::webview::components::{
+    button::{Button, ButtonVariant},
+    icon::{Icon, ViewBox},
+    input::Input,
+    label::Label,
+    UiDivider, UiDividerVariant, UiInputShell, UiPanel, UiRow, UiStack, UiText, UiTextSize,
+    UiTextTone,
+};
+use vmux_ui::webview::web_color;
 
 use futures_channel::mpsc::unbounded;
 use std::net::IpAddr;
-use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use web_sys::{window, EventTarget};
+use wasm_bindgen::closure::Closure;
+use web_sys::{EventTarget, window};
 
 const MS_PER_DAY: i64 = 86400_000;
 
@@ -26,11 +36,10 @@ const TW_ROW_BTN: &str = "group m-0 flex w-full max-w-full min-w-0 cursor-pointe
 const TW_FAVICON: &str = "mt-px h-[18px] w-[18px] shrink-0 rounded object-contain border border-white/[0.08] bg-white/[0.06] transition-colors duration-150 group-hover:border-sky-400/25 group-hover:bg-sky-400/[0.08]";
 const TW_LOAD_MORE: &str = "mt-1.5 block w-full cursor-pointer rounded-[10px] border border-white/12 bg-white/[0.05] py-2 px-3 text-center text-xs text-white/78 transition-colors duration-150 hover:border-sky-400/35 hover:bg-sky-400/10 hover:text-white/90";
 const TW_STREAM_HINT: &str = "mt-2 text-center text-[10px] text-white/30";
-const TW_LOADING_BOX: &str = "flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-14 text-center";
-const TW_LOADING_TRACK: &str = "h-1 w-36 overflow-hidden rounded-full bg-white/[0.08]";
-const TW_LOADING_PULSE: &str = "vmux-shimmer-bar h-full rounded-full bg-sky-400/35";
-const TW_SHIMMER_TEXT: &str = "vmux-shimmer-text text-[11px] text-white/28";
 const TW_RETRY_BTN: &str = "mt-3 cursor-pointer rounded-lg border border-amber-400/40 bg-amber-400/[0.12] px-3 py-1.5 text-[11px] font-medium text-amber-100/95 transition-colors duration-150 hover:border-amber-400/60 hover:bg-amber-400/20";
+
+/// `id` shared by [`Label`] and the filter field ([`Input`] + [`UiInputShell`]).
+const HISTORY_SEARCH_ID: &str = "history-search";
 
 /// First paint shows this many rows; avoids mounting hundreds of DOM nodes at once (faster CEF composite).
 const INITIAL_VISIBLE_ROWS: usize = 48;
@@ -94,11 +103,7 @@ fn visit_title_tooltip(ms: i64, url: &str) -> String {
     }
 }
 
-fn row_tooltip(
-    visit_ms: i64,
-    url: &str,
-    favicon_cached_at_ms: Option<i64>,
-) -> String {
+fn row_tooltip(visit_ms: i64, url: &str, favicon_cached_at_ms: Option<i64>) -> String {
     let mut t = visit_title_tooltip(visit_ms, url);
     if let Some(fc) = favicon_cached_at_ms.filter(|&x| x > 0) {
         let d = js_sys::Date::new(&JsValue::from_f64(fc as f64));
@@ -237,11 +242,7 @@ fn build_row_model(entry: &HistoryEntryWire, stable_index: usize) -> HistoryRowM
         row_key: format!("h{stable_index}"),
         url: entry.url.clone(),
         stamp: visit_stamp_display(entry.visited_at_ms),
-        title: row_tooltip(
-            entry.visited_at_ms,
-            &entry.url,
-            entry.favicon_cached_at_ms,
-        ),
+        title: row_tooltip(entry.visited_at_ms, &entry.url, entry.favicon_cached_at_ms),
         host,
         path,
         favicon_url,
@@ -261,7 +262,10 @@ fn prepare_history_raw(entries: &[HistoryEntryWire], filter_trimmed: &str) -> Pr
     let q = filter_trimmed.to_lowercase();
     let grouped = filter_and_group_by_day_indices(now_ms, entries, &q);
     let total_rows: usize = grouped.iter().map(|(_, r)| r.len()).sum();
-    PreparedRaw { grouped, total_rows }
+    PreparedRaw {
+        grouped,
+        total_rows,
+    }
 }
 
 /// Nudges `vmux_request_history` until `bridge_sync_pending` clears or we mark stalled.
@@ -308,14 +312,8 @@ fn spawn_history_resync_timeouts(
     stalled_sig: Signal<bool>,
 ) {
     spawn(async move {
-        run_history_resync_timeouts(
-            nonce,
-            pending_sig,
-            host_msg_sig,
-            host_snap_sig,
-            stalled_sig,
-        )
-        .await;
+        run_history_resync_timeouts(nonce, pending_sig, host_msg_sig, host_snap_sig, stalled_sig)
+            .await;
     });
 }
 
@@ -387,13 +385,17 @@ fn HistoryRow(model: HistoryRowModel) -> Element {
         favicon_cached_at_ms: _,
         ..
     } = model;
+    let open_url = url.clone();
     rsx! {
-        button {
-            class: "{TW_ROW_BTN}",
-            role: "listitem",
-            r#type: "button",
-            title: "{title}",
-            onclick: move |_| emit_open_in_pane(&url),
+        Button {
+            variant: ButtonVariant::Ghost,
+            onclick: move |_| emit_open_in_pane(&open_url),
+            attributes: merge_attributes(vec![attributes!(button {
+                class: TW_ROW_BTN,
+                role: "listitem",
+                r#type: "button",
+                title: "{title}",
+            })]),
             div { class: "flex w-full min-w-0 items-start justify-between gap-x-3 gap-y-2",
                 div { class: "flex min-w-0 flex-1 items-start gap-2",
                     if let Some(src) = favicon_url {
@@ -447,7 +449,8 @@ pub fn App() -> Element {
             // before we even asked the host for history.
             let mut rx = Some(rx);
             for attempt in 0..CEF_LISTENER_ATTEMPTS_MAX {
-                let pct = 5u8.saturating_add((((attempt + 1) * 50) / CEF_LISTENER_ATTEMPTS_MAX) as u8);
+                let pct =
+                    5u8.saturating_add((((attempt + 1) * 50) / CEF_LISTENER_ATTEMPTS_MAX) as u8);
                 chrome_progress_percent.set(pct.min(55));
                 chrome_progress_message.set("Waiting for CEF to start...".to_string());
                 if try_install_cef_history_listener(tx.clone()) {
@@ -470,7 +473,9 @@ pub fn App() -> Element {
                         host_snapshot_received,
                         history_sync_stalled,
                     );
-                    let rx = rx.take().expect("rx available once listener installs");
+                    let Some(rx) = rx.take() else {
+                        return;
+                    };
                     run_history_bridge_loop(
                         rx,
                         entries,
@@ -550,9 +555,11 @@ pub fn App() -> Element {
         let list = entries();
         prepare_history_raw(&list, filter().trim())
     });
+    // Do not read `prepared` inside another `use_memo` — nested memo reads can panic in the
+    // reactive layer (dioxus memo + subscription ordering). Recompute the same filter/group here.
     let visible_grouped = use_memo(move || {
         let list = entries();
-        let p = prepared.read();
+        let p = prepare_history_raw(&list, filter().trim());
         truncate_and_materialize(&list, &p.grouped, visible_limit())
     });
 
@@ -577,55 +584,96 @@ pub fn App() -> Element {
             if chrome_loading {
                 div {
                     class: "flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center px-4 py-10",
-                    div {
-                        class: "{TW_LOADING_BOX}",
-                        aria_busy: "true",
-                        aria_label: "Starting history UI",
-                        span { class: "text-[13px] text-white/55", "Starting…" }
-                        div { class: "{TW_LOADING_TRACK}",
-                            div { class: "{TW_LOADING_PULSE}", style: "{chrome_progress_width}" }
+                    UiPanel {
+                        aria_busy: Some(true),
+                        aria_label: Some("Starting history UI".to_string()),
+                        UiStack {
+                            class: "items-center gap-3",
+                            UiText {
+                                tone: UiTextTone::Muted,
+                                size: UiTextSize::Sm,
+                                "Starting…"
+                            }
+                            div {
+                                class: "{web_color::LOADING_TRACK}",
+                                div { class: "{web_color::LOADING_PULSE}", style: "{chrome_progress_width}" }
+                            }
+                            span { class: "{web_color::SHIMMER_TEXT}", "{chrome_agentic}" }
+                            UiText {
+                                class: "tabular-nums text-white/20",
+                                tone: UiTextTone::Inherit,
+                                size: UiTextSize::Xxs,
+                                "{chrome_progress_percent()}%"
+                            }
                         }
-                        span { class: "{TW_SHIMMER_TEXT}", "{chrome_agentic}" }
-                        span { class: "text-[10px] text-white/20 tabular-nums", "{chrome_progress_percent()}%" }
                     }
                 }
             } else {
                 div {
                     class: "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden",
                     header {
-                        class: "{TW_HEADER}",
+                        class: "{TW_HEADER} flex flex-col gap-3",
                         div { class: "flex flex-wrap items-start justify-between gap-3",
                             div { class: "min-w-0 flex-[1_1_12rem]",
                                 h1 { class: "m-0 text-[13px] font-semibold tracking-[-0.02em] text-white/95", "History" }
                                 p { class: "mb-0 mt-0.5 text-[11px] text-white/38", "Recent visits · click to open in this pane" }
                             }
-                            button {
-                                class: "{TW_CLEAR_BTN}",
-                                r#type: "button",
-                                disabled: entries().is_empty() || list_loading,
-                                onclick: move |_| {
-                                    if !confirm_clear_history() {
-                                        return;
+                            {
+                                let clear_disabled = entries().is_empty() || list_loading;
+                                let mut clear_attrs = vec![attributes!(button {
+                                    class: TW_CLEAR_BTN,
+                                    r#type: "button",
+                                })];
+                                if clear_disabled {
+                                    clear_attrs.push(attributes!(button { disabled: "true" }));
+                                }
+                                rsx! {
+                                    Button {
+                                        variant: ButtonVariant::Destructive,
+                                        onclick: move |_| {
+                                            if !confirm_clear_history() {
+                                                return;
+                                            }
+                                            emit_clear_history();
+                                            entries.set(Vec::new());
+                                            history_stream_complete.set(true);
+                                        },
+                                        attributes: merge_attributes(clear_attrs),
+                                        "Clear history"
                                     }
-                                    emit_clear_history();
-                                    entries.set(Vec::new());
-                                    history_stream_complete.set(true);
-                                },
-                                "Clear history"
+                                }
                             }
                         }
-                        div { class: "relative mt-3",
-                            input {
-                                id: "search",
-                                class: "{TW_SEARCH}",
-                                r#type: "text",
-                                placeholder: "Filter by URL…",
-                                value: filter,
-                                oninput: move |ev: Event<FormData>| {
-                                    filter.set(ev.value());
-                                },
-                            }
-                            span { class: "pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-white/28", "⌕" }
+                        Label {
+                            html_for: HISTORY_SEARCH_ID,
+                            class: "sr-only",
+                            "Filter history by URL"
+                        }
+                        UiInputShell {
+                            leading: rsx! {
+                                Icon {
+                                    view_box: ViewBox::new(0, 0, 24, 24),
+                                    stroke_width: 2.,
+                                    class: "h-[14px] w-[14px]",
+                                    circle { cx: 11, cy: 11, r: 8 }
+                                    path { d: "m21 21-4.3-4.3" }
+                                }
+                            },
+                            input: rsx! {
+                                Input {
+                                    oninput: move |ev: FormEvent| {
+                                        filter.set(ev.value());
+                                    },
+                                    attributes: merge_attributes(vec![attributes!(input {
+                                        id: HISTORY_SEARCH_ID,
+                                        class: TW_SEARCH,
+                                        r#type: "text",
+                                        placeholder: "Filter by URL…",
+                                        value: filter,
+                                    })]),
+                                    children: rsx! {},
+                                }
+                            },
                         }
                     }
                     div {
@@ -633,49 +681,109 @@ pub fn App() -> Element {
                         class: "min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-1",
                         role: "list",
                         if list_loading {
-                            div {
-                                class: "{TW_LOADING_BOX}",
-                                aria_busy: "true",
-                                aria_label: "Loading history",
-                                span { class: "text-[13px] text-white/55", "Loading visits…" }
-                                div { class: "{TW_LOADING_TRACK}",
-                                    div { class: "{TW_LOADING_PULSE}", style: "{host_progress_width}" }
+                            UiPanel {
+                                aria_busy: Some(true),
+                                aria_label: Some("Loading history".to_string()),
+                                UiStack {
+                                    class: "items-center gap-3",
+                                    UiText {
+                                        tone: UiTextTone::Muted,
+                                        size: UiTextSize::Sm,
+                                        "Loading visits…"
+                                    }
+                                    div {
+                                        class: "{web_color::LOADING_TRACK}",
+                                        div { class: "{web_color::LOADING_PULSE}", style: "{host_progress_width}" }
+                                    }
+                                    span { class: "{web_color::SHIMMER_TEXT}", "{host_agentic}" }
+                                    UiText {
+                                        class: "tabular-nums text-white/20",
+                                        tone: UiTextTone::Inherit,
+                                        size: UiTextSize::Xxs,
+                                        "{host_progress_percent()}%"
+                                    }
                                 }
-                                span { class: "{TW_SHIMMER_TEXT}", "{host_agentic}" }
-                                span { class: "text-[10px] text-white/20 tabular-nums", "{host_progress_percent()}%" }
                             }
                         } else if grouped_for_view.is_empty() {
                             if filter_trimmed.is_empty() {
                                 if history_sync_stalled() {
-                                    div { class: "flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-300/20 bg-amber-300/[0.04] px-6 py-14 text-center",
-                                        span { class: "text-[13px] text-amber-100/90", "Still waiting for history engine." }
-                                        span { class: "text-[11px] text-amber-100/55", "Click Retry, switch away and back to this pane, or refocus the window." }
-                                        button {
-                                            class: "{TW_RETRY_BTN}",
-                                            r#type: "button",
-                                            onclick: move |_| {
-                                                retry_history_sync_after_stall(
-                                                    bridge_sync_pending,
-                                                    host_snapshot_received,
-                                                    history_stream_complete,
-                                                    history_sync_stalled,
-                                                    host_progress_message,
-                                                    host_progress_percent,
-                                                );
-                                            },
-                                            "Retry sync"
+                                    UiPanel {
+                                        replace_default: true,
+                                        class: Some("flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-300/20 bg-amber-300/[0.04] px-6 py-14 text-center".to_string()),
+                                        UiStack {
+                                            class: "items-center gap-2",
+                                            UiText {
+                                                class: "text-[13px] text-amber-100/90",
+                                                tone: UiTextTone::Inherit,
+                                                size: UiTextSize::Inherit,
+                                                "Still waiting for history engine."
+                                            }
+                                            UiText {
+                                                class: "text-[11px] text-amber-100/55",
+                                                tone: UiTextTone::Inherit,
+                                                size: UiTextSize::Inherit,
+                                                "Click Retry, switch away and back to this pane, or refocus the window."
+                                            }
+                                            Button {
+                                                variant: ButtonVariant::Outline,
+                                                onclick: move |_| {
+                                                    retry_history_sync_after_stall(
+                                                        bridge_sync_pending,
+                                                        host_snapshot_received,
+                                                        history_stream_complete,
+                                                        history_sync_stalled,
+                                                        host_progress_message,
+                                                        host_progress_percent,
+                                                    );
+                                                },
+                                                attributes: merge_attributes(vec![attributes!(button {
+                                                    class: TW_RETRY_BTN,
+                                                    r#type: "button",
+                                                })]),
+                                                "Retry sync"
+                                            }
                                         }
                                     }
                                 } else {
-                                    div { class: "flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-14 text-center",
-                                        span { class: "text-[13px] text-white/50", "No history yet." }
-                                        span { class: "text-[11px] text-white/28", "Browse in another pane to build history." }
+                                    UiPanel {
+                                        replace_default: true,
+                                        class: Some("flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-14 text-center".to_string()),
+                                        UiStack {
+                                            class: "items-center gap-2",
+                                            UiText {
+                                                class: "text-[13px] text-white/50",
+                                                tone: UiTextTone::Inherit,
+                                                size: UiTextSize::Inherit,
+                                                "No history yet."
+                                            }
+                                            UiText {
+                                                class: "text-[11px] text-white/28",
+                                                tone: UiTextTone::Inherit,
+                                                size: UiTextSize::Inherit,
+                                                "Browse in another pane to build history."
+                                            }
+                                        }
                                     }
                                 }
                             } else {
-                                div { class: "flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-14 text-center",
-                                    span { class: "text-[13px] text-white/50", "No entries match your filter." }
-                                    span { class: "text-[11px] text-white/28", "Try a shorter or different URL fragment." }
+                                UiPanel {
+                                    replace_default: true,
+                                    class: Some("flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-6 py-14 text-center".to_string()),
+                                    UiStack {
+                                        class: "items-center gap-2",
+                                        UiText {
+                                            class: "text-[13px] text-white/50",
+                                            tone: UiTextTone::Inherit,
+                                            size: UiTextSize::Inherit,
+                                            "No entries match your filter."
+                                        }
+                                        UiText {
+                                            class: "text-[11px] text-white/28",
+                                            tone: UiTextTone::Inherit,
+                                            size: UiTextSize::Inherit,
+                                            "Try a shorter or different URL fragment."
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -683,9 +791,15 @@ pub fn App() -> Element {
                                 section {
                                     key: "g{gi}",
                                     class: "mb-[1.1rem] min-w-0 last:mb-0",
-                                    div { class: "sticky top-0 z-10 mb-1.5 flex items-center gap-2 bg-[linear-gradient(180deg,rgba(14,15,18,0.97)_60%,transparent)] px-1 pb-0 pt-2",
-                                        span { class: "text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35", "{heading}" }
-                                        span { class: "h-px flex-1 bg-gradient-to-r from-white/12 to-transparent" }
+                                    UiRow {
+                                        class: "sticky top-0 z-10 mb-1.5 items-center gap-2 bg-[linear-gradient(180deg,rgba(14,15,18,0.97)_60%,transparent)] px-1 pb-0 pt-2",
+                                        UiText {
+                                            class: "text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35",
+                                            tone: UiTextTone::Inherit,
+                                            size: UiTextSize::Inherit,
+                                            "{heading}"
+                                        }
+                                        UiDivider { variant: UiDividerVariant::HorizontalFade }
                                     }
                                     div { class: "flex min-w-0 flex-col gap-2",
                                         for model in rows {
@@ -695,13 +809,16 @@ pub fn App() -> Element {
                                 }
                             }
                             if has_more {
-                                button {
-                                    class: "{TW_LOAD_MORE}",
-                                    r#type: "button",
+                                Button {
+                                    variant: ButtonVariant::Outline,
                                     onclick: move |_| {
                                         visible_limit
                                             .set((visible_limit() + LOAD_MORE_ROWS).min(total_rows));
                                     },
+                                    attributes: merge_attributes(vec![attributes!(button {
+                                        class: TW_LOAD_MORE,
+                                        r#type: "button",
+                                    })]),
                                     "Show more ({next_batch})"
                                 }
                             }

@@ -1,4 +1,4 @@
-//! vmux scene bootstrap: primary window tuning, world camera, directional light, macOS liquid glass.
+//! vmux scene bootstrap: primary window tuning, world camera ([`vmux_core::VmuxWorldCamera`]), directional light, macOS liquid glass.
 
 #[cfg(target_os = "macos")]
 mod macos_liquid_glass;

@@ -13,9 +13,13 @@ pub struct VmuxStatusPayload {
 /// Messages from the injected bridge script, **RON** text on the Rust side (see `bridge.rs`).
 #[derive(Debug, Deserialize)]
 pub enum BridgeMsg {
-    Clock { text: String },
+    Clock {
+        text: String,
+    },
     /// JSON text of the host payload (`VmuxStatusPayload` or legacy shapes).
-    Status { payload: String },
+    Status {
+        payload: String,
+    },
 }
 
 fn host_for_display(url: &str) -> Option<String> {

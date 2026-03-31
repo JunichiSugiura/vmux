@@ -39,6 +39,18 @@ fn control_modifier_down(modifiers: u32) -> bool {
     modifiers & (cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32) != 0
 }
 
+#[inline]
+fn command_modifier_down(modifiers: u32) -> bool {
+    modifiers & (cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0 as u32) != 0
+}
+
+/// Control (Windows/Linux) or Command (macOS): do not emit [`KEYEVENT_CHAR`] for the key — same
+/// rationale as Control in [`create_cef_key_events`] (Chromium shortcut handling).
+#[inline]
+fn shortcut_modifier_suppresses_char(modifiers: u32) -> bool {
+    control_modifier_down(modifiers) || command_modifier_down(modifiers)
+}
+
 /// Text / UTF-16 character for [`KEYEVENT_CHAR`]. On macOS the first stroke in an `<input>` can
 /// arrive with `text: None` while [`KeyboardInput::logical_key`] is still [`Key::Character`];
 /// using only `text` produced CHAR with code 0 and odd latency until the next key.
@@ -94,8 +106,9 @@ fn resolved_utf16_char(key_event: &KeyboardInput, input: &ButtonInput<KeyCode>) 
 ///   character is non-zero. OSR logs showed `CHAR` alone was dropped for the first letter after long
 ///   backspace bursts while `KEYUP` still fired; Chromium expects a keydown before text + keyup.
 /// - **Character with unresolved char (0)** — Non-Windows: `KEYEVENT_RAWKEYDOWN` only (fallback path).
-/// - **Control + character** (e.g. Ctrl+A): `KEYEVENT_RAWKEYDOWN` only — no `KEYEVENT_CHAR`. Sending a
-///   printable CHAR with Control held confuses Chromium’s key handling and breaks shortcut listeners.
+/// - **Control + character** (e.g. Ctrl+A) or **Command + character** on macOS (e.g. ⌘C): `KEYEVENT_RAWKEYDOWN`
+///   only — no `KEYEVENT_CHAR`. Sending a printable CHAR with those modifiers held confuses Chromium’s
+///   key handling and breaks shortcut listeners (copy/cut/paste, select-all, …).
 /// - **Non–text keys** — `KEYEVENT_RAWKEYDOWN` / `KEYEVENT_KEYUP`.
 pub fn create_cef_key_events(
     modifiers: u32,
@@ -124,7 +137,7 @@ pub fn create_cef_key_events(
         };
 
         if character != 0 {
-            if control_modifier_down(modifiers) {
+            if shortcut_modifier_suppresses_char(modifiers) {
                 vec![cef::KeyEvent::from(base)]
             } else {
                 let char_event = cef_key_event_t {
@@ -734,5 +747,24 @@ mod tests {
         let char_ev = &events[1];
         assert_eq!(char_ev.type_, KeyEventType::CHAR);
         assert_eq!(char_ev.character, u16::from(b'L'));
+    }
+
+    /// macOS ⌘C / ⌘V / ⌘X: must not emit CHAR alongside COMMAND_DOWN or Chromium mishandles shortcuts.
+    #[test]
+    fn command_plus_letter_rawkeydown_only() {
+        let mut modifiers = 0u32;
+        modifiers |= cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0 as u32;
+        let input = ButtonInput::default();
+        let ev = kb(
+            KeyCode::KeyV,
+            Key::Character("v".into()),
+            ButtonState::Pressed,
+            Some("v"),
+            false,
+        );
+        let events = create_cef_key_events(modifiers, &input, &ev);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].type_, KeyEventType::RAWKEYDOWN);
+        assert_eq!(events[0].character, 0);
     }
 }

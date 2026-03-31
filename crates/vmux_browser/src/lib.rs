@@ -8,7 +8,8 @@ pub use vmux_webview::*;
 
 pub use vmux_history::{HistoryPlugin, HistoryServerPlugin, HistoryUiBaseUrl, HistoryUiPlugin};
 pub use vmux_server::ServerPlugin;
-pub use vmux_status_bar::{StatusBarHostedPlugin as StatusBarPlugin, StatusUiBaseUrl};
+pub use vmux_status_bar::{StatusBarServerPlugin as StatusBarPlugin, StatusUiBaseUrl};
+pub use vmux_ui::UiLibraryPlugin;
 
 /// Top-level browser stack plugin.
 #[derive(Default)]
@@ -20,6 +21,7 @@ impl Plugin for BrowserPlugin {
             ServerPlugin,
             WebviewPlugin::default(),
             StatusBarPlugin::default(),
+            UiLibraryPlugin::default(),
             HistoryPlugin,
         ));
     }

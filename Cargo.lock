@@ -533,6 +533,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "base16"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d27c3610c36aee21ce8ac510e6224498de4228ad772a171ed65643a24693a5a8"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2888,6 +2894,7 @@ dependencies = [
  "dioxus-hooks",
  "dioxus-html",
  "dioxus-logger",
+ "dioxus-router",
  "dioxus-signals",
  "dioxus-stores",
  "dioxus-web",
@@ -2915,6 +2922,17 @@ dependencies = [
  "tokio",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "dioxus-attributes"
+version = "0.1.0"
+source = "git+https://github.com/DioxusLabs/components?rev=ccdb07f69383de008a0afadda0e5ab7ec14c1a9c#ccdb07f69383de008a0afadda0e5ab7ec14c1a9c"
+dependencies = [
+ "dioxus-rsx",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -3025,7 +3043,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "generational-box",
- "lazy-js-bundle",
+ "lazy-js-bundle 0.7.4",
  "serde",
  "serde_json",
  "tracing",
@@ -3175,7 +3193,7 @@ dependencies = [
  "futures-util",
  "generational-box",
  "keyboard-types",
- "lazy-js-bundle",
+ "lazy-js-bundle 0.7.4",
  "rustversion",
  "tracing",
 ]
@@ -3199,7 +3217,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8ce1cf487007f90d0ec4ec87dff111d74ac04fca0918f9dcc4e80dc3b0531b2"
 dependencies = [
  "js-sys",
- "lazy-js-bundle",
+ "lazy-js-bundle 0.7.4",
  "rustc-hash 2.1.2",
  "sledgehammer_bindgen",
  "sledgehammer_utils",
@@ -3221,6 +3239,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "dioxus-primitives"
+version = "0.0.1"
+source = "git+https://github.com/DioxusLabs/components?rev=ccdb07f69383de008a0afadda0e5ab7ec14c1a9c#ccdb07f69383de008a0afadda0e5ab7ec14c1a9c"
+dependencies = [
+ "dioxus",
+ "dioxus-attributes",
+ "dioxus-sdk-time",
+ "lazy-js-bundle 0.6.2",
+ "num-integer",
+ "serde",
+ "time",
+ "tracing",
+]
+
+[[package]]
+name = "dioxus-router"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae50f5efa8d6f936c0c3bb85d7a55f6f19290f106290e331d1136d964e832fe6"
+dependencies = [
+ "dioxus-cli-config",
+ "dioxus-core",
+ "dioxus-core-macro",
+ "dioxus-history",
+ "dioxus-hooks",
+ "dioxus-html",
+ "dioxus-router-macro",
+ "dioxus-signals",
+ "percent-encoding",
+ "rustversion",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "dioxus-router-macro"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae9beca02f6baca4b223256805536dc92e77a1541bb2331723100f66aae79332"
+dependencies = [
+ "base16",
+ "digest",
+ "proc-macro2",
+ "quote",
+ "sha2",
+ "slab",
+ "syn",
+]
+
+[[package]]
 name = "dioxus-rsx"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3231,6 +3299,18 @@ dependencies = [
  "quote",
  "rustversion",
  "syn",
+]
+
+[[package]]
+name = "dioxus-sdk-time"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80c25ae93a3f72e734873b97fbd09d9b1b6adff97205fb0ffd8543e3564fb78e"
+dependencies = [
+ "dioxus",
+ "futures",
+ "gloo-timers",
+ "tokio",
 ]
 
 [[package]]
@@ -3293,7 +3373,7 @@ dependencies = [
  "generational-box",
  "gloo-timers",
  "js-sys",
- "lazy-js-bundle",
+ "lazy-js-bundle 0.7.4",
  "rustc-hash 2.1.2",
  "send_wrapper",
  "serde",
@@ -4767,6 +4847,12 @@ dependencies = [
 
 [[package]]
 name = "lazy-js-bundle"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e49596223b9d9d4947a14a25c142a6e7d8ab3f27eb3ade269d238bb8b5c267e2"
+
+[[package]]
+name = "lazy-js-bundle"
 version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60d7adc10cb9440d17fa67e467febdfc98931338773d11bfee81809af54d0697"
@@ -5395,6 +5481,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-integer"
+version = "0.1.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5424,6 +5519,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -7209,7 +7313,10 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
+ "js-sys",
+ "libc",
  "num-conv",
+ "num_threads",
  "powerfmt",
  "serde_core",
  "time-core",
@@ -7807,6 +7914,7 @@ dependencies = [
  "vmux_history",
  "vmux_server",
  "vmux_status_bar",
+ "vmux_ui",
  "vmux_webview",
 ]
 
@@ -7819,6 +7927,7 @@ dependencies = [
  "leafwing-input-manager",
  "vmux_core",
  "vmux_layout",
+ "vmux_settings",
 ]
 
 [[package]]
@@ -7835,26 +7944,19 @@ name = "vmux_history"
 version = "0.1.0"
 dependencies = [
  "bevy",
- "bevy_cef",
- "bevy_cef_core",
- "bevy_ecs",
  "crossbeam-channel",
  "dioxus",
  "futures-channel",
  "futures-util",
  "gloo-timers",
  "js-sys",
- "leafwing-input-manager",
  "rust-embed",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "vmux_command",
- "vmux_core",
- "vmux_input",
  "vmux_layout",
  "vmux_server",
- "vmux_settings",
+ "vmux_ui",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -7883,8 +7985,8 @@ dependencies = [
  "ron 0.8.1",
  "serde",
  "vmux_core",
+ "vmux_server",
  "vmux_settings",
- "vmux_ui",
 ]
 
 [[package]]
@@ -7896,7 +7998,7 @@ dependencies = [
  "liquid-glass-rs",
  "raw-window-handle",
  "vmux_command",
- "vmux_layout",
+ "vmux_core",
  "vmux_settings",
 ]
 
@@ -7906,6 +8008,7 @@ version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
  "bevy",
+ "bevy_cef",
  "crossbeam-channel",
  "tokio",
  "tower-http 0.5.2",
@@ -7941,19 +8044,13 @@ dependencies = [
 name = "vmux_status_bar"
 version = "0.1.0"
 dependencies = [
- "bevy",
- "bevy_cef",
- "bevy_ecs",
- "crossbeam-channel",
  "dioxus",
- "hostname",
  "ron 0.8.1",
  "serde",
  "serde_json",
  "url",
  "vmux_core",
  "vmux_layout",
- "vmux_server",
  "vmux_ui",
  "wasm-bindgen",
 ]
@@ -7963,9 +8060,27 @@ name = "vmux_ui"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_cef",
+ "bevy_cef_core",
+ "bevy_ecs",
+ "crossbeam-channel",
  "dioxus",
+ "dioxus-primitives",
+ "hostname",
+ "js-sys",
+ "leafwing-input-manager",
+ "rust-embed",
  "serde",
  "serde_json",
+ "time",
+ "vmux_command",
+ "vmux_core",
+ "vmux_input",
+ "vmux_layout",
+ "vmux_server",
+ "vmux_settings",
+ "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

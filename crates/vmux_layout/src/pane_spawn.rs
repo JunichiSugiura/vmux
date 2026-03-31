@@ -9,15 +9,11 @@ use vmux_settings::VmuxAppSettings;
 use crate::loading_bar::{LoadingBarMaterial, PaneChromeLoadingBar};
 use crate::{
     Active, History, HistoryPaneNeedsUrl, HistoryPaneOpenedAt, LastVisitedUrl, LayoutNode,
-    LayoutTree, Pane, WebviewPane,
+    LayoutTree, Pane, Webview,
     PaneChromeNeedsUrl, PaneChromeOwner, PaneChromeStrip, PaneLastUrl, Root, SavedLayoutNode,
     SessionLayoutSnapshot, allowed_navigation_url, initial_webview_url,
     legacy_loopback_embedded_history_ui_url, sanitize_embedded_webview_url,
 };
-
-/// Marker for the primary vmux webview entity.
-#[derive(Component)]
-pub struct VmuxWebview;
 
 /// CEF page zoom; `0.0` matches typical desktop browsers at 100%.
 pub const CEF_PAGE_ZOOM_LEVEL: f64 = 0.0;
@@ -85,8 +81,7 @@ pub fn spawn_pane(
     with_active: bool,
 ) -> Entity {
     let mut b = commands.spawn((
-        VmuxWebview,
-        WebviewPane,
+        Webview,
         Pane,
         Visibility::Visible,
         PaneLastUrl(start_url.to_string()),
@@ -134,8 +129,7 @@ pub fn spawn_history_pane(
     let needs_placeholder = trimmed.is_none();
     let start = trimmed.unwrap_or("about:blank").to_string();
     let mut b = commands.spawn((
-        VmuxWebview,
-        WebviewPane,
+        Webview,
         Pane,
         History,
         HistoryPaneOpenedAt(std::time::Instant::now()),

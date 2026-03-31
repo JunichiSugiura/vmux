@@ -10,7 +10,7 @@ use bevy_cef::prelude::{CefExtensions, CefPlugin, CommandLineConfig, JsEmitEvent
 pub use system::{go_back, go_forward, reload};
 pub use startup::{setup_vmux_panes_startup, startup_drain_embedded_ui_urls};
 pub use vmux_history::HistoryUiBaseUrl;
-pub use vmux_layout::{CEF_PAGE_ZOOM_LEVEL, LayoutPlugin, VmuxWebview, rebuild_session_snapshot};
+pub use vmux_layout::{CEF_PAGE_ZOOM_LEVEL, LayoutPlugin, Webview, rebuild_session_snapshot};
 pub use vmux_layout::{VmuxHostedWebPlugin, VmuxWebviewSurface};
 pub use vmux_layout::loading_bar_color;
 pub use vmux_server::{
@@ -74,7 +74,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<ButtonInput<KeyCode>>();
         app.add_systems(Update, (go_back, go_forward, reload));
-        app.world_mut().spawn((Pane, VmuxWebview, vmux_core::Active));
+        app.world_mut().spawn((Pane, Webview, vmux_core::Active));
         app.update();
     }
 }

@@ -1,10 +1,11 @@
 ---
-description: Rust modules use <name>.rs roots, not mod.rs
-globs: "**/*.rs"
-alwaysApply: false
+description: Rust modules use <name>.rs roots, not mod.rs (enforced)
+alwaysApply: true
 ---
 
 # Rust module files: no `mod.rs`
+
+This project forbids `mod.rs`. Follow it when creating, moving, or refactoring modules.
 
 - **Do not** add or use `**/mod.rs` as a directory’s module root.
 - **Do** use a file named after the module: `<mod_name>.rs` next to its parent (e.g. `components.rs` beside `components/` for submodules, or a single `components.rs` with no directory).

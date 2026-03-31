@@ -2,10 +2,11 @@
 //!
 //! ## Plugin order
 //!
-//! Implementations register embedded HTTP against `VmuxServerShutdownRegistry` after `ServerPlugin`
-//! (from the `vmux_server` crate; add `ServerPlugin` before the hosted plugin).
+//! Implementations are [`ServePlugin`](vmux_server::ServePlugin) types (`*ServerPlugin` crates).
+//! Register embedded HTTP against [`VmuxServerShutdownRegistry`](vmux_server::VmuxServerShutdownRegistry)
+//! after [`ServerPlugin`](vmux_server::ServerPlugin) (add `ServerPlugin` before the hosted server plugin).
 
-use bevy::prelude::*;
+use vmux_server::ServePlugin;
 
 /// Which vmux CEF surface a hosted UI targets.
 ///
@@ -17,11 +18,11 @@ pub enum VmuxWebviewSurface {
     MainPane,
     /// Bottom status / chrome strip ([`PaneChromeStrip`](crate::PaneChromeStrip)).
     PaneChrome,
-    /// Tiled history pane ([`WebviewPane`] + [`History`](crate::History)).
+    /// Tiled history pane ([`Pane`] + [`Webview`] + [`History`](crate::History)).
     HistoryPane,
 }
 
-/// A Bevy [`Plugin`] that serves a web app from loopback and wires it into a [`VmuxWebviewSurface`].
-pub trait VmuxHostedWebPlugin: Plugin {
+/// A [`ServePlugin`](vmux_server::ServePlugin) (`*ServerPlugin`) that serves a web app from loopback and maps to a [`VmuxWebviewSurface`].
+pub trait VmuxHostedWebPlugin: ServePlugin {
     const SURFACE: VmuxWebviewSurface;
 }

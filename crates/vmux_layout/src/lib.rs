@@ -1,6 +1,6 @@
 //! Hierarchical pane layout tree (runtime), pixel solver, session snapshot types, and pane layout systems.
 //!
-//! [`LayoutPlugin`] registers reflected layout types, [`VmuxWorldCamera`], and `PostUpdate` pane layout
+//! [`LayoutPlugin`] registers reflected layout types and `PostUpdate` pane layout
 //! + CEF resize sync (after Bevy’s [`camera_system`](bevy::render::camera::camera_system)).
 
 mod hosted_web_ui;
@@ -40,22 +40,16 @@ pub use pane_ops::{
     try_toggle_zoom_pane,
 };
 pub use pane_spawn::{
-    CEF_PAGE_ZOOM_LEVEL, TEXT_INPUT_EMACS_BINDINGS_PRELOAD, URL_TRACK_PRELOAD, VmuxWebview,
-    setup_vmux_panes, spawn_history_pane, spawn_pane, spawn_saved_recursive,
+    CEF_PAGE_ZOOM_LEVEL, TEXT_INPUT_EMACS_BINDINGS_PRELOAD, URL_TRACK_PRELOAD, setup_vmux_panes,
+    spawn_history_pane, spawn_pane, spawn_saved_recursive,
 };
 pub use url::{
     allowed_navigation_url, initial_webview_url, legacy_loopback_embedded_history_ui_url,
     sanitize_embedded_webview_url,
 };
 pub use vmux_core::Active;
+pub use vmux_core::{CAMERA_DISTANCE, VmuxWorldCamera};
 pub use vmux_settings::{VmuxAppSettings, default_webview_url};
-
-/// Z distance of the world camera from the webview plane at z = 0 (used for frustum sizing).
-pub const CAMERA_DISTANCE: f32 = 3.0;
-
-/// Marker for the vmux world-facing camera used to size the webview plane.
-#[derive(Component)]
-pub struct VmuxWorldCamera;
 
 /// Marks a pane entity (e.g. CEF webview).
 #[derive(Component, Default, Debug, Clone, Copy, Reflect)]
@@ -79,15 +73,20 @@ pub struct PaneChromeOwner(pub Entity);
 #[reflect(Component, Default)]
 pub struct PaneChromeNeedsUrl;
 
-/// Main tiled CEF webview (content plane). Every leaf webview has this with [`Pane`] and [`VmuxWebview`].
+/// Primary CEF webview on a tile: the leaf entity has [`Pane`] + [`Webview`] (and chrome is separate).
 #[derive(Component, Default, Debug, Clone, Copy, Reflect)]
 #[reflect(Component, Default)]
-pub struct WebviewPane;
+pub struct Webview;
 
-/// History pane leaf: same entity as a normal pane webview, plus this marker ([`VmuxWebviewSurface::HistoryPane`]).
+/// History pane leaf: [`Pane`] + [`Webview`] + this marker ([`VmuxWebviewSurface::HistoryPane`]).
 #[derive(Component, Default, Debug, Clone, Copy, Reflect)]
 #[reflect(Component, Default)]
 pub struct History;
+
+/// Off-layout history pane kept warm for first toggle: same entity as [`History`], plus [`Pane`], [`Webview`], and this marker.
+#[derive(Component, Default, Debug, Clone, Copy, Reflect)]
+#[reflect(Component, Default)]
+pub struct HistoryPaneStandby;
 
 /// Set until the history UI base URL is applied from the embedded server or env.
 #[derive(Component, Default, Debug, Clone, Copy, Reflect)]
@@ -897,8 +896,9 @@ impl Plugin for LayoutPlugin {
             .register_type::<PaneChromeLoadingBar>()
             .register_type::<PaneChromeOwner>()
             .register_type::<PaneChromeNeedsUrl>()
-            .register_type::<WebviewPane>()
+            .register_type::<Webview>()
             .register_type::<History>()
+            .register_type::<HistoryPaneStandby>()
             .register_type::<HistoryPaneNeedsUrl>()
             .register_type::<Root>()
             .register_type::<PaneLastUrl>()

@@ -2,7 +2,7 @@
 
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
-use vmux_layout::VmuxWebview;
+use vmux_layout::Webview;
 use vmux_settings::VmuxAppSettings;
 
 /// Wait long enough that slow pages can paint before we treat 1×1 OSR as a hard failure.
@@ -41,7 +41,7 @@ pub(crate) fn add_webview_load_watchdog(
     q: Query<
         Entity,
         (
-            With<VmuxWebview>,
+            With<Webview>,
             With<WebviewSource>,
             Without<WebviewLoadWatchdog>,
         ),
@@ -71,7 +71,7 @@ pub(crate) fn webview_load_watchdog_tick(
             &MeshMaterial3d<WebviewExtendStandardMaterial>,
             &mut WebviewLoadWatchdog,
         ),
-        With<VmuxWebview>,
+        With<Webview>,
     >,
 ) {
     let now = time.elapsed_secs();

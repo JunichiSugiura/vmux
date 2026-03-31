@@ -4,7 +4,7 @@ pub mod core;
 
 pub use core::{CAMERA_DISTANCE, VmuxWorldCamera};
 pub use vmux_command::CommandPlugin;
-pub use vmux_input::{AppCommand, AppInputRoot, InputPlugin};
+pub use vmux_input::{AppCommand, AppInputRoot, InputPlugin, KeyAction};
 pub use vmux_layout::LastVisitedUrl;
 pub use vmux_layout::{LayoutPlugin, SessionLayoutSnapshot};
 pub use vmux_scene::ScenePlugin;

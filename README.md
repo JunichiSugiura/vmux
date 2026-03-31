@@ -1,4 +1,4 @@
-# Vmux: Vibe Multiplexier
+# Vmux: Vibe Multiplexer
 
 - A modern Tmux alternative + Chromium based browser
 - Powered by game engine

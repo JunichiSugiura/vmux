@@ -7,6 +7,7 @@ pub const TEXT_INPUT_EMACS_BINDINGS_PRELOAD: &str = include_str!("text_input_ema
 
 mod cef_keyboard_target;
 mod component;
+mod input_map;
 mod system;
 
 pub use cef_keyboard_target::{
@@ -14,9 +15,11 @@ pub use cef_keyboard_target::{
     sync_cef_osr_focus_with_active_pane, sync_cef_pointer_suppression_for_prefix,
 };
 pub use component::{
-    AppCommand, AppInputRoot, PREFIX_TIMEOUT_SECS, VmuxPrefixChordSet, VmuxPrefixState,
+    AppCommand, AppInputRoot, KeyAction, PREFIX_TIMEOUT_SECS, VmuxPrefixChordSet, VmuxPrefixState,
 };
-pub use system::{TmuxChordInput, ctrl_arrow_focus_commands, tmux_prefix_commands};
+pub use system::{
+    sync_input_map_from_settings, TmuxChordInput, ctrl_arrow_focus_commands, tmux_prefix_commands,
+};
 pub use vmux_core::Active;
 
 use bevy::input::InputSystems;
@@ -31,11 +34,12 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(Update, VmuxPrefixChordSet)
-            .add_plugins(InputManagerPlugin::<AppCommand>::default())
+            .add_plugins(InputManagerPlugin::<KeyAction>::default())
             .add_systems(Startup, system::spawn_app_input)
             .add_systems(
                 PreUpdate,
                 (
+                    system::sync_input_map_from_settings.before(InputSystems),
                     cef_keyboard_target::consume_keyboard_for_prefix_routing
                         .after(InputSystems)
                         .before(CefKeyboardInputSet),

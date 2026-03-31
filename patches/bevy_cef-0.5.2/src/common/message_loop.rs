@@ -1,4 +1,5 @@
 use crate::RunOnMainThread;
+use crate::common::WebviewSource;
 use bevy::prelude::*;
 use bevy_cef_core::prelude::*;
 use cef::args::Args;
@@ -58,7 +59,10 @@ impl Plugin for MessageLoopPlugin {
         app.insert_non_send_resource(MessageLoopWorkingReceiver(rx));
         app.insert_non_send_resource(RunOnMainThread)
             .add_systems(Main, cef_do_message_loop_work)
-            .add_systems(Update, cef_shutdown.run_if(on_message::<AppExit>));
+            .add_systems(
+                Update,
+                close_all_browsers_then_cef_shutdown.run_if(on_message::<AppExit>),
+            );
     }
 }
 
@@ -169,8 +173,23 @@ fn cef_do_message_loop_work(
     cef::do_message_loop_work();
 }
 
-fn cef_shutdown(_: NonSend<RunOnMainThread>) {
-    shutdown();
+/// Close every open CEF browser before [`shutdown`]. Calling `cef::shutdown` while browsers still
+/// exist can crash the process (e.g. quitting from the command palette or ⌘Q).
+fn close_all_browsers_then_cef_shutdown(
+    mut browsers: NonSendMut<Browsers>,
+    mut exits: MessageReader<AppExit>,
+    webviews: Query<Entity, With<WebviewSource>>,
+    _: NonSend<RunOnMainThread>,
+) {
+    for _ in exits.read() {
+        let entities: Vec<Entity> = webviews.iter().collect();
+        for e in entities {
+            browsers.close(&e);
+        }
+        cef::do_message_loop_work();
+        cef::do_message_loop_work();
+        shutdown();
+    }
 }
 
 #[allow(clippy::needless_doctest_main)]

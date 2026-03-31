@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width"/>
+  <title>vmux_ui UI library</title>
+  <style>html,body{margin:0;height:100%;background:#0e0f12}</style>
+  <link rel="modulepreload" href="vmux_ui.js" crossorigin="anonymous"/>
+  <link rel="preload" href="vmux_ui_bg.wasm" as="fetch" type="application/wasm" crossorigin="anonymous"/>
+</head>
+<body class="h-full min-h-0">
+  <div id="main" class="h-full min-h-0"></div>
+  <script type="module">
+    import init from './vmux_ui.js';
+    await init();
+  </script>
+</body>
+</html>

@@ -2,13 +2,13 @@
 
 use dioxus::prelude::Signal;
 use futures_channel::mpsc::UnboundedSender;
-use js_sys::Function;
-use wasm_bindgen::closure::Closure;
-use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
-use web_sys::window;
 
-use crate::payload::{BridgeMsg, HistoryEntryWire, apply_history_payload, apply_history_progress_payload};
+use vmux_ui::webview::cef_bridge::{try_cef_emit_keyed, try_cef_listen};
+
+use crate::payload::{
+    BridgeMsg, HistoryEntryWire, apply_history_payload, apply_history_progress_payload,
+};
 
 /// Random `u32` for [`request_history_sync_from_host`]; stays exact through JS `Number`.
 pub fn random_history_sync_nonce() -> u32 {
@@ -25,128 +25,47 @@ pub fn random_history_sync_nonce() -> u32 {
 /// Returns `false` while `cef` is still booting so callers can retry (host emit can arrive before
 /// the listener exists).
 pub fn try_install_cef_history_listener(tx: UnboundedSender<serde_json::Value>) -> bool {
-    let Some(win) = window() else {
-        return false;
-    };
-    let Ok(cef) = js_sys::Reflect::get(&win, &JsValue::from_str("cef")) else {
-        return false;
-    };
-    if cef.is_null() || cef.is_undefined() {
-        return false;
-    }
-    let Ok(listen) = js_sys::Reflect::get(&cef, &JsValue::from_str("listen")) else {
-        return false;
-    };
-    let Ok(listen_fn) = listen.dyn_into::<Function>() else {
-        return false;
-    };
-
-    let history_tx = tx.clone();
-    let closure = Closure::wrap(Box::new(move |e: JsValue| {
-        let payload = serde_wasm_bindgen::from_value(e).unwrap_or(serde_json::Value::Null);
-        let msg = serde_json::json!({ "type": "history", "payload": payload });
-        let _ = history_tx.unbounded_send(msg);
-    }) as Box<dyn FnMut(JsValue)>);
-
-    let cb = closure.as_ref().unchecked_ref();
-    let _ = listen_fn.call2(&cef, &JsValue::from_str("vmux_history"), cb);
-    closure.forget();
-
-    let progress_tx = tx.clone();
-    let progress_closure = Closure::wrap(Box::new(move |e: JsValue| {
-        let payload = serde_wasm_bindgen::from_value(e).unwrap_or(serde_json::Value::Null);
-        let msg = serde_json::json!({ "type": "progress", "payload": payload });
-        let _ = progress_tx.unbounded_send(msg);
-    }) as Box<dyn FnMut(JsValue)>);
-    let progress_cb = progress_closure.as_ref().unchecked_ref();
-    let _ = listen_fn.call2(&cef, &JsValue::from_str("vmux_history_progress"), progress_cb);
-    progress_closure.forget();
-    true
+    let ok1 = try_cef_listen("vmux_history", {
+        let tx = tx.clone();
+        move |e: JsValue| {
+            let payload = serde_wasm_bindgen::from_value(e).unwrap_or(serde_json::Value::Null);
+            let msg = serde_json::json!({ "type": "history", "payload": payload });
+            let _ = tx.unbounded_send(msg);
+        }
+    });
+    let ok2 = try_cef_listen("vmux_history_progress", {
+        let tx = tx.clone();
+        move |e: JsValue| {
+            let payload = serde_wasm_bindgen::from_value(e).unwrap_or(serde_json::Value::Null);
+            let msg = serde_json::json!({ "type": "progress", "payload": payload });
+            let _ = tx.unbounded_send(msg);
+        }
+    });
+    ok1 && ok2
 }
 
 /// Ask Bevy to send the current history list again (covers host emit before `listen` was registered).
 ///
 /// `sync_nonce` is echoed on the next `vmux_history` payload so the UI can confirm delivery.
 pub fn request_history_sync_from_host(sync_nonce: Option<u32>) {
-    let Some(win) = window() else {
-        return;
-    };
-    let Ok(cef) = js_sys::Reflect::get(&win, &JsValue::from_str("cef")) else {
-        return;
-    };
-    if cef.is_null() || cef.is_undefined() {
-        return;
-    }
-    let Ok(emit) = js_sys::Reflect::get(&cef, &JsValue::from_str("emit")) else {
-        return;
-    };
-    let Ok(emit_fn) = emit.dyn_into::<Function>() else {
-        return;
-    };
-    let obj = js_sys::Object::new();
-    let _ = js_sys::Reflect::set(
-        &obj,
-        &JsValue::from_str("vmux_request_history"),
-        &JsValue::TRUE,
-    );
+    let mut pairs = vec![
+        ("vmux_request_history", JsValue::TRUE),
+    ];
     if let Some(n) = sync_nonce {
-        let _ = js_sys::Reflect::set(
-            &obj,
-            &JsValue::from_str("vmux_history_sync_nonce"),
-            &JsValue::from_f64(f64::from(n)),
-        );
+        pairs.push((
+            "vmux_history_sync_nonce",
+            JsValue::from_f64(f64::from(n)),
+        ));
     }
-    let _ = emit_fn.call1(&cef, &obj);
+    let _ = try_cef_emit_keyed(&pairs);
 }
 
 pub fn emit_open_in_pane(url: &str) {
-    let Some(win) = window() else {
-        return;
-    };
-    let Ok(cef) = js_sys::Reflect::get(&win, &JsValue::from_str("cef")) else {
-        return;
-    };
-    if cef.is_null() || cef.is_undefined() {
-        return;
-    }
-    let Ok(emit) = js_sys::Reflect::get(&cef, &JsValue::from_str("emit")) else {
-        return;
-    };
-    let Ok(emit_fn) = emit.dyn_into::<Function>() else {
-        return;
-    };
-    let obj = js_sys::Object::new();
-    let _ = js_sys::Reflect::set(
-        &obj,
-        &JsValue::from_str("vmux_open_in_pane"),
-        &JsValue::from_str(url),
-    );
-    let _ = emit_fn.call1(&cef, &obj);
+    let _ = try_cef_emit_keyed(&[("vmux_open_in_pane", JsValue::from_str(url))]);
 }
 
 pub fn emit_clear_history() {
-    let Some(win) = window() else {
-        return;
-    };
-    let Ok(cef) = js_sys::Reflect::get(&win, &JsValue::from_str("cef")) else {
-        return;
-    };
-    if cef.is_null() || cef.is_undefined() {
-        return;
-    }
-    let Ok(emit) = js_sys::Reflect::get(&cef, &JsValue::from_str("emit")) else {
-        return;
-    };
-    let Ok(emit_fn) = emit.dyn_into::<Function>() else {
-        return;
-    };
-    let obj = js_sys::Object::new();
-    let _ = js_sys::Reflect::set(
-        &obj,
-        &JsValue::from_str("vmux_clear_history"),
-        &JsValue::TRUE,
-    );
-    let _ = emit_fn.call1(&cef, &obj);
+    let _ = try_cef_emit_keyed(&[("vmux_clear_history", JsValue::TRUE)]);
 }
 
 pub async fn run_history_bridge_loop(

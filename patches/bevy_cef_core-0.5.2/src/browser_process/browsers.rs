@@ -3,6 +3,7 @@ use crate::browser_process::ClientHandlerBuilder;
 use crate::browser_process::client_handler::{IpcEventRaw, JsEmitEventHandler};
 use crate::prelude::*;
 use async_channel::{Sender, TryRecvError};
+use bevy::input::ButtonState;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy_remote::BrpMessage;
@@ -188,8 +189,9 @@ impl Browsers {
     /// while another pane is active (e.g. a history split next to the main browser). Keyboard
     /// routing in vmux uses the `CefKeyboardTarget` component, not CEF `set_focus`.
     ///
-    /// Uses **three passes**: clear all, focus `active`, then focus each auxiliary **in order**
-    /// so the last auxiliary wins if Chromium only tracks one “focused” OSR browser for painting.
+    /// Chromium ties **clipboard shortcuts** (⌘C / ⌘V / …) to the browser that last received
+    /// `set_focus(true)`. We therefore focus each auxiliary in order (so they can composite), then
+    /// focus **`active` again last** so the main pane owns OSR focus for copy/paste.
     pub fn sync_osr_focus_to_active_pane(
         &self,
         active: Option<Entity>,
@@ -207,6 +209,11 @@ impl Browsers {
             if let Some(browser) = self.browsers.get(&h) {
                 browser.host.set_focus(true as _);
             }
+        }
+        if let Some(a) = active
+            && let Some(browser) = self.browsers.get(&a)
+        {
+            browser.host.set_focus(true as _);
         }
     }
 
@@ -281,6 +288,62 @@ impl Browsers {
     pub fn send_key(&self, webview: &Entity, event: cef::KeyEvent) {
         if let Some(browser) = self.browsers.get(webview) {
             browser.host.send_key_event(Some(&event));
+        }
+    }
+
+    /// Windowless/OSR: synthetic [`BrowserHost::send_key_event`] often does not run Chromium’s
+    /// clipboard handling. When the chord is a plain **⌘C / ⌘V / ⌘X / ⌘A** (macOS) or **Ctrl+…**
+    /// (Windows/Linux), forward to [`cef::Frame::copy`] / [`cef::Frame::paste`] / etc. on the
+    /// focused frame instead of (or skipping) key delivery.
+    ///
+    /// Returns `true` if this key press was handled — callers should **not** also
+    /// [`Self::send_key`] the same press.
+    pub fn try_dispatch_clipboard_shortcut(
+        &self,
+        webview: &Entity,
+        key_code: KeyCode,
+        modifiers: u32,
+        state: ButtonState,
+    ) -> bool {
+        if state != ButtonState::Pressed {
+            return false;
+        }
+        if !Self::modifiers_plain_clipboard_chord(modifiers) {
+            return false;
+        }
+        let Some(browser) = self.browsers.get(webview) else {
+            return false;
+        };
+        let Some(frame) = browser.client.focused_frame() else {
+            return false;
+        };
+        if frame.is_valid() == 0 {
+            return false;
+        }
+        match key_code {
+            KeyCode::KeyC => frame.copy(),
+            KeyCode::KeyV => frame.paste(),
+            KeyCode::KeyX => frame.cut(),
+            KeyCode::KeyA => frame.select_all(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn modifiers_plain_clipboard_chord(modifiers: u32) -> bool {
+        let shift = modifiers & (cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0 as u32) != 0;
+        let alt = modifiers & (cef_event_flags_t::EVENTFLAG_ALT_DOWN.0 as u32) != 0;
+        #[cfg(target_os = "macos")]
+        {
+            let cmd = modifiers & (cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0 as u32) != 0;
+            let ctrl = modifiers & (cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32) != 0;
+            cmd && !ctrl && !shift && !alt
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let ctrl = modifiers & (cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32) != 0;
+            let cmd = modifiers & (cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0 as u32) != 0;
+            ctrl && !cmd && !shift && !alt
         }
     }
 

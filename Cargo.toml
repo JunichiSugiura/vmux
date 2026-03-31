@@ -49,6 +49,10 @@ dioxus = { version = "0.7.4", features = ["web"] }
 opt-level = "z"
 codegen-units = 1
 
+[profile.release.package.vmux_ui]
+opt-level = "z"
+codegen-units = 1
+
 [patch.crates-io]
 winit = { path = "patches/winit-0.30.13" }
 wgpu-hal = { path = "patches/wgpu-hal-27.0.4" }

@@ -1,5 +1,6 @@
 use crate::common::{CefKeyboardTarget, CefSuppressKeyboardInput, WebviewSource};
 use bevy::input::keyboard::KeyboardInput;
+use bevy::input::ButtonState;
 use bevy::input::InputSystems;
 use bevy::prelude::*;
 use bevy_cef_core::prelude::{Browsers, create_cef_key_events, keyboard_modifiers};
@@ -105,6 +106,38 @@ fn send_key_event(
             is_ime_commiting.0 = false;
             cef::do_message_loop_work();
             continue;
+        }
+        if event.state == ButtonState::Pressed {
+            let mut handled_clipboard = false;
+            if use_targets {
+                for webview in targeted_buf.iter() {
+                    if browsers.try_dispatch_clipboard_shortcut(
+                        webview,
+                        event.key_code,
+                        modifiers,
+                        event.state,
+                    ) {
+                        handled_clipboard = true;
+                        break;
+                    }
+                }
+            } else {
+                for webview in webviews_all.iter() {
+                    if browsers.try_dispatch_clipboard_shortcut(
+                        &webview,
+                        event.key_code,
+                        modifiers,
+                        event.state,
+                    ) {
+                        handled_clipboard = true;
+                        break;
+                    }
+                }
+            }
+            if handled_clipboard {
+                cef::do_message_loop_work();
+                continue;
+            }
         }
         let key_events = create_cef_key_events(modifiers, &input, &event);
         for key_event in key_events {

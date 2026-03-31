@@ -1,6 +1,6 @@
 [package]
 name = "vmux_history"
-description = "vmux — Dioxus history UI + HistoryServerPlugin / HistoryUiPlugin"
+description = "vmux — Dioxus history UI + thin HistoryServerPlugin (bundle path + embed)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -18,22 +18,16 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rust-embed = "8"
 bevy = { workspace = true }
-bevy_ecs = { workspace = true }
-bevy_cef = { workspace = true }
-bevy_cef_core = { workspace = true }
 crossbeam-channel = { workspace = true }
-leafwing-input-manager = { workspace = true }
-vmux_command = { path = "../vmux_command" }
-vmux_core = { path = "../vmux_core" }
-vmux_input = { path = "../vmux_input" }
+rust-embed = "8"
 vmux_layout = { path = "../vmux_layout" }
 vmux_server = { path = "../vmux_server" }
-vmux_settings = { path = "../vmux_settings" }
+vmux_ui = { path = "../vmux_ui", default-features = false, features = ["bevy"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { workspace = true }
+vmux_ui = { path = "../vmux_ui", default-features = false }
 gloo-timers = { version = "0.3", features = ["futures"] }
 futures-channel = "0.3"
 futures-util = { version = "0.3", default-features = false, features = ["std", "async-await"] }

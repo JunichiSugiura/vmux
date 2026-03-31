@@ -15,12 +15,12 @@ const LOADING_BAR_SHADER: Handle<Shader> = uuid_handle!("b2c3d4e5-f678-01ab-cdef
 /// Linear RGBA tokens for the pane webview loading indicator (track + sweep shader uniforms).
 pub mod color {
     use bevy::prelude::*;
-    use vmux_ui::utils::color::{linear_rgba_to_vec4, PRIMARY};
+    use vmux_core::color_tokens::{linear_rgba_to_vec4, PRIMARY};
 
     /// Dim band behind the moving highlight.
     pub const TRACK: LinearRgba = LinearRgba::new(0.06, 0.14, 0.26, 0.62);
 
-    /// Moving segment — same linear accent as [`PRIMARY`](vmux_ui::utils::color::PRIMARY) (focus ring, highlights).
+    /// Moving segment — same linear accent as [`PRIMARY`](vmux_core::color_tokens::PRIMARY) (focus ring, highlights).
     pub const SWEEP: LinearRgba = PRIMARY;
 
     #[inline]
@@ -49,7 +49,7 @@ pub const LOADING_BAR_DEPTH_BIAS_ABOVE_CHROME: f32 = 25.0;
 #[reflect(Component, Default)]
 pub struct PaneChromeLoadingBar;
 
-/// Tracks pane entities (`VmuxWebview`) with a pending navigation so the loading bar can show after
+/// Tracks pane entities ([`Webview`](crate::Webview)) with a pending navigation so the loading bar can show after
 /// refresh without relying on the 1×1 placeholder (CEF usually keeps the last frame until repaint).
 #[derive(Resource, Default, Debug)]
 pub struct PendingNavigationLoads(pub HashMap<Entity, f32>);

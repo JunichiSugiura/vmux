@@ -8,3 +8,9 @@ crates/vmux_status_bar/assets/status.css
 crates/vmux_status_bar/dist/
 # Cargo artifacts when building inside the crate (e.g. `dx build`, `cargo build -p vmux_status_bar`)
 crates/vmux_status_bar/target/
+
+# Tailwind output (run `npm run build:css` in crates/vmux_ui)
+crates/vmux_ui/assets/ui_library.css
+# Wasm bundle + wasm-bindgen (run native debug build / `build.rs` in crates/vmux_ui)
+crates/vmux_ui/dist/
+crates/vmux_ui/target/

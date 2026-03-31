@@ -174,7 +174,9 @@ fn build_status_dist(workspace_root: &Path, manifest_dir: &Path) {
         .status()
         .unwrap_or_else(|e| panic!("vmux_status_bar: failed to spawn cargo for wasm build: {e}"));
     if !status.success() {
-        panic!("vmux_status_bar: `cargo build -p vmux_status_bar --target wasm32-unknown-unknown --release` failed");
+        panic!(
+            "vmux_status_bar: `cargo build -p vmux_status_bar --target wasm32-unknown-unknown --release` failed"
+        );
     }
 
     let wasm = workspace_root.join("target/wasm32-unknown-unknown/release/vmux_status_bar.wasm");
@@ -187,12 +189,8 @@ fn build_status_dist(workspace_root: &Path, manifest_dir: &Path) {
 
     let dist = manifest_dir.join("dist");
     let _ = fs::remove_dir_all(&dist);
-    fs::create_dir_all(&dist).unwrap_or_else(|e| {
-        panic!(
-            "vmux_status_bar: failed to create {}: {e}",
-            dist.display()
-        )
-    });
+    fs::create_dir_all(&dist)
+        .unwrap_or_else(|e| panic!("vmux_status_bar: failed to create {}: {e}", dist.display()));
 
     let status = Command::new("wasm-bindgen")
         .current_dir(workspace_root)
@@ -226,10 +224,7 @@ fn build_status_dist(workspace_root: &Path, manifest_dir: &Path) {
 
     let shell = manifest_dir.join("assets/index.html");
     if !shell.is_file() {
-        panic!(
-            "vmux_status_bar: missing shell HTML at {}",
-            shell.display()
-        );
+        panic!("vmux_status_bar: missing shell HTML at {}", shell.display());
     }
     fs::copy(&shell, dist.join("index.html")).unwrap_or_else(|e| {
         panic!(

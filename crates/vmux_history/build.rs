@@ -14,7 +14,10 @@ fn main() {
         .and_then(|p| p.parent())
         .expect("vmux_history should live under workspace crates/");
 
-    if std::env::var("TARGET").unwrap_or_default().contains("wasm32") {
+    if std::env::var("TARGET")
+        .unwrap_or_default()
+        .contains("wasm32")
+    {
         return;
     }
 
@@ -141,7 +144,9 @@ fn build_history_dist_wasm_bindgen(workspace_root: &Path, manifest_dir: &Path) {
         .status()
         .unwrap_or_else(|e| panic!("vmux_history: failed to spawn cargo for wasm build: {e}"));
     if !status.success() {
-        panic!("vmux_history: `cargo build -p vmux_history --target wasm32-unknown-unknown --release` failed");
+        panic!(
+            "vmux_history: `cargo build -p vmux_history --target wasm32-unknown-unknown --release` failed"
+        );
     }
 
     let wasm = workspace_root.join("target/wasm32-unknown-unknown/release/vmux_history.wasm");
@@ -153,12 +158,8 @@ fn build_history_dist_wasm_bindgen(workspace_root: &Path, manifest_dir: &Path) {
     }
 
     let dist = manifest_dir.join("dist");
-    fs::create_dir_all(&dist).unwrap_or_else(|e| {
-        panic!(
-            "vmux_history: failed to create {}: {e}",
-            dist.display()
-        )
-    });
+    fs::create_dir_all(&dist)
+        .unwrap_or_else(|e| panic!("vmux_history: failed to create {}: {e}", dist.display()));
 
     let status = Command::new("wasm-bindgen")
         .current_dir(workspace_root)
@@ -240,6 +241,8 @@ fn run_npm_build_css(manifest_dir: &Path) {
         .status()
         .unwrap_or_else(|e| panic!("vmux_history: failed to run bun run build:css: {e}"));
     if !bun.success() {
-        panic!("vmux_history: Tailwind build failed (tried `npm run build:css`, then `bun run build:css`)");
+        panic!(
+            "vmux_history: Tailwind build failed (tried `npm run build:css`, then `bun run build:css`)"
+        );
     }
 }

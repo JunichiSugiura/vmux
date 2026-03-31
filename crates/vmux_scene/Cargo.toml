@@ -12,7 +12,7 @@ path = "src/lib.rs"
 bevy = { workspace = true }
 bevy_winit = { workspace = true }
 vmux_command = { path = "../vmux_command" }
-vmux_layout = { path = "../vmux_layout" }
+vmux_core = { path = "../vmux_core" }
 vmux_settings = { path = "../vmux_settings" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

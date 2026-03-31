@@ -13,6 +13,17 @@ use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+pub mod bindings;
+
+pub use bindings::{
+    parse_key_code, preset_bindings, preset_from_env_or_default, BindingCommandId, ChordStep,
+    GlobalBinding, PrefixChordSettings, PrefixSecondBinding, VmuxBindingGeneration,
+    VmuxBindingSettings,
+};
+
+/// Tmux-style prefix: second key must arrive within this many seconds (matches [`crate::vmux_core`] default).
+pub const PREFIX_TIMEOUT_SECS: f32 = 1.5;
+
 /// Webview / URL defaults (user `settings.ron` → `browser:`).
 #[derive(Clone, Debug, Reflect)]
 #[reflect(Default)]
@@ -58,6 +69,8 @@ impl Default for VmuxLayoutSettings {
 struct NestedBundledRon {
     browser: BrowserRon,
     layout: LayoutRon,
+    #[serde(default)]
+    input: Option<VmuxBindingSettings>,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +148,8 @@ pub fn default_webview_url() -> &'static str {
 pub struct VmuxAppSettings {
     pub browser: VmuxBrowserSettings,
     pub layout: VmuxLayoutSettings,
+    /// Keybindings; when missing from file, derived from [`preset_from_env_or_default`] (see `VMUX_BINDING_PRESET`).
+    pub input: VmuxBindingSettings,
 }
 
 impl Default for VmuxAppSettings {
@@ -155,6 +170,10 @@ pub fn resolved_settings_path() -> PathBuf {
 
 fn parse_settings_ron(s: &str) -> Result<VmuxAppSettings, ron::error::SpannedError> {
     if let Ok(nested) = ron::de::from_str::<NestedBundledRon>(s) {
+        let input = nested
+            .input
+            .clone()
+            .unwrap_or_else(|| preset_from_env_or_default(None));
         return Ok(VmuxAppSettings {
             browser: VmuxBrowserSettings {
                 default_webview_url: nested.browser.default_webview_url,
@@ -168,6 +187,7 @@ fn parse_settings_ron(s: &str) -> Result<VmuxAppSettings, ron::error::SpannedErr
                 ),
                 pane_border_radius_px: nested.layout.pane_border_radius_px,
             },
+            input,
         });
     }
     let flat: FlatBundledSettings = ron::de::from_str(s)?;
@@ -184,6 +204,7 @@ fn parse_settings_ron(s: &str) -> Result<VmuxAppSettings, ron::error::SpannedErr
             ),
             pane_border_radius_px: flat.pane_border_radius_px,
         },
+        input: preset_from_env_or_default(None),
     })
 }
 
@@ -245,13 +266,17 @@ fn run_watcher(path: PathBuf, tx: crossbeam_channel::Sender<()>) {
     }
 }
 
-fn load_settings_file_on_startup(mut settings: ResMut<VmuxAppSettings>) {
+fn load_settings_file_on_startup(
+    mut settings: ResMut<VmuxAppSettings>,
+    mut binding_gen: ResMut<VmuxBindingGeneration>,
+) {
     let path = resolved_settings_path();
     if !path.is_file() {
         return;
     }
     if let Some(s) = load_settings_from_path(&path) {
         *settings = s;
+        binding_gen.0 = binding_gen.0.wrapping_add(1);
     } else {
         warn!("vmux_settings: invalid settings.ron at {:?}", path);
     }
@@ -279,6 +304,7 @@ fn spawn_settings_file_watcher(mut commands: Commands) {
 
 fn apply_settings_file_reloads(
     mut settings: ResMut<VmuxAppSettings>,
+    mut binding_gen: ResMut<VmuxBindingGeneration>,
     channel: Option<Res<SettingsFileReloadChannel>>,
 ) {
     let Some(channel) = channel else {
@@ -294,6 +320,7 @@ fn apply_settings_file_reloads(
     let path = &channel.path;
     if let Some(s) = load_settings_from_path(path) {
         *settings = s;
+        binding_gen.0 = binding_gen.0.wrapping_add(1);
     } else {
         warn!("vmux_settings: invalid settings.ron at {:?}", path);
     }
@@ -342,7 +369,14 @@ impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<VmuxBrowserSettings>()
             .register_type::<VmuxLayoutSettings>()
+            .register_type::<BindingCommandId>()
+            .register_type::<ChordStep>()
+            .register_type::<GlobalBinding>()
+            .register_type::<PrefixSecondBinding>()
+            .register_type::<PrefixChordSettings>()
+            .register_type::<VmuxBindingSettings>()
             .register_type::<VmuxAppSettings>()
+            .init_resource::<VmuxBindingGeneration>()
             .init_resource::<VmuxAppSettings>()
             .configure_sets(PreStartup, VmuxCacheDirInitSet)
             .add_systems(PreStartup, init_vmux_cache_dir.in_set(VmuxCacheDirInitSet))
@@ -363,4 +397,21 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(SettingsPlugin);
     }
+
+    #[test]
+    fn bundled_settings_parse_includes_input_bindings() {
+        let s = include_str!("../settings.ron");
+        let app = parse_settings_ron(s).expect("parse");
+        assert!(!app.input.global.is_empty());
+        assert!(!app.input.prefix.second.is_empty());
+    }
+
+    #[test]
+    fn vim_preset_changes_prefix_lead() {
+        let vim = preset_bindings("vim");
+        assert_eq!(vim.prefix.lead.key, "Backquote");
+        let tmux = preset_bindings("tmux");
+        assert_eq!(tmux.prefix.lead.key, "KeyB");
+    }
+
 }

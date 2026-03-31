@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
-use vmux_layout::{Active, VmuxWebview};
+use vmux_layout::{Active, Webview};
 
 fn super_chord(keys: &ButtonInput<KeyCode>) -> bool {
     keys.pressed(KeyCode::SuperLeft) || keys.pressed(KeyCode::SuperRight)
@@ -13,8 +13,14 @@ fn alt_chord(keys: &ButtonInput<KeyCode>) -> bool {
 
 /// Chrome on macOS: ⌘[ / ⌘] and ⌘← / ⌘→.
 /// Chrome on Windows/Linux: Alt+← / Alt+→.
+///
+/// **⌘⇧← / ⌘⇧→** (and Alt+Shift+arrows on other platforms) must **not** trigger navigation — the page
+/// needs those chords for extending selection (line/word in editable fields).
 fn chrome_go_back_pressed(keys: &ButtonInput<KeyCode>) -> bool {
     if !keys.just_pressed(KeyCode::ArrowLeft) {
+        return false;
+    }
+    if shift_held(keys) {
         return false;
     }
     #[cfg(target_os = "macos")]
@@ -29,6 +35,9 @@ fn chrome_go_back_pressed(keys: &ButtonInput<KeyCode>) -> bool {
 
 fn chrome_go_forward_pressed(keys: &ButtonInput<KeyCode>) -> bool {
     if !keys.just_pressed(KeyCode::ArrowRight) {
+        return false;
+    }
+    if shift_held(keys) {
         return false;
     }
     #[cfg(target_os = "macos")]
@@ -79,7 +88,7 @@ fn chrome_hard_reload_pressed(keys: &ButtonInput<KeyCode>) -> bool {
 pub fn go_back(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    webviews: Query<Entity, (With<VmuxWebview>, With<Active>)>,
+    webviews: Query<Entity, (With<Webview>, With<Active>)>,
 ) {
     let bracket =
         cfg!(target_os = "macos") && super_chord(&keys) && keys.just_pressed(KeyCode::BracketLeft);
@@ -95,7 +104,7 @@ pub fn go_back(
 pub fn go_forward(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    webviews: Query<Entity, (With<VmuxWebview>, With<Active>)>,
+    webviews: Query<Entity, (With<Webview>, With<Active>)>,
 ) {
     let bracket =
         cfg!(target_os = "macos") && super_chord(&keys) && keys.just_pressed(KeyCode::BracketRight);
@@ -110,7 +119,7 @@ pub fn go_forward(
 pub fn reload(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
-    webviews: Query<Entity, (With<VmuxWebview>, With<Active>)>,
+    webviews: Query<Entity, (With<Webview>, With<Active>)>,
 ) {
     let Ok(webview) = webviews.single() else {
         return;

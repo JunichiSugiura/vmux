@@ -4,9 +4,19 @@ use crate::bridge::EVAL_SCRIPT;
 use crate::payload::{BridgeMsg, apply_payload};
 
 use dioxus::prelude::*;
-use vmux_ui::hooks::use_eval_loop;
+use vmux_ui::dioxus_ext::{attributes, merge_attributes};
+use vmux_ui::webview::components::{
+    badge::{Badge, BadgeVariant},
+    separator::Separator,
+    UiRow,
+};
+use vmux_ui::webview::hooks::use_eval_loop;
 
 const STATUS_CSS: &str = include_str!("../assets/status.css");
+
+const SEG_PAD: &str = "inline-flex max-h-full shrink-0 items-center !text-left px-0.5";
+const ROW_INNER: &str =
+    "min-w-0 w-full max-w-full flex-nowrap items-center !justify-start gap-1 !text-left";
 
 #[component]
 pub fn App() -> Element {
@@ -31,13 +41,35 @@ pub fn App() -> Element {
             id: "bar",
             class: "flex min-h-0 w-full flex-1 flex-row items-center !justify-start overflow-hidden px-2 py-0 leading-none select-none !text-left",
             aria_label: "status",
-            div {
-                class: "flex min-w-0 w-full max-w-full flex-nowrap items-center !justify-start gap-1 !text-left",
-                span { class: "inline-flex max-h-full shrink-0 items-center !text-left px-0.5", "{user_host}" }
-                span { class: "shrink-0 !text-left font-bold text-tmux-dim", "|" }
-                span { class: "inline-flex max-h-full shrink-0 items-center !text-left px-0.5", "{win_label}" }
-                span { class: "shrink-0 !text-left font-bold text-tmux-dim", "|" }
-                span { class: "inline-flex max-h-full shrink-0 items-center !text-left px-0.5", "{clock}" }
+            UiRow {
+                class: ROW_INNER,
+                Badge {
+                    variant: BadgeVariant::Outline,
+                    attributes: merge_attributes(vec![attributes!(span { class: SEG_PAD })]),
+                    "{user_host}"
+                }
+                Separator {
+                    horizontal: false,
+                    decorative: true,
+                    attributes: vec![],
+                    children: rsx! {},
+                }
+                Badge {
+                    variant: BadgeVariant::Outline,
+                    attributes: merge_attributes(vec![attributes!(span { class: SEG_PAD })]),
+                    "{win_label}"
+                }
+                Separator {
+                    horizontal: false,
+                    decorative: true,
+                    attributes: vec![],
+                    children: rsx! {},
+                }
+                Badge {
+                    variant: BadgeVariant::Outline,
+                    attributes: merge_attributes(vec![attributes!(span { class: SEG_PAD })]),
+                    "{clock}"
+                }
             }
         }
     }

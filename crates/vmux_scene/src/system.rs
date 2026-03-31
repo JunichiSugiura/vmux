@@ -4,7 +4,7 @@
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, PresentMode, PrimaryWindow};
-use vmux_layout::{CAMERA_DISTANCE, VmuxWorldCamera};
+use vmux_core::{CAMERA_DISTANCE, VmuxWorldCamera};
 use vmux_settings::VmuxAppSettings;
 
 /// Older moonshine saves may omit `window_padding_top_px` (loads as 0). Mirror `window_padding_px`.

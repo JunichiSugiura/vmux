@@ -1,4 +1,4 @@
-//! History pane: **web UI** (Dioxus WASM in `dist/` via `wasm-bindgen`; native builds run `build.rs`)
+//! History pane: **web UI** (Dioxus WASM in `dist/` via **`dx build`**; native builds run `build.rs`)
 //! + native [`server::HistoryServerPlugin`] and [`vmux_ui::hosted::history::HistoryUiPlugin`].
 
 pub const DIST_DIR_NAME: &str = "dist";

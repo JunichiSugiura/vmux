@@ -3,11 +3,11 @@
 CARGO_BIN := $(or $(shell command -v cargo 2>/dev/null),$(HOME)/.cargo/bin/cargo)
 RUSTUP_BIN := $(or $(shell command -v rustup 2>/dev/null),$(HOME)/.cargo/bin/rustup)
 EXPORT_CEF_BIN := $(or $(shell command -v export-cef-dir 2>/dev/null),$(HOME)/.cargo/bin/export-cef-dir)
-WASM_BINDGEN_BIN := $(or $(shell command -v wasm-bindgen 2>/dev/null),$(HOME)/.cargo/bin/wasm-bindgen)
+DX_BIN := $(or $(shell command -v dx 2>/dev/null),$(HOME)/.cargo/bin/dx)
 CEF_FRAMEWORK_DIR := $(HOME)/.local/share/Chromium Embedded Framework.framework
 CEF_DEBUG_RENDER := $(CEF_FRAMEWORK_DIR)/Libraries/bevy_cef_debug_render_process
 
-# Status bar (`dist/`) and history UI (`web_dist/`) are built by each crate’s `build.rs` when you compile `vmux_desktop` or `vmux_status_bar` / `vmux_history`.
+# Status bar / history / UI library `dist/` folders are built by each crate’s `build.rs` via **`dx build`** when you compile `vmux_desktop` (needs `dioxus-cli` on PATH).
 
 # Build then exec the binary instead of `cargo run` so the foreground process is vmux_desktop (not Cargo).
 run-mac: build-mac-debug
@@ -40,5 +40,5 @@ run-doctor: doctor-mac
 doctor-mac:
 	@chmod +x scripts/doctor-mac.sh
 	@CARGO_BIN="$(CARGO_BIN)" RUSTUP_BIN="$(RUSTUP_BIN)" EXPORT_CEF_BIN="$(EXPORT_CEF_BIN)" \
-		WASM_BINDGEN_BIN="$(WASM_BINDGEN_BIN)" CEF_FRAMEWORK_DIR="$(CEF_FRAMEWORK_DIR)" \
+		DX_BIN="$(DX_BIN)" CEF_FRAMEWORK_DIR="$(CEF_FRAMEWORK_DIR)" \
 		CEF_DEBUG_RENDER="$(CEF_DEBUG_RENDER)" ./scripts/doctor-mac.sh

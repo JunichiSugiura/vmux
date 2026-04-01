@@ -585,6 +585,7 @@ pub fn App() -> Element {
     let host_agentic = host_msg;
 
     rsx! {
+        document::Stylesheet { href: asset!("/assets/input.css") }
         div {
             id: "root",
             class: "{TW_ROOT}",

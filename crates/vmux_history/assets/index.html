@@ -8,10 +8,8 @@
   <style>html,body{margin:0;height:100%;background:#141518}</style>
   <!-- Start fetching before the module graph is parsed.
        `crossorigin` must match wasm-bindgen’s `fetch()` (CORS anonymous) or Chrome discards the preload and refetches (slow + console noise). -->
-  <link rel="modulepreload" href="vmux_history.js" crossorigin="anonymous"/>
-  <link rel="preload" href="vmux_history_bg.wasm" as="fetch" type="application/wasm" crossorigin="anonymous"/>
-  <!-- npm run build:css inlines Tailwind output here (replaces the link below). -->
-  <link rel="stylesheet" href="history.css"/>
+  <link rel="modulepreload" href="__VMUX_DX_ENTRY__" crossorigin="anonymous"/>
+  <link rel="preload" href="__VMUX_DX_WASM__" as="fetch" type="application/wasm" crossorigin="anonymous"/>
 </head>
 <body class="h-full min-h-0">
   <div id="boot-loader" aria-live="polite">
@@ -56,7 +54,7 @@
       if (dots === 0) idx += 1;
     }, 320);
 
-    import init from './vmux_history.js';
+    import init from '__VMUX_DX_ENTRY__';
     try {
       await init();
     } finally {

@@ -1,7 +1,5 @@
 //! Shared layout tokens for the wasm UI library gallery (`UiLibraryGallery`).
 
-pub const UI_LIBRARY_CSS: &str = include_str!("../../assets/ui_library.css");
-
 pub const PAGE: &str =
     "min-h-full min-w-0 bg-[linear-gradient(180deg,#16171c_0%,#0e0f12_100%)] text-white/90";
 pub const HEADER: &str =

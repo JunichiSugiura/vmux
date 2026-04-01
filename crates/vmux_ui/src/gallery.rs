@@ -7,13 +7,13 @@ use dioxus::prelude::*;
 use vmux_ui::webview::components::{UiStack, UiText, UiTextSize, UiTextTone};
 
 use demos::GalleryDemos;
-use layout::{HEADER, PAGE, UI_LIBRARY_CSS};
+use layout::{HEADER, PAGE};
 
 /// Root for the embedded `dist/` bundle: long scrollable catalog of all vendored components.
 #[component]
 pub fn UiLibraryGallery() -> Element {
     rsx! {
-        style { dangerous_inner_html: UI_LIBRARY_CSS }
+        document::Stylesheet { href: asset!("/assets/input.css") }
         div { class: "{PAGE}",
             header { class: "{HEADER}",
                 UiStack { class: "gap-1",

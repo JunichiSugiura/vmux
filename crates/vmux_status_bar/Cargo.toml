@@ -6,6 +6,9 @@ edition.workspace = true
 publish = false
 build = "build.rs"
 
+[build-dependencies]
+vmux_utils = { path = "../vmux_utils" }
+
 [lib]
 path = "src/lib.rs"
 
@@ -27,5 +30,5 @@ vmux_ui = { path = "../vmux_ui", default-features = false, features = ["bevy"] }
 dioxus = { workspace = true }
 ron = { workspace = true }
 vmux_ui = { path = "../vmux_ui", default-features = false }
-# Keep in sync with `wasm-bindgen` CLI used by `build.rs` (same as `vmux_history`).
+# Keep in sync with `wasm-bindgen` emitted by `dx` / Dioxus (see Cargo.lock).
 wasm-bindgen = "0.2.115"

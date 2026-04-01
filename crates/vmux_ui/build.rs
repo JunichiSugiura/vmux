@@ -1,16 +1,15 @@
-//! Debug **native** builds refresh **`dist/`** (wasm release → `wasm-bindgen` → shell `index.html`).
-//! **Release** native builds skip the UI library bundle. **Wasm** target builds only ensure **`assets/ui_library.css`**.
+//! Debug **native** builds refresh **`dist/`** via **`dx build --platform web`** (`--no-default-features` for the wasm binary).
+//! **Release** native builds skip the UI library bundle. **Wasm** crate builds are a no-op here.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use vmux_utils::{
+    dx_web_public_dir, replace_dist_from_dx_public, run_dx_web_bundle, workspace_root_from_manifest_dir,
+};
 
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let workspace_root = manifest_dir
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("vmux_ui should live under workspace crates/");
+    let workspace_root = workspace_root_from_manifest_dir(&manifest_dir);
 
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -18,10 +17,9 @@ fn main() {
     let profile = std::env::var("PROFILE").unwrap_or_default();
 
     if target.contains("wasm32") {
-        for p in tailwind_css_inputs(&manifest_dir) {
+        for p in tracked_paths(&manifest_dir) {
             println!("cargo:rerun-if-changed={}", p.display());
         }
-        ensure_tailwind_css(&manifest_dir);
         return;
     }
 
@@ -33,9 +31,22 @@ fn main() {
         println!("cargo:rerun-if-changed={}", p.display());
     }
 
-    if needs_dist_rebuild(&manifest_dir) {
-        build_ui_library_dist(&workspace_root, &manifest_dir);
+    // Match prior `cargo build … --release` for the wasm gallery bundle.
+    let dx_release = true;
+    if !needs_dist_rebuild(&manifest_dir, dx_release) {
+        return;
     }
+
+    run_dx_web_bundle(
+        &workspace_root,
+        "vmux_ui",
+        dx_release,
+        &["--no-default-features"],
+    );
+    let public = dx_web_public_dir(&workspace_root, "vmux_ui", dx_release);
+    let dist = manifest_dir.join("dist");
+    let shell = manifest_dir.join("assets/index.html");
+    replace_dist_from_dx_public(&public, &dist, &shell);
 }
 
 fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -53,28 +64,14 @@ fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn tracked_paths(manifest_dir: &Path) -> Vec<PathBuf> {
-    let mut v = tailwind_css_inputs(manifest_dir);
-    v.push(manifest_dir.join("Cargo.toml"));
-    v.push(manifest_dir.join("assets/index.html"));
-    v.push(manifest_dir.join("assets/ui_library.css"));
-    v.sort();
-    v.dedup();
-    v
-}
-
-fn dist_dependency_paths(manifest_dir: &Path) -> Vec<PathBuf> {
     let mut v = vec![
         manifest_dir.join("Cargo.toml"),
-        manifest_dir.join("package.json"),
+        manifest_dir.join("Dioxus.toml"),
         manifest_dir.join("tailwind.config.js"),
-        manifest_dir.join("assets/input.css"),
-        manifest_dir.join("assets/ui_library.css"),
         manifest_dir.join("assets/index.html"),
+        manifest_dir.join("assets/input.css"),
     ];
-    let lock = manifest_dir.join("package-lock.json");
-    if lock.is_file() {
-        v.push(lock);
-    }
+    collect_rs_files(&manifest_dir.join("src").join("gallery"), &mut v);
     for f in [
         "main.rs",
         "app.rs",
@@ -87,59 +84,18 @@ fn dist_dependency_paths(manifest_dir: &Path) -> Vec<PathBuf> {
     ] {
         v.push(manifest_dir.join("src").join(f));
     }
-    collect_rs_files(&manifest_dir.join("src").join("gallery"), &mut v);
+    v.sort();
+    v.dedup();
     v
 }
 
-fn tailwind_css_inputs(manifest_dir: &Path) -> Vec<PathBuf> {
-    let mut v = vec![
-        manifest_dir.join("package.json"),
-        manifest_dir.join("tailwind.config.js"),
-        manifest_dir.join("assets/input.css"),
-    ];
-    let lock = manifest_dir.join("package-lock.json");
-    if lock.is_file() {
-        v.push(lock);
-    }
-    collect_rs_files(&manifest_dir.join("src"), &mut v);
+fn dist_dependency_paths(manifest_dir: &Path) -> Vec<PathBuf> {
+    let mut v = tracked_paths(manifest_dir);
+    v.push(manifest_dir.join("build.rs"));
     v
 }
 
-fn needs_tailwind_refresh(manifest_dir: &Path) -> bool {
-    let css = manifest_dir.join("assets/ui_library.css");
-    if !css.is_file() {
-        return true;
-    }
-    let Ok(css_t) = fs::metadata(&css).and_then(|m| m.modified()) else {
-        return true;
-    };
-    for p in tailwind_css_inputs(manifest_dir) {
-        if let Ok(t) = fs::metadata(&p).and_then(|m| m.modified()) {
-            if t > css_t {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn ensure_tailwind_css(manifest_dir: &Path) {
-    if !needs_tailwind_refresh(manifest_dir) {
-        return;
-    }
-    if !npm_available() {
-        if manifest_dir.join("assets/ui_library.css").is_file() {
-            return;
-        }
-        panic!(
-            "vmux_ui: npm is not available and assets/ui_library.css is missing — install Node.js or generate CSS (see package.json)"
-        );
-    }
-    run_npm_install(manifest_dir);
-    run_npm_build_css(manifest_dir);
-}
-
-fn needs_dist_rebuild(manifest_dir: &Path) -> bool {
+fn needs_dist_rebuild(manifest_dir: &Path, dx_release: bool) -> bool {
     let dist = manifest_dir.join("dist");
     let wasm_out = dist.join("vmux_ui_bg.wasm");
     let index = dist.join("index.html");
@@ -156,121 +112,17 @@ fn needs_dist_rebuild(manifest_dir: &Path) -> bool {
             }
         }
     }
+    let workspace_root = workspace_root_from_manifest_dir(manifest_dir);
+    let dx_public = dx_web_public_dir(&workspace_root, "vmux_ui", dx_release);
+    let dx_wasm = dx_public.join("wasm").join("vmux_ui_bg.wasm");
+    if dx_wasm.is_file() {
+        if let (Ok(dx_t), Ok(dist_t)) = (
+            fs::metadata(&dx_wasm).and_then(|m| m.modified()),
+            fs::metadata(&wasm_out).and_then(|m| m.modified()),
+        ) && dx_t > dist_t
+        {
+            return true;
+        }
+    }
     false
-}
-
-fn npm_available() -> bool {
-    Command::new("npm")
-        .arg("--version")
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn run_npm_install(manifest_dir: &Path) {
-    let status = Command::new("npm")
-        .args(["install"])
-        .current_dir(manifest_dir)
-        .status()
-        .unwrap_or_else(|e| panic!("vmux_ui: failed to run npm install: {e}"));
-    if !status.success() {
-        panic!("vmux_ui: npm install failed");
-    }
-}
-
-fn run_npm_build_css(manifest_dir: &Path) {
-    let status = Command::new("npm")
-        .args(["run", "build:css"])
-        .current_dir(manifest_dir)
-        .status()
-        .unwrap_or_else(|e| panic!("vmux_ui: failed to run npm run build:css: {e}"));
-    if !status.success() {
-        panic!("vmux_ui: npm run build:css failed");
-    }
-}
-
-fn build_ui_library_dist(workspace_root: &Path, manifest_dir: &Path) {
-    if npm_available() {
-        run_npm_install(manifest_dir);
-        run_npm_build_css(manifest_dir);
-    } else if !manifest_dir.join("assets/ui_library.css").is_file() {
-        panic!(
-            "vmux_ui: npm is not available and assets/ui_library.css is missing — install Node.js or generate CSS (see package.json)"
-        );
-    }
-
-    let cargo = std::env::var_os("CARGO").expect("CARGO must be set for build scripts");
-    let status = Command::new(&cargo)
-        .env_remove("CEF_PATH")
-        .current_dir(workspace_root)
-        .args([
-            "build",
-            "-p",
-            "vmux_ui",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--release",
-            "--no-default-features",
-        ])
-        .status()
-        .unwrap_or_else(|e| panic!("vmux_ui: failed to spawn cargo for wasm build: {e}"));
-    if !status.success() {
-        panic!(
-            "vmux_ui: `cargo build -p vmux_ui --target wasm32-unknown-unknown --release` failed"
-        );
-    }
-
-    let wasm = workspace_root.join("target/wasm32-unknown-unknown/release/vmux_ui.wasm");
-    if !wasm.is_file() {
-        panic!(
-            "vmux_ui: missing {} — wasm build did not produce vmux_ui.wasm",
-            wasm.display()
-        );
-    }
-
-    let dist = manifest_dir.join("dist");
-    let _ = fs::remove_dir_all(&dist);
-    fs::create_dir_all(&dist)
-        .unwrap_or_else(|e| panic!("vmux_ui: failed to create {}: {e}", dist.display()));
-
-    let status = Command::new("wasm-bindgen")
-        .current_dir(workspace_root)
-        .args([
-            "target/wasm32-unknown-unknown/release/vmux_ui.wasm",
-            "--out-dir",
-            "crates/vmux_ui/dist",
-            "--target",
-            "web",
-            "--no-typescript",
-        ])
-        .status()
-        .unwrap_or_else(|e| {
-            panic!(
-                "vmux_ui: failed to run wasm-bindgen ({e}). Install a CLI version matching the `wasm-bindgen` dependency pulled in by Dioxus (see Cargo.lock)."
-            )
-        });
-    if !status.success() {
-        panic!("vmux_ui: wasm-bindgen failed");
-    }
-
-    let bg = dist.join("vmux_ui_bg.wasm");
-    if bg.is_file() {
-        let _ = Command::new("wasm-opt")
-            .arg("-Oz")
-            .arg(&bg)
-            .arg("-o")
-            .arg(&bg)
-            .status();
-    }
-
-    let shell = manifest_dir.join("assets/index.html");
-    if !shell.is_file() {
-        panic!("vmux_ui: missing shell HTML at {}", shell.display());
-    }
-    fs::copy(&shell, dist.join("index.html")).unwrap_or_else(|e| {
-        panic!(
-            "vmux_ui: failed to copy {} to dist/index.html: {e}",
-            shell.display()
-        )
-    });
 }

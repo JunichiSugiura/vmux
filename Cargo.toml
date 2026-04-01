@@ -1,6 +1,7 @@
 # Workspace layout mirrors [Bevy](https://github.com/bevyengine/bevy/): virtual root; crate dirs use underscores (`crates/vmux_input`, etc.).
 [workspace]
 members = [
+    "crates/vmux_utils",
     "crates/vmux_core",
     "crates/vmux_command",
     "crates/vmux_layout",

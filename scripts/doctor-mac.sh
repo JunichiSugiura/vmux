@@ -7,7 +7,7 @@ set -euo pipefail
 CARGO_BIN="${CARGO_BIN:-$(command -v cargo 2>/dev/null || echo "${HOME}/.cargo/bin/cargo")}"
 RUSTUP_BIN="${RUSTUP_BIN:-$(command -v rustup 2>/dev/null || echo "${HOME}/.cargo/bin/rustup")}"
 EXPORT_CEF_BIN="${EXPORT_CEF_BIN:-$(command -v export-cef-dir 2>/dev/null || echo "${HOME}/.cargo/bin/export-cef-dir")}"
-WASM_BINDGEN_BIN="${WASM_BINDGEN_BIN:-$(command -v wasm-bindgen 2>/dev/null || echo "${HOME}/.cargo/bin/wasm-bindgen")}"
+DX_BIN="${DX_BIN:-$(command -v dx 2>/dev/null || echo "${HOME}/.cargo/bin/dx")}"
 CEF_FRAMEWORK_DIR="${CEF_FRAMEWORK_DIR:-${HOME}/.local/share/Chromium Embedded Framework.framework}"
 CEF_DEBUG_RENDER="${CEF_DEBUG_RENDER:-${CEF_FRAMEWORK_DIR}/Libraries/bevy_cef_debug_render_process}"
 
@@ -29,7 +29,7 @@ pass=0
 fail=0
 warn=0
 current=0
-total=11
+total=9
 
 bar() {
 	printf '%s\n' "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
@@ -122,26 +122,13 @@ else
 	tip "Run: ${BOLD}brew install ninja${RESET}"
 fi
 
-section "Node & WASM"
-if command -v node >/dev/null 2>&1; then
-	ok_line "node"
+section "Dioxus CLI (dx) & WASM bundles"
+if [[ -x "${DX_BIN}" ]]; then
+	ok_line "dx (dioxus-cli) — ${DX_BIN}"
 else
-	bad_line "node not found"
-	tip "Run: ${BOLD}brew install node${RESET}"
-fi
-
-if command -v npm >/dev/null 2>&1; then
-	ok_line "npm"
-else
-	bad_line "npm not found"
-	tip "Run: ${BOLD}brew install node${RESET}"
-fi
-
-if [[ -x "${WASM_BINDGEN_BIN}" ]]; then
-	ok_line "wasm-bindgen CLI — ${WASM_BINDGEN_BIN}"
-else
-	bad_line "wasm-bindgen CLI not found"
-	tip "Run: ${BOLD}\"${CARGO_BIN}\" install wasm-bindgen-cli${RESET}"
+	bad_line "dx not found"
+	tip "Run: ${BOLD}\"${CARGO_BIN}\" install dioxus-cli --locked --version 0.7.4${RESET}"
+	tip "Dioxus UIs build via ${BOLD}dx build${RESET} (Tailwind + wasm-bindgen are bundled; Node.js not required)"
 fi
 
 section "CEF runtime (debug)"

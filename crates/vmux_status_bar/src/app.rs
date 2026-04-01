@@ -1,4 +1,4 @@
-//! Root [`App`] component (status strip). Markup uses Tailwind (`assets/input.css` → `assets/status.css`).
+//! Root [`App`] component (status strip). Tailwind is bundled via [`asset!`] / `dx` (see `assets/input.css`).
 
 use crate::bridge::EVAL_SCRIPT;
 use crate::payload::{BridgeMsg, apply_payload};
@@ -11,8 +11,6 @@ use vmux_ui::webview::components::{
     UiRow,
 };
 use vmux_ui::webview::hooks::use_eval_loop;
-
-const STATUS_CSS: &str = include_str!("../assets/status.css");
 
 const SEG_PAD: &str = "inline-flex max-h-full shrink-0 items-center !text-left px-0.5";
 const ROW_INNER: &str =
@@ -36,7 +34,7 @@ pub fn App() -> Element {
     });
 
     rsx! {
-        style { dangerous_inner_html: STATUS_CSS }
+        document::Stylesheet { href: asset!("/assets/input.css") }
         div {
             id: "bar",
             class: "flex min-h-0 w-full flex-1 flex-row items-center !justify-start overflow-hidden px-2 py-0 leading-none select-none !text-left",

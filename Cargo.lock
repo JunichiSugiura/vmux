@@ -7957,6 +7957,7 @@ dependencies = [
  "vmux_layout",
  "vmux_server",
  "vmux_ui",
+ "vmux_utils",
  "wasm-bindgen",
  "web-sys",
 ]
@@ -8052,6 +8053,7 @@ dependencies = [
  "vmux_core",
  "vmux_layout",
  "vmux_ui",
+ "vmux_utils",
  "wasm-bindgen",
 ]
 
@@ -8079,8 +8081,16 @@ dependencies = [
  "vmux_layout",
  "vmux_server",
  "vmux_settings",
+ "vmux_utils",
  "wasm-bindgen",
  "web-sys",
+]
+
+[[package]]
+name = "vmux_utils"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]

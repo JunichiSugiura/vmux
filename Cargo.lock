@@ -7979,15 +7979,12 @@ dependencies = [
  "bevy_cef",
  "bevy_cef_core",
  "bevy_ecs",
- "bevy_remote",
  "dioxus",
- "gloo-timers",
  "js-sys",
  "serde",
  "serde_json",
  "vmux_utils",
  "wasm-bindgen",
- "wasm-bindgen-futures",
  "web-sys",
 ]
 

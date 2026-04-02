@@ -1,6 +1,5 @@
-//! **wasm32:** [`dioxus::launch`] → [`app::App`]. **Native:** Bevy + CEF host; `build.rs` fills **`dist/`**
-//! via **`dx build`**. Handshake: `PreloadScripts` issues [BRP](https://not-elm.github.io/bevy_cef/communication/brp)
-//! (`window.cef.brp`); WASM reads the result from `window` (see `bridge` module).
+//! **wasm32:** [`dioxus::launch`] → [`app::App`]. **Native:** Bevy + CEF; `build.rs` fills **`dist/`** via **`dx build`**.
+//! UI readiness: JS registers [`cef.listen`](https://not-elm.github.io/bevy_cef/communication/) then `cef.emit` (`{}`); Bevy marks the webview and pushes history with **Host Emit**.
 
 mod bridge;
 
@@ -24,7 +23,11 @@ use bevy::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 use bevy_cef::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
-use bevy_remote::{BrpResult, RemotePlugin};
+use bevy_cef_core::prelude::Browsers;
+#[cfg(not(target_arch = "wasm32"))]
+use serde::Deserialize;
+#[cfg(not(target_arch = "wasm32"))]
+use serde_json::json;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct HistoryPocPlugin;
@@ -93,12 +96,55 @@ fn poc_cef_root_cache_path() -> Option<String> {
         })
 }
 
-/// Preload script calls `cef.brp`; WASM reads `window.__vmuxHistoryHandshake` (see `bridge` module).
+/// Payload from `cef.emit` after the UI registered `cef.listen` and emitted this object (`{}`).
 #[cfg(not(target_arch = "wasm32"))]
-fn handle_handshake(In(_params): In<Option<serde_json::Value>>, q: Query<&History>) -> BrpResult {
-    let history: Vec<String> = q.iter().map(|h| h.url.clone()).collect();
-    let url = history.join(", ");
-    Ok(serde_json::json!({ "url": url, "history": history }))
+#[derive(Deserialize)]
+struct HistoryUiReady {}
+
+/// Marker on the [`WebviewSource`] entity once the Dioxus side has emitted ready.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Component)]
+struct HistoryPocUiReady;
+
+/// Host emit has been sent at least once for this webview (POC: single snapshot).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Component)]
+struct HistoryPocHistorySent;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn on_history_ui_ready(trigger: On<Receive<HistoryUiReady>>, mut commands: Commands) {
+    let wv = trigger.event().webview;
+    commands.entity(wv).insert(HistoryPocUiReady);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn push_history_via_host_emit(
+    mut commands: Commands,
+    browsers: NonSend<Browsers>,
+    ready: Query<
+        Entity,
+        (
+            With<WebviewSource>,
+            With<HistoryPocUiReady>,
+            Without<HistoryPocHistorySent>,
+        ),
+    >,
+    history_q: Query<&History>,
+) {
+    for wv in ready.iter() {
+        if !browsers.has_browser(wv) || !browsers.host_emit_ready(&wv) {
+            continue;
+        }
+        let history: Vec<String> = history_q.iter().map(|h| h.url.clone()).collect();
+        let url = history.join(", ");
+        let payload = json!({ "url": url, "history": history });
+        commands.trigger(HostEmitEvent::new(
+            wv,
+            crate::bridge::HOST_HISTORY_CHANNEL,
+            &payload,
+        ));
+        commands.entity(wv).insert(HistoryPocHistorySent);
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -112,7 +158,7 @@ fn main() {
                 silence_startup_warning: true,
             }),
             HistoryPocPlugin,
-            RemotePlugin::default().with_method(crate::bridge::HANDSHAKE_METHOD, handle_handshake),
+            JsEmitEventPlugin::<HistoryUiReady>::default(),
             CefPlugin {
                 root_cache_path: poc_cef_root_cache_path(),
                 ..default()
@@ -122,6 +168,8 @@ fn main() {
             Startup,
             (spawn_camera, spawn_directional_light, spawn_webview),
         )
+        .add_systems(Update, push_history_via_host_emit)
+        .add_observer(on_history_ui_ready)
         .run();
 }
 
@@ -142,31 +190,6 @@ fn spawn_directional_light(mut commands: Commands) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn history_handshake_preload_script() -> String {
-    format!(
-        r#"
-window.cef.brp({{
-  jsonrpc: "2.0",
-  method: "{method}",
-  params: null
-}}).then(function (v) {{
-  var apply = window.{apply};
-  if (typeof apply === "function") apply(v);
-  else window.{result} = v;
-}}).catch(function (e) {{
-  var applyErr = window.{apply_err};
-  if (typeof applyErr === "function") applyErr(String(e));
-  else window.{error} = String(e);
-}});"#,
-        method = crate::bridge::HANDSHAKE_METHOD,
-        apply = crate::bridge::HANDSHAKE_APPLY_FN,
-        apply_err = crate::bridge::HANDSHAKE_APPLY_ERROR_FN,
-        result = crate::bridge::HANDSHAKE_RESULT_GLOBAL,
-        error = crate::bridge::HANDSHAKE_ERROR_GLOBAL,
-    )
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn spawn_webview(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -176,7 +199,6 @@ fn spawn_webview(
         WebviewSource::vmux_service_root("history"),
         Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::ONE))),
         MeshMaterial3d(materials.add(WebviewExtendStandardMaterial::default())),
-        PreloadScripts::from([history_handshake_preload_script()]),
     ));
     commands.spawn(History {
         url: "history1".to_string(),

@@ -28,15 +28,12 @@ bevy = { workspace = true }
 bevy_ecs = { workspace = true }
 bevy_cef = { workspace = true }
 bevy_cef_core = { workspace = true }
-bevy_remote = { version = "0.18", default-features = true }
 serde_json = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 dioxus = { workspace = true }
-gloo-timers = { version = "0.3", features = ["futures"] }
 js-sys = "0.3"
 serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = "0.2.115"
-wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = ["Window"] }

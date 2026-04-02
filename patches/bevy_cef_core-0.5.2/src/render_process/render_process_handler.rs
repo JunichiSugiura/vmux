@@ -215,21 +215,32 @@ fn handle_listen_message(message: &ProcessMessage, mut ctx: V8Context) {
     let id = argument_list.string(0).into_string();
     let payload = argument_list.string(1).into_string();
 
-    ctx.enter();
-    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload)
-        && let Ok(events) = LISTEN_EVENTS.lock()
-    {
-        let mut obj = v8_value_create_object(
-            Some(&mut V8DefaultAccessorBuilder::build()),
-            Some(&mut V8DefaultInterceptorBuilder::build()),
-        );
-        let Some(callback) = events.get(&id) else {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) else {
+        return;
+    };
+
+    // Host can emit before JS calls `cef.listen` (e.g. WASM boot). Do not call `ctx.enter()` or
+    // allocate V8 objects when there is no listener — that triggered Blink "HandleScope" fatals.
+    let callback = {
+        let Ok(events) = LISTEN_EVENTS.lock() else {
             return;
         };
-        callback.execute_function_with_context(
+        events.get(&id).cloned()
+    };
+    let Some(callback) = callback else {
+        return;
+    };
+
+    ctx.enter();
+    let mut obj = v8_value_create_object(
+        Some(&mut V8DefaultAccessorBuilder::build()),
+        Some(&mut V8DefaultInterceptorBuilder::build()),
+    );
+    if let Some(arg) = json_to_v8(value) {
+        let _ = callback.execute_function_with_context(
             Some(&mut ctx),
             obj.as_mut(),
-            Some(&[json_to_v8(value)]),
+            Some(&[Some(arg)]),
         );
     }
     ctx.exit();

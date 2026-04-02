@@ -6634,7 +6634,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7977,7 +7977,18 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_cef",
+ "bevy_cef_core",
+ "bevy_ecs",
+ "bevy_remote",
+ "dioxus",
+ "gloo-timers",
+ "js-sys",
  "serde",
+ "serde_json",
+ "vmux_utils",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

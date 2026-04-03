@@ -9,7 +9,7 @@
 //! 2. **Scheme handler factories** — per [`RequestContext`](cef::RequestContext) *and* process-wide via
 //!    [`cef::register_scheme_handler_factory`](cef::register_scheme_handler_factory) (see
 //!    [`Browsers::create_browser`](crate::browser_process::browsers::Browsers::create_browser)) so
-//!    `vmux://` is recognized everywhere Chromium resolves URLs.
+//!    the custom embedded page scheme ([`CefEmbeddedPageConfig`]) is recognized everywhere Chromium resolves URLs.
 //!
 //! On macOS debug builds, install the workspace `bevy_cef_debug_render_process` **inside** the CEF
 //! framework’s `Libraries/` directory (`make install-debug-render-process`). Chromium resolves GPU
@@ -35,6 +35,7 @@ use cef_dll_sys::cef_scheme_options_t::{
 };
 use std::env::home_dir;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 pub const EXTENSIONS_SWITCH: &str = "bevy-cef-extensions";
 
@@ -42,17 +43,78 @@ pub const SCHEME_CEF: &str = "cef";
 
 pub const HOST_CEF: &str = "localhost";
 
-/// vmux-hosted pages (e.g. embedded Bevy assets) under this scheme / authority.
-pub const SCHEME_VMUX: &str = "vmux";
+pub fn compile_time_cef_embedded_scheme() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/cef_embedded_scheme.txt")).trim()
+}
 
-/// Host segment for history UI / embedded history assets (`vmux://history/…`).
-pub const HOST_VMUX_HISTORY: &str = "history";
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedHost {
+    pub host: String,
+    pub default_document: String,
+}
 
-/// Full URL prefix including trailing slash (`vmux://history/`).
-pub const VMUX_HISTORY_URL_PREFIX: &str = "vmux://history/";
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedHosts(pub Vec<CefEmbeddedHost>);
 
-/// Embedded asset path served for `vmux://history/` (no path), like `chrome://settings/` having a fixed internal page.
-pub const VMUX_HISTORY_DEFAULT_DOCUMENT: &str = "history/index.html";
+impl CefEmbeddedHosts {
+    pub fn entry_for_host(&self, host: &str) -> Option<&CefEmbeddedHost> {
+        self.0.iter().find(|e| e.host == host)
+    }
+}
+
+impl From<Vec<CefEmbeddedHost>> for CefEmbeddedHosts {
+    fn from(entries: Vec<CefEmbeddedHost>) -> Self {
+        Self(entries)
+    }
+}
+
+impl Default for CefEmbeddedHosts {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedPageConfig {
+    pub scheme: String,
+    scheme_prefix: String,
+    pub hosts: CefEmbeddedHosts,
+}
+
+impl CefEmbeddedPageConfig {
+    pub fn new(scheme: impl Into<String>, hosts: CefEmbeddedHosts) -> Self {
+        let scheme = scheme.into().trim().to_string();
+        let scheme_prefix = format!("{scheme}://");
+        Self {
+            scheme,
+            scheme_prefix,
+            hosts,
+        }
+    }
+
+    pub fn scheme_prefix(&self) -> &str {
+        &self.scheme_prefix
+    }
+}
+
+impl Default for CefEmbeddedPageConfig {
+    fn default() -> Self {
+        Self::new(compile_time_cef_embedded_scheme(), CefEmbeddedHosts::default())
+    }
+}
+
+static CEF_EMBEDDED_PAGE_OVERRIDE: OnceLock<Arc<CefEmbeddedPageConfig>> = OnceLock::new();
+
+pub fn try_set_cef_embedded_page_config(config: CefEmbeddedPageConfig) {
+    let _ = CEF_EMBEDDED_PAGE_OVERRIDE.set(Arc::new(config));
+}
+
+pub fn resolved_cef_embedded_page_config() -> Arc<CefEmbeddedPageConfig> {
+    CEF_EMBEDDED_PAGE_OVERRIDE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(CefEmbeddedPageConfig::default()))
+}
 
 pub fn cef_scheme_flags() -> u32 {
     CEF_SCHEME_OPTION_STANDARD as u32

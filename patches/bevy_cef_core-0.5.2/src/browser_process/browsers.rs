@@ -103,10 +103,20 @@ impl Browsers {
 
         // `RequestContext::register_scheme_handler_factory` is not always enough: some navigations
         // still consult the process-wide factories registered via `cef_register_scheme_handler_factory`
-        // (see CEF capi). Without this, `vmux://` can yield ERR_UNKNOWN_URL_SCHEME despite
-        // `on_register_custom_schemes` and per-context registration.
+        // (see CEF capi). Without this, custom embedded scheme URLs can yield ERR_UNKNOWN_URL_SCHEME
+        // despite `on_register_custom_schemes` and per-context registration.
         let requester_for_global = requester.clone();
         REGISTER_GLOBAL_SCHEME_HANDLER_FACTORIES.call_once(move || {
+            let cfg = resolved_cef_embedded_page_config();
+            let ct = compile_time_cef_embedded_scheme();
+            if cfg.scheme != ct {
+                bevy::log::warn!(
+                    "bevy_cef_core: runtime embedded scheme {:?} != build-time scheme {:?}; rebuild bevy_cef_core with the same scheme as CefPlugin.embedded_scheme (optional env BEVY_CEF_EMBEDDED_SCHEME during that build)",
+                    cfg.scheme.as_str(),
+                    ct
+                );
+            }
+            let emb_scheme = cfg.scheme.clone();
             let mut cef_factory = LocalSchemaHandlerBuilder::build(requester_for_global.clone());
             let ok_cef = register_scheme_handler_factory(
                 Some(&SCHEME_CEF.into()),
@@ -117,15 +127,15 @@ impl Browsers {
                 ok_cef, 1,
                 "cef_register_scheme_handler_factory(cef) failed with code {ok_cef}"
             );
-            let mut vmux_factory = LocalSchemaHandlerBuilder::build(requester_for_global);
-            let ok_vmux = register_scheme_handler_factory(
-                Some(&SCHEME_VMUX.into()),
+            let mut embedded_factory = LocalSchemaHandlerBuilder::build(requester_for_global);
+            let ok_embedded = register_scheme_handler_factory(
+                Some(&emb_scheme.as_str().into()),
                 None,
-                Some(&mut vmux_factory),
+                Some(&mut embedded_factory),
             );
             assert_eq!(
-                ok_vmux, 1,
-                "cef_register_scheme_handler_factory(vmux) failed with code {ok_vmux}"
+                ok_embedded, 1,
+                "cef_register_scheme_handler_factory(embedded page scheme) failed with code {ok_embedded}"
             );
         });
 
@@ -210,7 +220,7 @@ impl Browsers {
         }
     }
 
-    /// Align CEF focus with the tiled pane that has keyboard target / `Active` in vmux.
+    /// Align CEF focus with the tiled pane that has keyboard target / `Active` in the host app.
     ///
     /// Windowless (OSR) browsers may not composite visible frames until the host calls
     /// `CefBrowserHost::set_focus`; without this, the active pane can stay stuck until the first
@@ -218,7 +228,7 @@ impl Browsers {
     ///
     /// `auxiliary_osr_focus` is for **additional** visible webviews that must keep compositing
     /// while another pane is active (e.g. a history split next to the main browser). Keyboard
-    /// routing in vmux uses the `CefKeyboardTarget` component, not CEF `set_focus`.
+    /// routing in the host app uses the `CefKeyboardTarget` component, not CEF `set_focus`.
     ///
     /// Chromium ties **clipboard shortcuts** (⌘C / ⌘V / …) to the browser that last received
     /// `set_focus(true)`. We therefore focus each auxiliary in order (so they can composite), then
@@ -625,16 +635,14 @@ impl Browsers {
             Some(&mut RequestContextHandlerBuilder::build()),
         );
         if let Some(context) = context.as_mut() {
+            let emb_scheme = resolved_cef_embedded_page_config().scheme.clone();
             context.register_scheme_handler_factory(
                 Some(&SCHEME_CEF.into()),
                 Some(&HOST_CEF.into()),
                 Some(&mut LocalSchemaHandlerBuilder::build(requester.clone())),
             );
-            // `domain_name: None` matches every `vmux://` host. A specific host caused
-            // `ERR_UNKNOWN_URL_SCHEME` in some builds despite matching `register_scheme_handler_factory` —
-            // Chromium’s internal URL normalization did not always line up with `Some("history")`.
             context.register_scheme_handler_factory(
-                Some(&SCHEME_VMUX.into()),
+                Some(&emb_scheme.as_str().into()),
                 None,
                 Some(&mut LocalSchemaHandlerBuilder::build(requester)),
             );
@@ -648,16 +656,14 @@ impl Browsers {
             Some(&mut RequestContextHandlerBuilder::build()),
         );
         if let Some(context) = context.as_mut() {
+            let emb_scheme = resolved_cef_embedded_page_config().scheme.clone();
             context.register_scheme_handler_factory(
                 Some(&SCHEME_CEF.into()),
                 Some(&HOST_CEF.into()),
                 Some(&mut LocalSchemaHandlerBuilder::build(requester.clone())),
             );
-            // `domain_name: None` matches every `vmux://` host. A specific host caused
-            // `ERR_UNKNOWN_URL_SCHEME` in some builds despite matching `register_scheme_handler_factory` —
-            // Chromium’s internal URL normalization did not always line up with `Some("history")`.
             context.register_scheme_handler_factory(
-                Some(&SCHEME_VMUX.into()),
+                Some(&emb_scheme.as_str().into()),
                 None,
                 Some(&mut LocalSchemaHandlerBuilder::build(requester)),
             );

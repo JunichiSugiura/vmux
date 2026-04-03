@@ -1,7 +1,5 @@
 use bevy::prelude::*;
-use bevy_cef_core::prelude::{
-    HOST_CEF, HOST_VMUX_HISTORY, SCHEME_CEF, SCHEME_VMUX, VMUX_HISTORY_URL_PREFIX,
-};
+use bevy_cef_core::prelude::{HOST_CEF, SCHEME_CEF, resolved_cef_embedded_page_config};
 use serde::{Deserialize, Serialize};
 
 pub(crate) struct WebviewCoreComponentsPlugin;
@@ -82,29 +80,26 @@ impl WebviewSource {
         Self::Url(format!("{SCHEME_CEF}://{HOST_CEF}/embedded/{p}"))
     }
 
-    /// Chrome-style internal URL: navigates to **`vmux://history/`** only (what the user sees), like `chrome://settings/`.
-    ///
-    /// The host root is mapped in `bevy_cef_core` to `VMUX_HISTORY_DEFAULT_DOCUMENT`.
-    pub fn vmux_history_root() -> Self {
-        Self::Url(VMUX_HISTORY_URL_PREFIX.to_string())
-    }
-
-    /// Internal `vmux://…` URL for a **named host** (e.g. `"history"`, future `"status_bar"`).
-    ///
-    /// Prefer this at webview spawn sites so apps do not import URL-prefix constants. For history,
-    /// `vmux_service_root("history")` matches [`Self::vmux_history_root`] (trailing slash is optional
-    /// for loading the default document).
-    pub fn vmux_service_root(host: impl Into<String>) -> Self {
+    pub fn custom_scheme_host_root(host: impl Into<String>) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
         let h = host.into();
-        Self::Url(format!("{SCHEME_VMUX}://{h}"))
+        Self::Url(format!("{}{}/", cfg.scheme_prefix(), h))
     }
 
-    /// `vmux://history/<path>` where `path` is the segment after `embedded://` for Bevy’s embedded source
-    /// (for example `history/index.html`). Prefer [`Self::vmux_history_root`] when you want the
-    /// visible URL to stay `vmux://history/`.
-    pub fn vmux_history_embedded(path: impl Into<String>) -> Self {
-        let p = path.into();
-        Self::Url(format!("{SCHEME_VMUX}://{HOST_VMUX_HISTORY}/{p}"))
+    pub fn custom_scheme_host_url(host: impl Into<String>) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
+        let h = host.into();
+        Self::Url(format!("{}{}", cfg.scheme_prefix(), h))
+    }
+
+    pub fn custom_scheme_document_url(
+        host: impl Into<String>,
+        embedded_path: impl Into<String>,
+    ) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
+        let h = host.into();
+        let p = embedded_path.into();
+        Self::Url(format!("{}{}/{}", cfg.scheme_prefix(), h, p))
     }
 
     /// Creates an inline HTML source.

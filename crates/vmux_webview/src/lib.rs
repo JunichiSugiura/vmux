@@ -6,13 +6,16 @@ mod startup;
 mod system;
 
 use bevy::prelude::*;
-use bevy_cef::prelude::{CefExtensions, CefPlugin, CommandLineConfig, JsEmitEventPlugin};
-pub use system::{go_back, go_forward, reload};
+use bevy_cef::prelude::{
+    CefEmbeddedHost, CefEmbeddedHosts, CefExtensions, CefPlugin, CommandLineConfig,
+    JsEmitEventPlugin,
+};
 pub use startup::{setup_vmux_panes_startup, startup_drain_embedded_ui_urls};
+pub use system::{go_back, go_forward, reload};
 pub use vmux_history::HistoryUiBaseUrl;
+pub use vmux_layout::loading_bar_color;
 pub use vmux_layout::{CEF_PAGE_ZOOM_LEVEL, LayoutPlugin, Webview, rebuild_session_snapshot};
 pub use vmux_layout::{VmuxHostedWebPlugin, VmuxWebviewSurface};
-pub use vmux_layout::loading_bar_color;
 pub use vmux_server::{
     EmbeddedServeDirRequest, EmbeddedServeDirStartup, PendingEmbeddedServeDir,
     VmuxServerShutdownRegistry, register_shutdown_flag, spawn_embedded_serve_dir_system,
@@ -20,12 +23,21 @@ pub use vmux_server::{
 pub use vmux_settings::{VmuxAppSettings, cef_root_cache_path, default_webview_url};
 pub use vmux_status_bar::StatusUiBaseUrl;
 
+pub fn default_vmux_cef_embedded_hosts() -> CefEmbeddedHosts {
+    CefEmbeddedHosts(vec![CefEmbeddedHost {
+        host: "history".into(),
+        default_document: "history/index.html".into(),
+    }])
+}
+
 /// Core CEF webview rendering + navigation systems.
 #[derive(Clone, Debug)]
 pub struct WebviewPlugin {
     pub command_line_config: CommandLineConfig,
     pub extensions: CefExtensions,
     pub root_cache_path: Option<String>,
+    pub embedded_scheme: String,
+    pub embedded_hosts: CefEmbeddedHosts,
 }
 
 impl Default for WebviewPlugin {
@@ -34,6 +46,8 @@ impl Default for WebviewPlugin {
             command_line_config: CommandLineConfig::default(),
             extensions: CefExtensions::default(),
             root_cache_path: vmux_settings::cef_root_cache_path(),
+            embedded_scheme: "vmux".to_string(),
+            embedded_hosts: default_vmux_cef_embedded_hosts(),
         }
     }
 }
@@ -44,6 +58,8 @@ impl Plugin for WebviewPlugin {
             command_line_config: self.command_line_config.clone(),
             extensions: self.extensions.clone(),
             root_cache_path: self.root_cache_path.clone(),
+            embedded_scheme: self.embedded_scheme.clone(),
+            embedded_hosts: self.embedded_hosts.clone(),
         };
         app.add_plugins((
             cef_plugin,

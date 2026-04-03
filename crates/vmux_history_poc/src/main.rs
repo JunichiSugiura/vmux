@@ -1,10 +1,5 @@
-#[cfg(target_arch = "wasm32")]
-use vmux_history_poc::App;
+mod app;
 
-#[cfg(target_arch = "wasm32")]
 fn main() {
-    dioxus::launch(App);
+    dioxus::launch(app::App);
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-fn main() {}

@@ -34,7 +34,7 @@ fn main() {
         &workspace_root,
         "vmux_history_poc",
         release,
-        &["--bin", "vmux_history_app"],
+        &["--bin", "vmux_history_app", "--features", "web"],
     );
     let public = dx_web_public_dir(&workspace_root, "vmux_history_app", release);
     let dist = manifest_dir.join("dist");
@@ -135,7 +135,7 @@ fn needs_dist_rebuild(manifest_dir: &Path, workspace_root: &Path, release: bool)
             }
         }
     }
-    let dx_public = dx_web_public_dir(workspace_root, "vmux_history_poc_web", release);
+    let dx_public = dx_web_public_dir(workspace_root, "vmux_history_app", release);
     if let Some(dx_mtime) = newest_bg_wasm_mtime(&dx_public) {
         if dx_mtime > wasm_mtime {
             return true;

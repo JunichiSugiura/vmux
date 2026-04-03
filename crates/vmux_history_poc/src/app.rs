@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-use crate::{HistoryEvent, HISTORY_EVENT};
+use vmux_history_poc::event::{HISTORY_EVENT, HistoryEvent};
 use vmux_ui::hooks::use_event_listener;
 
 #[component]
@@ -16,15 +16,9 @@ pub fn App() -> Element {
         div { class: "p-4 font-sans text-neutral-200",
             h1 { class: "mb-2 text-xl", "History POC" }
             if (listener.is_loading)() {
-                p { class: "whitespace-pre text-neutral-400",
-                    for (i, ch) in "Waiting for `window.cef`…".chars().enumerate() {
-                        span {
-                            key: "{i}",
-                            class: "wave-y-char",
-                            style: format!("animation-delay: {}ms", i * 45),
-                            "{ch}"
-                        }
-                    }
+                p {
+                    class: "whitespace-pre text-pulse-neutral",
+                    "Waiting for `window.cef`…"
                 }
             } else if let Some(err) = (listener.error)() {
                 p { class: "text-red-300", "{err}" }

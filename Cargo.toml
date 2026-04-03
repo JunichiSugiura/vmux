@@ -13,11 +13,11 @@ members = [
     "crates/vmux_server",
     "crates/vmux_browser",
     "crates/vmux_webview",
+    "crates/vmux_webview_app",
     "crates/vmux_status_bar",
     "crates/vmux_history",
     "crates/vmux_history_poc",
     "crates/vmux_ui",
-    "examples",
     "patches/bevy_cef_debug_render_process-0.5.2",
 ]
 default-members = ["crates/vmux_desktop"]

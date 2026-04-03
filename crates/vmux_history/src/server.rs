@@ -1,4 +1,4 @@
-//! Embedded HTTP for the history UI (`dist/` / `web_dist` / embedded / `VMUX_HISTORY_UI_URL`).
+//! Embedded HTTP for the history UI (`dist/` / embedded / `VMUX_HISTORY_UI_URL`).
 //! Host wiring lives in [`vmux_ui::hosted::history`]; this crate only resolves the bundle path and registers the serve plugin.
 
 use std::fs;
@@ -9,12 +9,14 @@ use bevy::prelude::*;
 use rust_embed::RustEmbed;
 use vmux_layout::{VmuxHostedWebPlugin, VmuxWebviewSurface};
 use vmux_server::{
-    DioxusWarmupDescriptor, EmbeddedDioxusUiSurface, EmbeddedServeDirStartup, PendingEmbeddedServeDir,
-    ServePlugin, push_pending_embedded_serve_dir, register_serve_plugin_dioxus_warmup,
+    DioxusWarmupDescriptor, EmbeddedDioxusUiSurface, EmbeddedServeDirStartup,
+    PendingEmbeddedServeDir, ServePlugin, push_pending_embedded_serve_dir,
+    register_serve_plugin_dioxus_warmup,
 };
 use vmux_ui::extract_embedded_dist_to_temp;
 use vmux_ui::hosted::history::{
-    HistoryUiBaseUrl, HistoryUiChromeUnavailable, HistoryUiUrlReceiver, history_dioxus_warmup_should_spawn,
+    HistoryUiBaseUrl, HistoryUiChromeUnavailable, HistoryUiUrlReceiver,
+    history_dioxus_warmup_should_spawn,
 };
 
 /// Embedded `dist/` when not on disk (release / missing checkout); see [`startup_history_server`].
@@ -22,16 +24,8 @@ use vmux_ui::hosted::history::{
 #[folder = "dist"]
 struct HistoryWebDist;
 
-/// On-disk UI roots (same order as [`startup_history_server`]).
-///
-/// Native `cargo build -p vmux_history` runs **`build.rs`**, which writes **`dist/`** via **`dx build`**.
-/// Keep `web_dist/` as a compatibility fallback for older local trees.
 fn history_dist_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(crate::DIST_DIR_NAME)
-}
-
-fn history_web_dist_fallback_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(crate::DIST_WEB_DIR_NAME)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("dist")
 }
 
 fn history_dist_has_bg_wasm(dist: &Path) -> bool {
@@ -71,19 +65,10 @@ fn history_ui_filesystem_root() -> Option<PathBuf> {
             dist.display()
         );
     }
-    let web = history_web_dist_fallback_dir();
-    let web_index = web.join("index.html");
-    if web_index.is_file() && history_dist_has_bg_wasm(&web) {
-        bevy::log::warn!(
-            "vmux history: using legacy web_dist fallback at {}; rebuild vmux_history to refresh dist/.",
-            web.display()
-        );
-        return Some(web);
-    }
     None
 }
 
-/// Filesystem `dist/` / `web_dist/` or embedded `dist/` extract.
+/// Filesystem `dist/` or embedded `dist/` extract.
 pub fn history_bundle_root() -> Option<PathBuf> {
     history_ui_filesystem_root()
         .or_else(|| extract_embedded_dist_to_temp::<HistoryWebDist>("vmux-history-ui"))
@@ -117,8 +102,7 @@ fn startup_history_server(mut commands: Commands, mut pending: ResMut<PendingEmb
     commands.insert_resource(HistoryUiUrlReceiver(Some(rx)));
 }
 
-/// Embedded HTTP for the history UI (`dist/` if present, else legacy `web_dist/`, else embedded
-/// `dist/`, or `VMUX_HISTORY_UI_URL`).
+/// Embedded HTTP for the history UI (`dist/` if present, else embedded `dist/`, or `VMUX_HISTORY_UI_URL`).
 #[derive(Default)]
 pub struct HistoryServerPlugin;
 

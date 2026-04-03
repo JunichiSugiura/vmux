@@ -13,7 +13,7 @@ pub fn App() -> Element {
 
     rsx! {
         document::Stylesheet { href: asset!("/assets/input.css") }
-        div { class: "p-4 font-sans text-neutral-200",
+        div { class: "p-4",
             h1 { class: "mb-2 text-xl", "History POC" }
             if (listener.is_loading)() {
                 p {

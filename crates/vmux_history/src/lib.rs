@@ -1,9 +1,6 @@
 //! History pane: **web UI** (Dioxus WASM in `dist/` via **`dx build`**; native builds run `build.rs`)
 //! + native [`server::HistoryServerPlugin`] and [`vmux_ui::hosted::history::HistoryUiPlugin`].
 
-pub const DIST_DIR_NAME: &str = "dist";
-pub const DIST_WEB_DIR_NAME: &str = "web_dist";
-
 #[cfg(not(target_arch = "wasm32"))]
 pub mod server;
 

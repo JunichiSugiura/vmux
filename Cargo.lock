@@ -7949,15 +7949,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vmux_examples"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_cef",
- "vmux_history_poc",
-]
-
-[[package]]
 name = "vmux_history"
 version = "0.1.0"
 dependencies = [
@@ -7986,13 +7977,13 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "bevy_cef",
- "bevy_cef_core",
  "bevy_ecs",
  "dioxus",
  "ron 0.8.1",
  "serde",
  "vmux_ui",
  "vmux_utils",
+ "vmux_webview_app",
  "wasm-bindgen",
 ]
 
@@ -8148,6 +8139,14 @@ dependencies = [
  "vmux_server",
  "vmux_settings",
  "vmux_status_bar",
+]
+
+[[package]]
+name = "vmux_webview_app"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_cef_core",
 ]
 
 [[package]]

@@ -1,6 +1,20 @@
 fn main() {
+    write_cef_embedded_scheme();
     #[cfg(target_os = "windows")]
     windows::copy_cef_files();
+}
+
+fn write_cef_embedded_scheme() {
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+    let out_dir = env::var("OUT_DIR").expect("OUT_DIR");
+    let scheme = env::var("BEVY_CEF_EMBEDDED_SCHEME").unwrap_or_else(|_| "vmux".to_string());
+    println!("cargo:rerun-if-env-changed=BEVY_CEF_EMBEDDED_SCHEME");
+    let path = Path::new(&out_dir).join("cef_embedded_scheme.txt");
+    fs::write(&path, scheme.trim()).unwrap_or_else(|e| {
+        panic!("failed to write {}: {e}", path.display());
+    });
 }
 
 #[cfg(target_os = "windows")]

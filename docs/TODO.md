@@ -57,6 +57,7 @@
 
 ### Chore
 
+- Setup CI: lint, test, build
 - Deploy to crates.io
 - `vmux_desktop`
     - Release bundle

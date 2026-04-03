@@ -22,11 +22,11 @@ use serde::{Deserialize, Serialize};
 use vmux_core::VmuxPrefixChordSet;
 
 pub use hosted_web_ui::{VmuxHostedWebPlugin, VmuxWebviewSurface};
+pub use loading_bar::color as loading_bar_color;
 pub use loading_bar::{
     LOADING_BAR_ANIM_TIME_SCALE, LOADING_BAR_DEPTH_BIAS_ABOVE_CHROME, LOADING_BAR_HEIGHT_PX,
     LoadingBarMaterial, PaneChromeLoadingBar, PendingNavigationLoads,
 };
-pub use loading_bar::color as loading_bar_color;
 pub use pane_layout::{
     CHROME_BORDER_OUTSET_PX, PANE_Z_STRIDE, apply_pane_chrome_layout, apply_pane_layout,
     apply_pane_loading_bar_layout, clamp_webview_backing_size, layout_viewport_for_workspace,
@@ -36,8 +36,8 @@ pub use pane_layout::{
 pub use pane_ops::{
     cycle_pane_focus, rebuild_session_snapshot, split_active_pane, try_cycle_pane_focus,
     try_kill_active_pane, try_mirror_pane_layout, try_rotate_window, try_select_pane_direction,
-    try_split_active_history_existing_pane, try_split_active_history_pane, try_split_active_pane, try_swap_active_pane,
-    try_toggle_zoom_pane,
+    try_split_active_history_existing_pane, try_split_active_history_pane, try_split_active_pane,
+    try_swap_active_pane, try_toggle_zoom_pane,
 };
 pub use pane_spawn::{
     CEF_PAGE_ZOOM_LEVEL, TEXT_INPUT_EMACS_BINDINGS_PRELOAD, URL_TRACK_PRELOAD, setup_vmux_panes,
@@ -496,9 +496,7 @@ fn leaf_looks_like_restored_history_placeholder(url: &str, default_url: &str) ->
 
 fn leaf_is_other_live_browsing_url(url: &str, default_url: &str) -> bool {
     let u = url.trim();
-    !u.is_empty()
-        && allowed_navigation_url(u)
-        && !u.eq_ignore_ascii_case(default_url.trim())
+    !u.is_empty() && allowed_navigation_url(u) && !u.eq_ignore_ascii_case(default_url.trim())
 }
 
 /// Older session writes stored the history slot as [`vmux_settings::VmuxBrowserSettings::default_webview_url`] with
@@ -937,8 +935,7 @@ impl Plugin for LayoutPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    pane_pointer_focus::update_active_pane_under_cursor
-                        .after(camera_system),
+                    pane_pointer_focus::update_active_pane_under_cursor.after(camera_system),
                     track_pane_focus_incoming
                         .after(pane_pointer_focus::update_active_pane_under_cursor),
                     apply_pane_layout
@@ -980,19 +977,24 @@ mod tests {
         let b = app.world_mut().spawn(Pane).id();
 
         app.update();
-        assert!(app
-            .world()
-            .resource::<PaneFocusIncoming>()
-            .0
-            .get(&a)
-            .is_none());
+        assert!(
+            app.world()
+                .resource::<PaneFocusIncoming>()
+                .0
+                .get(&a)
+                .is_none()
+        );
 
         app.world_mut().entity_mut(a).remove::<Active>();
         app.world_mut().entity_mut(b).insert(Active);
         app.update();
 
         assert_eq!(
-            app.world().resource::<PaneFocusIncoming>().0.get(&b).copied(),
+            app.world()
+                .resource::<PaneFocusIncoming>()
+                .0
+                .get(&b)
+                .copied(),
             Some(a)
         );
     }

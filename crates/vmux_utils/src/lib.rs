@@ -80,16 +80,11 @@ pub fn run_dx_web_bundle(
     for a in extra_dx_args {
         cmd.arg(a);
     }
-    let status = cmd.status().unwrap_or_else(|e| {
-        panic!(
-            "vmux: failed to spawn dx ({}): {e}",
-            dx.display()
-        )
-    });
+    let status = cmd
+        .status()
+        .unwrap_or_else(|e| panic!("vmux: failed to spawn dx ({}): {e}", dx.display()));
     if !status.success() {
-        panic!(
-            "vmux: `dx build --platform web -p {package}` failed (release={release})"
-        );
+        panic!("vmux: `dx build --platform web -p {package}` failed (release={release})");
     }
 }
 
@@ -112,11 +107,7 @@ pub fn replace_dist_from_dx_public(public: &Path, dist: &Path, shell_index: &Pat
         panic!("vmux: failed to create {}: {e}", dist.display());
     });
     copy_dir_recursive(public, dist).unwrap_or_else(|e| {
-        panic!(
-            "vmux: copy {} -> {}: {e}",
-            public.display(),
-            dist.display()
-        );
+        panic!("vmux: copy {} -> {}: {e}", public.display(), dist.display());
     });
     merge_cef_shell_index(dist, shell_index);
 }
@@ -147,8 +138,7 @@ fn merge_cef_shell_index(dist: &Path, shell_index: &Path) {
 
 fn dx_module_script_href(dx_html: &str) -> String {
     static RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r#"(?s)<script\s+[^>]*type="module"[^>]*\ssrc="([^"]+)""#)
-            .expect("regex")
+        Regex::new(r#"(?s)<script\s+[^>]*type="module"[^>]*\ssrc="([^"]+)""#).expect("regex")
     });
     let Some(cap) = RE.captures(dx_html) else {
         panic!("vmux: dx index.html has no <script type=\"module\" src=\"...\">");
@@ -157,9 +147,7 @@ fn dx_module_script_href(dx_html: &str) -> String {
 }
 
 fn href_for_shell(dx_url: &str) -> String {
-    let path = dx_url
-        .trim_start_matches("/./")
-        .trim_start_matches('/');
+    let path = dx_url.trim_start_matches("/./").trim_start_matches('/');
     format!("./{path}")
 }
 

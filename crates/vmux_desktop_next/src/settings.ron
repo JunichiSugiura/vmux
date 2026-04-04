@@ -1,0 +1,14 @@
+(
+    browser: (
+        startup_url: "https://www.google.com",
+    ),
+    layout: (
+        window: (
+            padding: 8.0,
+        ),
+        pane: (
+            gap: 8.0,
+            border_radius: 8.0,
+        ),
+    ),
+)

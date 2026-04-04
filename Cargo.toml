@@ -5,10 +5,6 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
-[[example]]
-name = "v0_1_architecture"
-path = "examples/v0.1-architecture.rs"
-
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 bevy = { workspace = true }
 bevy_cef = { workspace = true, features = ["debug"] }
@@ -33,6 +29,7 @@ members = [
     "crates/vmux_settings",
     "crates/vmux_session",
     "crates/vmux_desktop",
+    "crates/vmux_desktop_next",
     "crates/vmux_scene",
     "crates/vmux_server",
     "crates/vmux_browser",

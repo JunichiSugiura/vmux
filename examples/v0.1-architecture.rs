@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
-use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
+use bevy::window::{CompositeAlphaMode, PrimaryWindow, Window as NativeWindow, WindowPlugin};
 use bevy_cef::prelude::*;
 use chrono::{DateTime, Duration, Utc};
 use url::Url;
@@ -12,6 +12,7 @@ use vmux_scene::ScenePlugin;
 use vmux_webview_app::{JsEmitUiReadyPlugin, UiReady};
 
 const EXAMPLE_PANE_BORDER_RADIUS_PX: f32 = 8.0;
+const EXAMPLE_CAMERA_TO_PLANE: f32 = 3.0;
 
 struct LayoutPlugin;
 
@@ -51,10 +52,7 @@ fn spawn_window_on_new_space(mut commands: Commands, query: Query<Entity, Added<
     }
 }
 
-fn spawn_pane_on_new_window(
-    mut commands: Commands,
-    query: Query<Entity, Added<Window>>,
-) {
+fn spawn_pane_on_new_window(mut commands: Commands, query: Query<Entity, Added<Window>>) {
     for window in query.iter() {
         commands.entity(window).with_children(|parent| {
             parent.spawn(PaneBundle {
@@ -85,22 +83,34 @@ fn spawn_browser_on_new_tab(
     query: Query<Entity, Added<Tab>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
+    window: Query<&bevy::window::Window, With<PrimaryWindow>>,
+    camera_proj: Query<(&Camera, &Projection), With<Camera3d>>,
+    cameras: Query<&Camera>,
 ) {
-    let layout_px = WebviewSize::default().0;
+    let layout_px = browser_layout_px(&window, &cameras);
     let w = layout_px.x.max(1.0e-6);
     let h = layout_px.y.max(1.0e-6);
     let m = w.min(h);
     let r_px = EXAMPLE_PANE_BORDER_RADIUS_PX.min(m * 0.5).max(0.0);
+    let world_half = camera_proj
+        .single()
+        .map(|(_, projection)| {
+            world_half_extents_fill_plane(projection, w / h, EXAMPLE_CAMERA_TO_PLANE)
+        })
+        .unwrap_or_else(|_| Vec2::new(w * 0.5, h * 0.5));
     for tab in query.iter() {
         let mut mat = WebviewExtendStandardMaterial::default();
         mat.extension.pane_corner_clip = Vec4::new(r_px, w, h, PANE_CORNER_CLIP_FULL);
         commands.entity(tab).with_children(|parent| {
-            parent.spawn(BrowserBundle {
-                browser: Browser,
-                source: WebviewSource::new("https://example.com/"),
-                mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::ONE))),
-                material: MeshMaterial3d(materials.add(mat)),
-            });
+            parent.spawn((
+                BrowserBundle {
+                    browser: Browser,
+                    source: WebviewSource::new("https://example.com/"),
+                    mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, world_half))),
+                    material: MeshMaterial3d(materials.add(mat)),
+                },
+                WebviewSize(layout_px),
+            ));
         });
     }
 }
@@ -269,6 +279,55 @@ impl Plugin for BrowserPlugin {
             },
         ))
         .add_systems(Update, spawn_browser_on_new_tab);
+    }
+}
+
+fn browser_layout_px(
+    window: &Query<&bevy::window::Window, With<PrimaryWindow>>,
+    cameras: &Query<&Camera>,
+) -> Vec2 {
+    if let Ok(w) = window.single() {
+        let width = w.width();
+        let height = w.height();
+        if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+            return Vec2::new(width, height);
+        }
+    }
+    for cam in cameras.iter() {
+        if let Some(size) = cam.logical_viewport_size()
+            && size.x > 0.0
+            && size.y > 0.0
+            && size.x.is_finite()
+            && size.y.is_finite()
+        {
+            return size;
+        }
+    }
+    WebviewSize::default().0
+}
+
+fn world_half_extents_fill_plane(
+    projection: &Projection,
+    window_aspect: f32,
+    camera_to_plane: f32,
+) -> Vec2 {
+    let aspect = if window_aspect.is_finite() && window_aspect > 0.0 {
+        window_aspect
+    } else {
+        1.0
+    };
+    match projection {
+        Projection::Perspective(p) => {
+            let ar = if p.aspect_ratio > 0.0 && p.aspect_ratio.is_finite() {
+                p.aspect_ratio
+            } else {
+                aspect
+            };
+            let half_h = camera_to_plane * (p.fov * 0.5).tan();
+            let half_w = half_h * ar;
+            Vec2::new(half_w, half_h)
+        }
+        _ => Vec2::new(camera_to_plane * 0.5 * aspect, camera_to_plane * 0.5),
     }
 }
 

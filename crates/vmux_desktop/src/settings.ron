@@ -8,7 +8,7 @@
         ),
         pane: (
             gap: 8.0,
-            border_radius: 8.0,
+            radius: 8.0,
         ),
     ),
 )

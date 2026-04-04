@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use bevy::camera::CameraUpdateSystems;
 use bevy::prelude::*;
+use bevy::render::alpha::AlphaMode;
 use bevy::window::{PrimaryWindow, Window as NativeWindow};
 use bevy_cef::prelude::*;
 use vmux_webview_app::JsEmitUiReadyPlugin;
@@ -27,7 +28,6 @@ impl Plugin for BrowserPlugin {
 }
 
 const CAMERA_TO_PLANE: f32 = 3.0;
-const PANE_CORNER_CLIP: f32 = 0.0;
 
 #[derive(Bundle)]
 struct BrowserBundle {
@@ -48,21 +48,38 @@ struct BrowserPlaneLayout {
     world_half: Vec2,
 }
 
+impl BrowserPlaneLayout {
+    fn webview_corner_uniform(&self) -> Vec4 {
+        let w = self.layout_px.x.max(1.0e-6);
+        let h = self.layout_px.y.max(1.0e-6);
+        Vec4::new(self.r_px, w, h, 0.0)
+    }
+}
+
 fn browser_plane_layout(
     settings: &AppSettings,
     window: &Query<&NativeWindow, With<PrimaryWindow>>,
     camera_proj: &Query<(&Camera, &Projection), With<Camera3d>>,
     cameras: &Query<&Camera>,
 ) -> BrowserPlaneLayout {
-    let layout_px = browser_layout_px(window, cameras);
-    let w = layout_px.x.max(1.0e-6);
-    let h = layout_px.y.max(1.0e-6);
+    let full_px = browser_window_px(window, cameras);
+    let fw = full_px.x.max(1.0e-6);
+    let fh = full_px.y.max(1.0e-6);
+    let inset = settings.layout.window.padding.max(0.0);
+    let layout_px = Vec2::new(
+        (fw - 2.0 * inset).max(1.0e-6),
+        (fh - 2.0 * inset).max(1.0e-6),
+    );
+    let w = layout_px.x;
+    let h = layout_px.y;
     let m = w.min(h);
-    let r_px = settings.layout.pane.border_radius.min(m * 0.5).max(0.0);
-    let world_half = camera_proj
+    let r_px = settings.layout.pane.radius.min(m * 0.5).max(0.0);
+    let mut world_half = camera_proj
         .single()
-        .map(|(_, projection)| world_half_extents_fill_plane(projection, w / h, CAMERA_TO_PLANE))
-        .unwrap_or_else(|_| Vec2::new(w * 0.5, h * 0.5));
+        .map(|(_, projection)| world_half_extents_fill_plane(projection, fw / fh, CAMERA_TO_PLANE))
+        .unwrap_or_else(|_| Vec2::new(fw * 0.5, fh * 0.5));
+    world_half.x *= w / fw;
+    world_half.y *= h / fh;
     BrowserPlaneLayout {
         layout_px,
         r_px,
@@ -81,11 +98,10 @@ fn spawn_browser_on_new_tab(
     cameras: Query<&Camera>,
 ) {
     let plane = browser_plane_layout(&settings, &window, &camera_proj, &cameras);
-    let w = plane.layout_px.x.max(1.0e-6);
-    let h = plane.layout_px.y.max(1.0e-6);
     for tab in query.iter() {
         let mut mat = WebviewExtendStandardMaterial::default();
-        mat.extension.pane_corner_clip = Vec4::new(plane.r_px, w, h, PANE_CORNER_CLIP);
+        mat.base.alpha_mode = AlphaMode::Blend;
+        mat.extension.pane_corner_clip = plane.webview_corner_uniform();
         commands.entity(tab).with_children(|parent| {
             parent.spawn((
                 BrowserBundle {
@@ -117,8 +133,6 @@ fn sync_browser_plane_to_window(
     >,
 ) {
     let plane = browser_plane_layout(&settings, &window, &camera_proj, &cameras);
-    let w = plane.layout_px.x.max(1.0e-6);
-    let h = plane.layout_px.y.max(1.0e-6);
     for (mut webview_size, mesh_3d, mat_h) in browsers.iter_mut() {
         let prev = webview_size.0;
         if (prev.x - plane.layout_px.x).abs() < 0.5 && (prev.y - plane.layout_px.y).abs() < 0.5 {
@@ -129,12 +143,12 @@ fn sync_browser_plane_to_window(
             *mesh = Mesh::from(Plane3d::new(Vec3::Z, plane.world_half));
         }
         if let Some(mat) = materials.get_mut(&mat_h.0) {
-            mat.extension.pane_corner_clip = Vec4::new(plane.r_px, w, h, PANE_CORNER_CLIP);
+            mat.extension.pane_corner_clip = plane.webview_corner_uniform();
         }
     }
 }
 
-fn browser_layout_px(
+fn browser_window_px(
     window: &Query<&NativeWindow, With<PrimaryWindow>>,
     cameras: &Query<&Camera>,
 ) -> Vec2 {

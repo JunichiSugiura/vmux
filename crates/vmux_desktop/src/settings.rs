@@ -35,7 +35,7 @@ pub struct WindowSettings {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaneSettings {
     pub gap: f32,
-    pub border_radius: f32,
+    pub radius: f32,
 }
 
 const DEFAULT_SETTINGS: &str = include_str!("settings.ron");

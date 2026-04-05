@@ -1,7 +1,14 @@
-use crate::command::AppCommand;
-use bevy::ecs::system::NonSendMarker;
+use crate::command::{NewSpaceCommand, SplitHorizontallyCommand, SplitVerticallyCommand};
 use bevy::prelude::*;
 use muda::{Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu};
+use parking_lot::Mutex;
+use std::sync::LazyLock;
+
+static PENDING_MENU_EVENTS: LazyLock<Mutex<Vec<String>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+#[allow(dead_code)]
+struct NativeMenuResource(Menu);
 
 pub struct NativeMenuPlugin;
 
@@ -12,7 +19,7 @@ impl Plugin for NativeMenuPlugin {
     }
 }
 
-fn setup(_main_thread_only: NonSendMarker) {
+fn setup(world: &mut World) {
     let menu = Menu::new();
 
     let app_menu = Submenu::new("Vmux", true);
@@ -37,27 +44,37 @@ fn setup(_main_thread_only: NonSendMarker) {
         ])
         .unwrap();
 
-    menu.append_items(&[&app_menu, &space_menu, &pane_menu]).unwrap();
+    menu.append_items(&[&app_menu, &space_menu, &pane_menu])
+        .unwrap();
 
     #[cfg(target_os = "macos")]
     menu.init_for_nsapp();
+
+    MenuEvent::set_event_handler(Some(|event: MenuEvent| {
+        PENDING_MENU_EVENTS.lock().push(event.id.0.clone());
+    }));
+
+    world.insert_non_send_resource(NativeMenuResource(menu));
 }
 
-fn forward_menu_events(mut writer: MessageWriter<AppCommand>) {
-    while let Ok(event) = MenuEvent::receiver().try_recv() {
-        match event.id.as_ref() {
-            "new_space" => {
-                writer.write(AppCommand::NewSpace);
-            }
-            "split_vertically" => {
-                writer.write(AppCommand::SplitVertically);
-            }
-            "split_horizontally" => {
-                writer.write(AppCommand::SplitHorizontally);
-            }
-            _ => {
-                bevy::log::warn!("Unknown menu item: {:?}", event.id);
-            }
+fn forward_menu_events(world: &mut World) {
+    let drained = {
+        let mut events = PENDING_MENU_EVENTS.lock();
+        if events.is_empty() {
+            return;
+        }
+        std::mem::take(&mut *events)
+    };
+
+    for event_id in drained {
+        match event_id.as_str() {
+            "new_space" => world.trigger(NewSpaceCommand),
+            "split_vertically" => world.trigger(SplitVerticallyCommand),
+            "split_horizontally" => world.trigger(SplitHorizontallyCommand),
+            _ => warn!(
+                len = event_id.len(),
+                "unknown native menu item"
+            ),
         }
     }
 }

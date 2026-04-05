@@ -8,6 +8,8 @@ mod settings;
 use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
+#[cfg(target_os = "macos")]
+use bevy::winit::WinitSettings;
 
 use crate::command::CommandPlugin;
 use crate::menu::NativeMenuPlugin;
@@ -43,11 +45,14 @@ impl Plugin for VmuxPlugin {
                 .set(window_plugin),
             SettingsPlugin,
             ScenePlugin,
+            CommandPlugin,
             LayoutPlugin,
             BrowserPlugin,
             HistoryPlugin,
-            CommandPlugin,
             NativeMenuPlugin,
         ));
+
+        #[cfg(target_os = "macos")]
+        app.insert_resource(WinitSettings::desktop_app());
     }
 }

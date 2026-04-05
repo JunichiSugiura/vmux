@@ -3,14 +3,14 @@ use bevy::prelude::*;
 pub struct CommandPlugin;
 
 impl Plugin for CommandPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_message::<AppCommand>();
-    }
+    fn build(&self, _app: &mut App) {}
 }
 
-#[derive(Message)]
-pub enum AppCommand {
-    NewSpace,
-    SplitVertically,
-    SplitHorizontally,
-}
+#[derive(Event)]
+pub struct NewSpaceCommand;
+
+#[derive(Event)]
+pub struct SplitVerticallyCommand;
+
+#[derive(Event)]
+pub struct SplitHorizontallyCommand;

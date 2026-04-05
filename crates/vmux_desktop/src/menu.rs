@@ -29,7 +29,15 @@ fn setup(_main_thread_only: NonSendMarker) {
         .append_items(&[&MenuItem::with_id("new_space", "New Space", true, None)])
         .unwrap();
 
-    menu.append_items(&[&app_menu, &space_menu]).unwrap();
+    let pane_menu = Submenu::new("Pane", true);
+    pane_menu
+        .append_items(&[
+            &MenuItem::with_id("split_vertically", "Split Vertically", true, None),
+            &MenuItem::with_id("split_horizontally", "Split Horizontally", true, None),
+        ])
+        .unwrap();
+
+    menu.append_items(&[&app_menu, &space_menu, &pane_menu]).unwrap();
 
     #[cfg(target_os = "macos")]
     menu.init_for_nsapp();
@@ -40,6 +48,12 @@ fn forward_menu_events(mut writer: MessageWriter<AppCommand>) {
         match event.id.as_ref() {
             "new_space" => {
                 writer.write(AppCommand::NewSpace);
+            }
+            "split_vertically" => {
+                writer.write(AppCommand::SplitVertically);
+            }
+            "split_horizontally" => {
+                writer.write(AppCommand::SplitHorizontally);
             }
             _ => {
                 bevy::log::warn!("Unknown menu item: {:?}", event.id);

@@ -2,11 +2,15 @@ use bevy::prelude::*;
 use directories::ProjectDirs;
 use serde::Deserialize;
 
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct LoadAppSettings;
+
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_settings_file);
+        app.configure_sets(Startup, LoadAppSettings)
+            .add_systems(Startup, load_settings_file.in_set(LoadAppSettings));
     }
 }
 

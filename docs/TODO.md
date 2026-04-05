@@ -99,7 +99,10 @@
 
 - Tab
 - Pane
-- Browser navigation
+- Browser
+    - Loading indicator
+    - Navigation
+    - History
 - Native Menu
 - Keyboard Input / Key bindings
 - Mouse Input

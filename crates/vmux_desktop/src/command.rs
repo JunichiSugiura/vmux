@@ -11,9 +11,6 @@ impl Plugin for CommandPlugin {
 #[derive(Message)]
 pub enum AppCommand {
     NewSpace,
-    NewWindow,
-    SplitPaneHorizontal,
-    SplitPaneVertical,
-    NewTab,
-    CloseTab,
+    SplitVertically,
+    SplitHorizontally,
 }

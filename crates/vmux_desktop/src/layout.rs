@@ -8,7 +8,7 @@ use bevy::shader::ShaderRef;
 use bevy::ui::UiSystems;
 use bevy::window::{PrimaryWindow, Window as NativeWindow};
 
-use crate::command::AppCommand;
+use crate::command::{NewSpaceCommand, SplitHorizontallyCommand, SplitVerticallyCommand};
 use crate::settings::{AppSettings, LoadAppSettings};
 use vmux_history::{CreatedAt, LastActivatedAt};
 
@@ -42,8 +42,11 @@ impl Plugin for LayoutPlugin {
                     .after(TabLayoutSync)
                     .after(CameraUpdateSystems),
             )
-            .add_systems(Update, (handle_new_space, tick_outline_gradient_time))
-            .add_observer(attach_pane_pointer_observer);
+            .add_systems(Update, tick_outline_gradient_time)
+            .add_observer(attach_pane_pointer_observer)
+            .add_observer(on_new_space_command)
+            .add_observer(on_split_vertically_command)
+            .add_observer(on_split_horizontally_command);
         load_internal_asset!(app, OUTLINE_SHADER, "./outline.wgsl", Shader::from_wgsl);
     }
 }
@@ -140,9 +143,7 @@ pub(crate) struct Focused;
 pub(crate) struct InFocusNode(pub Option<Entity>);
 
 fn attach_pane_pointer_observer(add: On<Add, Pane>, mut commands: Commands) {
-    commands
-        .entity(add.entity)
-        .observe(pane_pointer_set_focus);
+    commands.entity(add.entity).observe(pane_pointer_set_focus);
 }
 
 fn pane_pointer_set_focus(
@@ -172,9 +173,7 @@ fn pane_pointer_set_focus(
     }
 }
 
-fn sync_pane_flex_from_orientation(
-    mut q: Query<(&Orientation, &Weight, &mut Node), With<Pane>>,
-) {
+fn sync_pane_flex_from_orientation(mut q: Query<(&Orientation, &Weight, &mut Node), With<Pane>>) {
     for (orientation, weight, mut node) in &mut q {
         let dir = orientation.flex_direction();
         if node.flex_direction != dir {
@@ -306,41 +305,135 @@ impl Default for TabBundle {
     }
 }
 
-fn spawn_space_on_startup(mut msg: MessageWriter<AppCommand>, q: Query<&Space>) {
+fn spawn_space_on_startup(mut commands: Commands, q: Query<&Space>) {
     if q.is_empty() {
-        msg.write(AppCommand::NewSpace);
+        commands.trigger(NewSpaceCommand);
     }
 }
 
-fn handle_new_space(
-    mut msg: MessageReader<AppCommand>,
+fn on_new_space_command(
+    _: On<NewSpaceCommand>,
     mut commands: Commands,
     mut focus_node: ResMut<InFocusNode>,
     settings: Res<AppSettings>,
     camera_q: Query<Entity, With<Camera3d>>,
 ) {
-    for cmd in msg.read() {
-        if matches!(cmd, AppCommand::NewSpace) {
-            let Ok(camera) = camera_q.single() else {
-                continue;
-            };
-            let inset = settings.layout.window.padding.max(0.0);
-            let mut pane_entity = Entity::PLACEHOLDER;
-            commands
-                .spawn((SpaceBundle::new(inset), UiTargetCamera(camera)))
-                .with_children(|space| {
-                    space.spawn(WindowBundle::default()).with_children(|window| {
-                        window
-                            .spawn(PaneBundle::new(Orientation::default(), 1.0))
-                            .with_children(|pane| {
-                                pane_entity = pane.target_entity();
-                                pane.spawn((TabBundle::default(), Focused));
-                            });
-                    });
+    let Ok(camera) = camera_q.single() else {
+        return;
+    };
+    let inset = settings.layout.window.padding.max(0.0);
+    let mut pane_entity = Entity::PLACEHOLDER;
+    commands
+        .spawn((SpaceBundle::new(inset), UiTargetCamera(camera)))
+        .with_children(|space| {
+            space
+                .spawn(WindowBundle::default())
+                .with_children(|window| {
+                    window
+                        .spawn(PaneBundle::new(Orientation::default(), 1.0))
+                        .with_children(|pane| {
+                            pane_entity = pane.target_entity();
+                            pane.spawn((TabBundle::default(), Focused));
+                        });
                 });
-            focus_node.0 = Some(pane_entity);
+        });
+    focus_node.0 = Some(pane_entity);
+}
+
+fn on_split_vertically_command(
+    _: On<SplitVerticallyCommand>,
+    mut commands: Commands,
+    mut focus_node: ResMut<InFocusNode>,
+    children_q: Query<&Children>,
+    tabs: Query<Entity, With<Tab>>,
+    panes: Query<(), With<Pane>>,
+    focused_tabs: Query<Entity, With<Focused>>,
+    mut pane_orientations: Query<&mut Orientation, With<Pane>>,
+) {
+    split_focused_pane(
+        &mut commands,
+        &mut *focus_node,
+        Orientation::Horizontal,
+        &children_q,
+        &tabs,
+        &panes,
+        &focused_tabs,
+        &mut pane_orientations,
+    );
+}
+
+fn on_split_horizontally_command(
+    _: On<SplitHorizontallyCommand>,
+    mut commands: Commands,
+    mut focus_node: ResMut<InFocusNode>,
+    children_q: Query<&Children>,
+    tabs: Query<Entity, With<Tab>>,
+    panes: Query<(), With<Pane>>,
+    focused_tabs: Query<Entity, With<Focused>>,
+    mut pane_orientations: Query<&mut Orientation, With<Pane>>,
+) {
+    split_focused_pane(
+        &mut commands,
+        &mut *focus_node,
+        Orientation::Vertical,
+        &children_q,
+        &tabs,
+        &panes,
+        &focused_tabs,
+        &mut pane_orientations,
+    );
+}
+
+fn split_focused_pane(
+    commands: &mut Commands,
+    focus_node: &mut InFocusNode,
+    split_axis: Orientation,
+    children_q: &Query<&Children>,
+    tabs: &Query<Entity, With<Tab>>,
+    panes: &Query<(), With<Pane>>,
+    focused_tabs: &Query<Entity, With<Focused>>,
+    pane_orientations: &mut Query<&mut Orientation, With<Pane>>,
+) {
+    let Some(pane) = focus_node.0 else {
+        return;
+    };
+    if !panes.contains(pane) {
+        return;
+    }
+    let Ok(children) = children_q.get(pane) else {
+        return;
+    };
+    let mut tab_entity = None;
+    for child in children.iter() {
+        if tabs.contains(child) {
+            tab_entity = Some(child);
+            break;
         }
     }
+    let Some(tab) = tab_entity else {
+        return;
+    };
+    let Ok(mut orientation) = pane_orientations.get_mut(pane) else {
+        return;
+    };
+    *orientation = split_axis;
+
+    let left = commands
+        .spawn((PaneBundle::new(Orientation::Vertical, 1.0), ChildOf(pane)))
+        .id();
+    let right = commands
+        .spawn((PaneBundle::new(Orientation::Vertical, 1.0), ChildOf(pane)))
+        .id();
+
+    commands.entity(tab).insert(ChildOf(left));
+
+    for t in focused_tabs.iter() {
+        commands.entity(t).remove::<Focused>();
+    }
+    commands.entity(right).with_children(|pane| {
+        pane.spawn((TabBundle::default(), Focused));
+    });
+    focus_node.0 = Some(right);
 }
 
 fn space_root_node(padding: f32) -> Node {
@@ -404,7 +497,9 @@ fn outline_material_for_plane(
     let border_color = Color::srgb(c.r, c.g, c.b).to_linear().to_vec4();
     let g = &settings.layout.pane.outline.gradient;
     let accent = &g.accent;
-    let border_accent = Color::srgb(accent.r, accent.g, accent.b).to_linear().to_vec4();
+    let border_accent = Color::srgb(accent.r, accent.g, accent.b)
+        .to_linear()
+        .to_vec4();
     let grad_on = if g.enabled { 1.0 } else { 0.0 };
     let gradient_params = Vec4::new(grad_on, g.speed, g.cycles.max(0.01), time_secs);
     let spread = settings.layout.pane.outline.glow.spread.max(0.5);
@@ -487,8 +582,11 @@ fn spawn_global_outline(
     time: Res<Time>,
 ) {
     let plane = LayoutPlane::default();
-    let outline_mat =
-        outline_materials.add(outline_material_for_plane(&plane, &settings, time.elapsed_secs()));
+    let outline_mat = outline_materials.add(outline_material_for_plane(
+        &plane,
+        &settings,
+        time.elapsed_secs(),
+    ));
     let outer_mesh = meshes.add(Plane3d::new(Vec3::Z, plane.outer_world_half));
     commands.spawn((
         NomadicOutline,

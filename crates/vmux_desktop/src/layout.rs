@@ -8,53 +8,16 @@ use bevy::shader::ShaderRef;
 use crate::command::AppCommand;
 use vmux_history::{CreatedAt, LastActivatedAt};
 
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-pub(crate) struct OutlineMaterial {
-    #[uniform(0)]
-    pub pane_inner: Vec4,
-    #[uniform(1)]
-    pub pane_outer: Vec4,
-    #[uniform(2)]
-    pub border_color: Vec4,
-    #[uniform(3)]
-    pub glow_params: Vec4,
-    #[uniform(4)]
-    pub gradient_params: Vec4,
-    #[uniform(5)]
-    pub border_accent: Vec4,
-    pub alpha_mode: AlphaMode,
-}
-
-#[derive(Component)]
-pub(crate) struct Outline;
-
 pub struct LayoutPlugin;
-
-const OUTLINE_SHADER: Handle<Shader> = uuid_handle!("c4a8e901-2b7d-4c1e-9f63-7a2d8e5b1044");
-
-impl Material for OutlineMaterial {
-    fn fragment_shader() -> ShaderRef {
-        OUTLINE_SHADER.into()
-    }
-
-    fn alpha_mode(&self) -> AlphaMode {
-        self.alpha_mode
-    }
-}
 
 impl Plugin for LayoutPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((MaterialPlugin::<OutlineMaterial>::default(),))
+            .add_observer(spawn_window_on_space_added)
+            .add_observer(spawn_pane_on_window_added)
+            .add_observer(spawn_tab_on_pane_added)
             .add_systems(Startup, spawn_space_on_startup)
-            .add_systems(
-                Update,
-                (
-                    handle_new_space,
-                    spawn_window_on_new_space,
-                    spawn_pane_on_new_window,
-                    spawn_tab_on_new_pane,
-                ),
-            );
+            .add_systems(Update, handle_new_space);
         load_internal_asset!(app, OUTLINE_SHADER, "./outline.wgsl", Shader::from_wgsl);
     }
 }
@@ -110,6 +73,38 @@ enum Pane {
 #[derive(Component, Clone, Copy, Debug)]
 struct Weight(f32);
 
+#[derive(Component)]
+pub(crate) struct Outline;
+
+const OUTLINE_SHADER: Handle<Shader> = uuid_handle!("c4a8e901-2b7d-4c1e-9f63-7a2d8e5b1044");
+
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub(crate) struct OutlineMaterial {
+    #[uniform(0)]
+    pub pane_inner: Vec4,
+    #[uniform(1)]
+    pub pane_outer: Vec4,
+    #[uniform(2)]
+    pub border_color: Vec4,
+    #[uniform(3)]
+    pub glow_params: Vec4,
+    #[uniform(4)]
+    pub gradient_params: Vec4,
+    #[uniform(5)]
+    pub border_accent: Vec4,
+    pub alpha_mode: AlphaMode,
+}
+
+impl Material for OutlineMaterial {
+    fn fragment_shader() -> ShaderRef {
+        OUTLINE_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        self.alpha_mode
+    }
+}
+
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct Tab;
 
@@ -145,47 +140,74 @@ fn handle_new_space(mut msg: MessageReader<AppCommand>, mut commands: Commands) 
     }
 }
 
-fn spawn_window_on_new_space(mut commands: Commands, query: Query<Entity, Added<Space>>) {
-    for space in query.iter() {
-        commands.entity(space).with_children(|parent| {
-            parent.spawn(WindowBundle {
-                window: Window,
-                name: Name::new("Default Window"),
-                spatial: SpatialBundle::default(),
-                created_at: CreatedAt::default(),
-                last_activated_at: LastActivatedAt::default(),
-            });
-        });
+fn spawn_window_on_space_added(
+    add: On<Add, Space>,
+    mut commands: Commands,
+    children_q: Query<&Children>,
+    window_q: Query<(), With<Window>>,
+) {
+    let space = add.entity;
+    if let Ok(children) = children_q.get(space) {
+        for child in children.iter() {
+            if window_q.contains(child) {
+                return;
+            }
+        }
     }
+    commands.entity(space).insert(children![WindowBundle {
+        window: Window,
+        name: Name::new("Default Window"),
+        spatial: SpatialBundle::default(),
+        created_at: CreatedAt::default(),
+        last_activated_at: LastActivatedAt::default(),
+    }]);
 }
 
-fn spawn_pane_on_new_window(mut commands: Commands, query: Query<Entity, Added<Window>>) {
-    for window in query.iter() {
-        commands.entity(window).with_children(|parent| {
-            let w0 = Weight(1.0);
-            let w0_share = w0.0;
-            parent.spawn(PaneBundle {
-                pane: Pane::Horizontal,
-                weight: w0,
-                name: Name::new(format!("Pane {:.2}", w0_share)),
-                spatial: SpatialBundle::default(),
-                created_at: CreatedAt::default(),
-                last_activated_at: LastActivatedAt::default(),
-            });
-        });
+fn spawn_pane_on_window_added(
+    add: On<Add, Window>,
+    mut commands: Commands,
+    children_q: Query<&Children>,
+    pane_q: Query<(), With<Pane>>,
+) {
+    let window = add.entity;
+    if let Ok(children) = children_q.get(window) {
+        for child in children.iter() {
+            if pane_q.contains(child) {
+                return;
+            }
+        }
     }
+    let w0 = Weight(1.0);
+    let w0_share = w0.0;
+    commands.entity(window).insert(children![PaneBundle {
+        pane: Pane::Horizontal,
+        weight: w0,
+        name: Name::new(format!("Pane {:.2}", w0_share)),
+        spatial: SpatialBundle::default(),
+        created_at: CreatedAt::default(),
+        last_activated_at: LastActivatedAt::default(),
+    }]);
 }
 
-fn spawn_tab_on_new_pane(mut commands: Commands, query: Query<Entity, Added<Pane>>) {
-    for pane in query.iter() {
-        commands.entity(pane).with_children(|parent| {
-            parent.spawn(TabBundle {
-                tab: Tab,
-                name: Name::new("New Tab"),
-                spatial: SpatialBundle::default(),
-                created_at: CreatedAt::default(),
-                last_activated_at: LastActivatedAt::default(),
-            });
-        });
+fn spawn_tab_on_pane_added(
+    add: On<Add, Pane>,
+    mut commands: Commands,
+    children_q: Query<&Children>,
+    tab_q: Query<(), With<Tab>>,
+) {
+    let pane = add.entity;
+    if let Ok(children) = children_q.get(pane) {
+        for child in children.iter() {
+            if tab_q.contains(child) {
+                return;
+            }
+        }
     }
+    commands.entity(pane).insert(children![TabBundle {
+        tab: Tab,
+        name: Name::new("New Tab"),
+        spatial: SpatialBundle::default(),
+        created_at: CreatedAt::default(),
+        last_activated_at: LastActivatedAt::default(),
+    }]);
 }

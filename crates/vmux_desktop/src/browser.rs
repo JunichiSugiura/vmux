@@ -201,14 +201,12 @@ fn spawn_browser_on_new_tab(
             let outline_mat =
                 outline_materials.add(outline_material_for_plane(&plane, &settings, time_secs));
             let outer_mesh = meshes.add(Plane3d::new(Vec3::Z, plane.outer_world_half));
-            commands.entity(browser_id).with_children(|parent| {
-                parent.spawn((
-                    Outline,
-                    Mesh3d(outer_mesh),
-                    MeshMaterial3d(outline_mat),
-                    Transform::from_translation(Vec3::new(0.0, 0.0, -OUTLINE_Z_BACK)),
-                ));
-            });
+            commands.entity(browser_id).insert(children![(
+                Outline,
+                Mesh3d(outer_mesh),
+                MeshMaterial3d(outline_mat),
+                Transform::from_translation(Vec3::new(0.0, 0.0, -OUTLINE_Z_BACK)),
+            )]);
         }
     }
 }
@@ -283,14 +281,12 @@ fn sync_browser_plane_to_window(
             } else {
                 let outline_mat = outline_materials.add(mat);
                 let outer_mesh = meshes.add(Plane3d::new(Vec3::Z, plane.outer_world_half));
-                commands.entity(browser_entity).with_children(|parent| {
-                    parent.spawn((
-                        Outline,
-                        Mesh3d(outer_mesh),
-                        MeshMaterial3d(outline_mat),
-                        Transform::from_translation(Vec3::new(0.0, 0.0, -OUTLINE_Z_BACK)),
-                    ));
-                });
+                commands.entity(browser_entity).insert(children![(
+                    Outline,
+                    Mesh3d(outer_mesh),
+                    MeshMaterial3d(outline_mat),
+                    Transform::from_translation(Vec3::new(0.0, 0.0, -OUTLINE_Z_BACK)),
+                )]);
             }
         } else if let Some(oe) = outline_entity {
             commands.entity(oe).despawn();

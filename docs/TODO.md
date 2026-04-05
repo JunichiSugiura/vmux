@@ -94,3 +94,13 @@
 
 - Windows support
 - Linux support
+
+### Architecture refactoring
+
+- Tab
+- Pane
+- Browser navigation
+- Native Menu
+- Keyboard Input / Key bindings
+- Mouse Input
+- Profile / Session

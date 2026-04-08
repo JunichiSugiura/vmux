@@ -1,11 +1,16 @@
 use crate::command::{AppCommand, CameraCommand};
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::{
-    camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
+    camera_controller::free_camera::{FreeCamera, FreeCameraPlugin, FreeCameraState},
     window::PrimaryWindow,
 };
 use bevy_cef::prelude::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
 
 // #[cfg(target_os = "macos")]
 // use bevy::window::RawHandleWrapper;
@@ -26,12 +31,16 @@ const DISPLAY_DEPTH: f32 = 0.02;
 const DISPLAY_CENTER: Vec3 = Vec3::new(0.0, 1.0, 0.0);
 const FOV_Y: f32 = std::f32::consts::FRAC_PI_4;
 const DISPLAY_FRONT_FACE_Z: f32 = 0.5 * DISPLAY_DEPTH;
+const BOUNCE_DISPLAY_CLEARANCE: f32 = 0.9;
 
 #[derive(Component)]
 struct DisplayPanel;
 
 #[derive(Component)]
 struct MainCamera;
+
+#[derive(Component)]
+struct Bouncing;
 
 #[derive(Default)]
 pub struct ScenePlugin;
@@ -53,7 +62,8 @@ impl Plugin for ScenePlugin {
             .configure_sets(Startup, Spawn3dCamera)
             .add_systems(Startup, (setup).chain().in_set(Spawn3dCamera))
             .add_systems(Update, fit_to_window_on_resize)
-            .add_observer(on_reset_camera);
+            .add_observer(on_reset_camera)
+            .add_observer(on_toggle_free_camera);
 
         // #[cfg(target_os = "macos")]
         // app.insert_resource(ClearColor(Color::NONE))
@@ -134,7 +144,76 @@ fn setup(
                 run_speed: 2.5,
                 ..default()
             },
+            Bloom::NATURAL,
         ));
+
+        let material_emissive1 = materials.add(StandardMaterial {
+            emissive: LinearRgba::rgb(0.0, 0.0, 150.0), // 3. Put something bright in a dark environment to see the effect
+            ..default()
+        });
+        let material_emissive2 = materials.add(StandardMaterial {
+            emissive: LinearRgba::rgb(1000.0, 1000.0, 1000.0),
+            ..default()
+        });
+        let material_emissive3 = materials.add(StandardMaterial {
+            emissive: LinearRgba::rgb(50.0, 0.0, 0.0),
+            ..default()
+        });
+        let material_non_emissive = materials.add(StandardMaterial {
+            base_color: Color::BLACK,
+            ..default()
+        });
+
+        let bounce_mesh = meshes.add(Sphere::new(0.35));
+
+        let camera_pos = Vec3::new(0.0, 1.0, dist + DISPLAY_FRONT_FACE_Z);
+        let clear_radius_sq = camera_pos.distance_squared(DISPLAY_CENTER);
+
+        for x in -5..5 {
+            for z in -5..5 {
+                let px = x as f32 * 2.0;
+                let pz = z as f32 * 2.0;
+                let p = Vec3::new(px, 0.0, pz);
+                if (p - camera_pos).length_squared() < clear_radius_sq {
+                    continue;
+                }
+
+                let half_x = scale.x * 0.5;
+                let half_z = scale.z * 0.5;
+                let cx = px.abs() - half_x;
+                let cz = pz.abs() - half_z;
+                if cx <= 0.0 && cz <= 0.0 {
+                    continue;
+                }
+                let ox = cx.max(0.0);
+                let oz = cz.max(0.0);
+                if ox * ox + oz * oz < BOUNCE_DISPLAY_CLEARANCE * BOUNCE_DISPLAY_CLEARANCE {
+                    continue;
+                }
+
+                // This generates a pseudo-random integer between `[0, 6)`, but deterministically so
+                // the same spheres are always the same colors.
+                let mut hasher = DefaultHasher::new();
+                (x, z).hash(&mut hasher);
+                let rand = (hasher.finish() + 3) % 6;
+
+                let (material, scale) = match rand {
+                    0 => (material_emissive1.clone(), 0.5),
+                    1 => (material_emissive2.clone(), 0.1),
+                    2 => (material_emissive3.clone(), 1.0),
+                    3..=5 => (material_non_emissive.clone(), 1.5),
+                    _ => unreachable!(),
+                };
+
+                commands.spawn((
+                    Mesh3d(bounce_mesh.clone()),
+                    MeshMaterial3d(material),
+                    Transform::from_xyz(px, 0.0, pz)
+                        .with_scale(Vec3::splat(scale)),
+                    Bouncing,
+                ));
+            }
+        }
     }
 }
 
@@ -186,6 +265,16 @@ fn on_reset_camera(
         dist + DISPLAY_FRONT_FACE_Z,
     )
     .looking_at(DISPLAY_CENTER, Vec3::Y);
+}
+
+fn on_toggle_free_camera(
+    trigger: On<AppCommand>,
+    mut state: Single<&mut FreeCameraState, With<MainCamera>>,
+) {
+    let AppCommand::Camera(CameraCommand::ToggleFreeCamera) = *trigger.event() else {
+        return;
+    };
+    state.enabled = !state.enabled;
 }
 
 // #[cfg(target_os = "macos")]

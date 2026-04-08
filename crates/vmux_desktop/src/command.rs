@@ -40,4 +40,7 @@ pub enum CameraCommand {
     #[default]
     #[menu(id = "reset_camera", label = "Reset Camera")]
     Reset,
+
+    #[menu(id = "toggle_free_camera", label = "Toggle Free Camera")]
+    ToggleFreeCamera,
 }

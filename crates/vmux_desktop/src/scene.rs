@@ -57,17 +57,15 @@ impl Plugin for ScenePlugin {
             .insert_resource(ClearColor(Color::BLACK))
             .add_systems(
                 Startup,
-                (
-                    (setup, spawn_bloom).after(load_settings),
-                    (fit_display_glass_to_window, fit_main_camera)
-                        .chain()
-                        .after(load_settings),
-                ),
+                ((setup, fit_main_camera, spawn_bloom)
+                    .chain()
+                    .after(load_settings)
+                    .after(fit_display_glass_to_window),),
             )
             .add_systems(
                 Update,
                 (
-                    (fit_display_glass_to_window, fit_main_camera).chain(),
+                    fit_main_camera.after(fit_display_glass_to_window),
                     (on_reset_camera, on_toggle_free_camera).in_set(ReadAppCommands),
                 ),
             );
@@ -81,6 +79,9 @@ impl Plugin for ScenePlugin {
 
 fn setup(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
     commands.spawn(InfiniteGridBundle::default());
+
+    let mut state = FreeCameraState::default();
+    state.enabled = false;
 
     commands.spawn((
         MainCamera,
@@ -97,6 +98,7 @@ fn setup(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
             run_speed: 2.5,
             ..default()
         },
+        state,
         Bloom::NATURAL,
     ));
 }
@@ -203,11 +205,14 @@ fn on_reset_camera(
     window: Single<&Window, With<PrimaryWindow>>,
     mut transform: Single<&mut Transform, With<MainCamera>>,
     projection: Single<&Projection, With<MainCamera>>,
+    mut camera_state: Single<&mut FreeCameraState, With<MainCamera>>,
 ) {
     for cmd in reader.read() {
         let AppCommand::Camera(CameraCommand::Reset) = *cmd else {
             continue;
         };
+
+        camera_state.enabled = false;
 
         let aspect = match &*projection {
             Projection::Perspective(p) => p.aspect_ratio,

@@ -8721,6 +8721,7 @@ dependencies = [
  "bevy_cef",
  "bevy_ecs",
  "dioxus",
+ "serde",
  "vmux_ui",
  "vmux_utils",
  "vmux_webview_app",

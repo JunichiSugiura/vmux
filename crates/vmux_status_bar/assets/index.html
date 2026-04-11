@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html lang="en" class="dark h-full">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width"/>
+  <title>vmux status bar</title>
+  <link rel="modulepreload" href="__VMUX_DX_ENTRY__" crossorigin="anonymous"/>
+  <link rel="preload" href="__VMUX_DX_WASM__" as="fetch" type="application/wasm" crossorigin="anonymous"/>
+</head>
+<body class="m-0 flex h-full min-h-0 flex-col overflow-hidden bg-card p-0 text-foreground antialiased">
+  <div id="main" class="flex min-h-0 min-w-0 flex-1 flex-col"></div>
+  <script type="module" async src="__VMUX_DX_ENTRY__"></script>
+</body>
+</html>

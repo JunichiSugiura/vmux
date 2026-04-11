@@ -9,8 +9,6 @@ mod unit;
 use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
-#[cfg(target_os = "macos")]
-use bevy::winit::WinitSettings;
 
 use {
     // browser::BrowserPlugin,
@@ -58,8 +56,5 @@ impl Plugin for VmuxPlugin {
             // BrowserPlugin,
             // HistoryPlugin,
         ));
-
-        #[cfg(target_os = "macos")]
-        app.insert_resource(WinitSettings::game());
     }
 }

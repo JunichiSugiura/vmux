@@ -4,10 +4,10 @@
     ),
     layout: (
         window: (
-            padding: 8.0,
+            padding: 4.0,
         ),
         pane: (
-            gap: 8.0,
+            gap: 4.0,
             radius: 8.0,
             outline: (
                 width: 2.0,

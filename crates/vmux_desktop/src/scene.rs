@@ -1,8 +1,8 @@
 use crate::{
     command::{AppCommand, CameraCommand, ReadAppCommands},
-    layout3::fit_display_glass_to_window,
-    settings::load_settings,
-    unit::WindowExt,
+    layout::fit_display_glass_to_window,
+    settings::{AppSettings, load_settings},
+    unit::{PIXELS_PER_METER, WindowExt},
 };
 use bevy::{
     camera::PerspectiveProjection,
@@ -30,7 +30,11 @@ use std::marker::PhantomData;
 use std::rc::Rc;
 
 pub(crate) const FOV_Y: f32 = std::f32::consts::FRAC_PI_4;
-const BOUNCE_DISPLAY_CLEARANCE: f32 = 0.9;
+const BOUNCE_DISPLAY_CLEARANCE: f32 = 2.0;
+
+fn camera_margin_px(settings: &AppSettings) -> f32 {
+    settings.layout.window.padding + settings.layout.pane.outline.width
+}
 
 #[derive(Component)]
 pub(crate) struct MainCamera;
@@ -79,7 +83,11 @@ impl Plugin for ScenePlugin {
     }
 }
 
-pub(crate) fn setup(mut commands: Commands, window: Single<&Window, With<PrimaryWindow>>) {
+pub(crate) fn setup(
+    mut commands: Commands,
+    window: Single<&Window, With<PrimaryWindow>>,
+    settings: Res<AppSettings>,
+) {
     commands.spawn(InfiniteGridBundle::default());
 
     let mut state = FreeCameraState::default();
@@ -92,12 +100,12 @@ pub(crate) fn setup(mut commands: Commands, window: Single<&Window, With<Primary
             fov: FOV_Y,
             ..default()
         }),
-        frame_main_camera_transform(&window, window.aspect()),
+        frame_main_camera_transform(&window, window.aspect(), camera_margin_px(&settings)),
         FreeCamera {
-            sensitivity: 0.2,
+            sensitivity: 1.0,
             friction: 25.0,
             walk_speed: 0.5,
-            run_speed: 2.5,
+            run_speed: 5.0,
             ..default()
         },
         state,
@@ -115,13 +123,14 @@ fn spawn_bloom(
     let aspect = window.aspect();
 
     let tan_half_fov = (FOV_Y * 0.5).tan();
-
     let d_v = (m.y * 0.5) / tan_half_fov;
     let d_h = (m.x * 0.5) / (tan_half_fov * aspect);
-
     let dist = d_v.max(d_h);
-    let center = Vec3::new(0.0, m.y * 0.5, 0.0);
-    let camera_pos = Vec3::new(center.x, center.y, center.z + dist);
+
+    let clear_half_x = m.x * 0.5 + BOUNCE_DISPLAY_CLEARANCE;
+    let clear_z_min = -BOUNCE_DISPLAY_CLEARANCE;
+    let clear_z_max = dist + BOUNCE_DISPLAY_CLEARANCE;
+    let clear_radius = clear_half_x.hypot(clear_z_max);
 
     let mats = [
         materials.add(StandardMaterial {
@@ -143,25 +152,28 @@ fn spawn_bloom(
     ];
 
     let bounce_mesh = meshes.add(Sphere::new(0.35));
-    let clear_radius_sq = camera_pos.distance_squared(center);
 
-    for x in -5..5 {
-        for z in -5..5 {
-            let pos = Vec3::new(x as f32 * 2.0, 0.0, z as f32 * 2.0);
-            if (pos - camera_pos).length_squared() < clear_radius_sq {
-                continue;
-            }
+    let ring_count = 3;
+    let ring_spacing = 2.5;
+    let spheres_per_ring = [24, 32, 40];
 
-            let half_m = m * 0.5;
-            let delta = pos.xz().abs() - half_m;
-            let outside = delta.max(Vec2::ZERO);
+    for ring in 0..ring_count {
+        let radius = clear_radius + ring as f32 * ring_spacing;
+        let count = spheres_per_ring[ring];
 
-            if outside.length() < BOUNCE_DISPLAY_CLEARANCE {
+        for i in 0..count {
+            let angle = std::f32::consts::TAU * (i as f32 / count as f32);
+            let x = angle.cos() * radius;
+            let z = angle.sin() * radius;
+            let pos = Vec3::new(x, 0.0, z);
+
+            // Skip spheres inside the display + camera rectangular footprint
+            if x.abs() < clear_half_x && z > clear_z_min && z < clear_z_max {
                 continue;
             }
 
             let mut hasher = DefaultHasher::new();
-            (x, z).hash(&mut hasher);
+            (ring, i).hash(&mut hasher);
             let hash = hasher.finish();
 
             let (mat_idx, scale) = match hash % 6 {
@@ -183,6 +195,7 @@ fn spawn_bloom(
 
 fn fit_main_camera(
     window: Single<&Window, With<PrimaryWindow>>,
+    settings: Res<AppSettings>,
     mut camera_q: Query<(&mut Transform, &mut Projection), With<MainCamera>>,
     camera_state: Single<&FreeCameraState, With<MainCamera>>,
 ) {
@@ -198,13 +211,14 @@ fn fit_main_camera(
     }
 
     if !camera_state.enabled {
-        *tf = frame_main_camera_transform(&window, aspect);
+        *tf = frame_main_camera_transform(&window, aspect, camera_margin_px(&settings));
     }
 }
 
 fn on_reset_camera(
     mut reader: MessageReader<AppCommand>,
     window: Single<&Window, With<PrimaryWindow>>,
+    settings: Res<AppSettings>,
     mut transform: Single<&mut Transform, With<MainCamera>>,
     projection: Single<&Projection, With<MainCamera>>,
     mut camera_state: Single<&mut FreeCameraState, With<MainCamera>>,
@@ -221,7 +235,7 @@ fn on_reset_camera(
             _ => window.aspect(),
         };
 
-        **transform = frame_main_camera_transform(&window, aspect);
+        **transform = frame_main_camera_transform(&window, aspect, camera_margin_px(&settings));
     }
 }
 
@@ -259,16 +273,21 @@ fn apply_liquid_glass(
     }
 }
 
-pub(crate) fn frame_main_camera_transform(window: &Window, aspect: f32) -> Transform {
+pub(crate) fn frame_main_camera_transform(
+    window: &Window,
+    aspect: f32,
+    margin_px: f32,
+) -> Transform {
     let m = window.meters();
+    let margin = margin_px / PIXELS_PER_METER;
     let center = Vec3::new(0.0, m.y * 0.5, 0.0);
 
     let half_fov_y = FOV_Y * 0.5;
     let tan_half_fov_y = half_fov_y.tan();
 
-    let dist_to_fit_height = (m.y * 0.5) / tan_half_fov_y;
+    let dist_to_fit_height = ((m.y * 0.5) + margin) / tan_half_fov_y;
     let tan_half_fov_x = tan_half_fov_y * aspect;
-    let dist_to_fit_width = (m.x * 0.5) / tan_half_fov_x;
+    let dist_to_fit_width = ((m.x * 0.5) + margin) / tan_half_fov_x;
     let dist = dist_to_fit_height.max(dist_to_fit_width);
 
     Transform::from_xyz(center.x, center.y, center.z + dist).looking_at(center, Vec3::Y)

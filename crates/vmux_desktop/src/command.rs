@@ -54,16 +54,16 @@ pub enum TabCommand {
 pub enum PaneCommand {
     #[default]
     #[menu(id = "split_v", label = "Split Vertically")]
-    #[bind(chord = "Ctrl+KeyB, Shift+Digit5")]
+    #[bind(chord = "Ctrl+b, %")]
     SplitV,
     #[menu(id = "split_h", label = "Split Horizontally")]
-    #[bind(chord = "Ctrl+KeyB, Shift+Quote")]
+    #[bind(chord = "Ctrl+b, \"")]
     SplitH,
     #[menu(id = "toggle_pane", label = "Toggle Pane")]
-    #[bind(chord = "Ctrl+KeyB, KeyO")]
+    #[bind(chord = "Ctrl+b, o")]
     Toggle,
     #[menu(id = "close_pane", label = "Close Pane")]
-    #[bind(chord = "Ctrl+KeyB, KeyX")]
+    #[bind(chord = "Ctrl+b, x")]
     Close,
 }
 

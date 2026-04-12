@@ -80,12 +80,12 @@ pub struct KeyComboDef {
 
 impl KeyComboDef {
     fn to_key_combo(&self) -> Option<crate::keybinding::KeyCombo> {
-        let key = crate::keybinding::key_code_from_str(&self.key)?;
+        let resolved = crate::keybinding::resolve_key(&self.key)?;
         Some(crate::keybinding::KeyCombo {
-            key,
+            key: resolved.key,
             modifiers: crate::keybinding::Modifiers {
                 ctrl: self.ctrl,
-                shift: self.shift,
+                shift: self.shift || resolved.implicit_shift,
                 alt: self.alt,
                 super_key: self.super_key,
             },

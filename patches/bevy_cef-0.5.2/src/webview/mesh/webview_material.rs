@@ -32,15 +32,9 @@ pub struct WebviewMaterial {
     #[sampler(102)]
     pub surface: Option<Handle<Image>>,
     /// Rounded-rect clip in **layout pixels**: `x` = corner radius, `y` = width, `z` = height,
-    /// `w` = `0` = all corners; `1` = bottom corners only (status strip).
+    /// `w` = `0` = all corners; `1` = bottom only; `2` = top only.
     #[uniform(103)]
     pub pane_corner_clip: Vec4,
-    /// Active-pane frame: `x` = enabled (0/1), `y` = outset px, `z`/`w` = outer layout width/height (expanded mesh).
-    #[uniform(104)]
-    pub vmux_border_params: Vec4,
-    /// Linear RGBA accent for the active-pane ring (vmux passes `vmux_ui` primary token).
-    #[uniform(105)]
-    pub vmux_border_color: Vec4,
 }
 
 impl Hash for WebviewMaterial {
@@ -50,14 +44,6 @@ impl Hash for WebviewMaterial {
         self.pane_corner_clip.y.to_bits().hash(state);
         self.pane_corner_clip.z.to_bits().hash(state);
         self.pane_corner_clip.w.to_bits().hash(state);
-        self.vmux_border_params.x.to_bits().hash(state);
-        self.vmux_border_params.y.to_bits().hash(state);
-        self.vmux_border_params.z.to_bits().hash(state);
-        self.vmux_border_params.w.to_bits().hash(state);
-        self.vmux_border_color.x.to_bits().hash(state);
-        self.vmux_border_color.y.to_bits().hash(state);
-        self.vmux_border_color.z.to_bits().hash(state);
-        self.vmux_border_color.w.to_bits().hash(state);
     }
 }
 
@@ -73,7 +59,7 @@ pub(crate) fn webview_placeholder_image() -> Image {
         },
         TextureDimension::D2,
         // Bgra8UnormSrgb — matches [`update_webview_image`].
-        &[47, 44, 43, 255],
+        &[0, 0, 0, 0],
         TextureFormat::Bgra8UnormSrgb,
         RenderAssetUsages::all(),
     )

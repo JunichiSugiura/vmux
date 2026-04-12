@@ -82,6 +82,8 @@ impl ImplApp for BrowserProcessAppBuilder {
     fn on_register_custom_schemes(&self, registrar: Option<&mut SchemeRegistrar>) {
         if let Some(registrar) = registrar {
             registrar.add_custom_scheme(Some(&SCHEME_CEF.into()), cef_scheme_flags() as _);
+            let cfg = crate::util::resolved_cef_embedded_page_config();
+            registrar.add_custom_scheme(Some(&cfg.scheme.as_str().into()), cef_scheme_flags() as _);
         }
     }
 

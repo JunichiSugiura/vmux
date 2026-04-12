@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_cef_core::prelude::{HOST_CEF, SCHEME_CEF};
+use bevy_cef_core::prelude::{HOST_CEF, SCHEME_CEF, resolved_cef_embedded_page_config};
 use serde::{Deserialize, Serialize};
 
 pub(crate) struct WebviewCoreComponentsPlugin;
@@ -67,6 +67,39 @@ impl WebviewSource {
     /// The given path is interpreted as `cef://localhost/<path>`.
     pub fn local(path: impl Into<String>) -> Self {
         Self::Url(format!("{SCHEME_CEF}://{HOST_CEF}/{}", path.into()))
+    }
+
+    /// Serves a Bevy [`embedded`](https://bevy.org/examples/assets/embedded-asset/) asset.
+    ///
+    /// Navigates to `cef://localhost/embedded/<path>`, which the CEF localhost handler resolves
+    /// to `embedded://<path>` for [`AssetServer::load`]. Use the same logical path you passed to
+    /// `EmbeddedAssetRegistry::insert_asset`
+    /// (for example `history/index.html`).
+    pub fn embedded(path: impl Into<String>) -> Self {
+        let p = path.into();
+        Self::Url(format!("{SCHEME_CEF}://{HOST_CEF}/embedded/{p}"))
+    }
+
+    pub fn custom_scheme_host_root(host: impl Into<String>) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
+        let h = host.into();
+        Self::Url(format!("{}{}/", cfg.scheme_prefix(), h))
+    }
+
+    pub fn custom_scheme_host_url(host: impl Into<String>) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
+        let h = host.into();
+        Self::Url(format!("{}{}", cfg.scheme_prefix(), h))
+    }
+
+    pub fn custom_scheme_document_url(
+        host: impl Into<String>,
+        embedded_path: impl Into<String>,
+    ) -> Self {
+        let cfg = resolved_cef_embedded_page_config();
+        let h = host.into();
+        let p = embedded_path.into();
+        Self::Url(format!("{}{}/{}", cfg.scheme_prefix(), h, p))
     }
 
     /// Creates an inline HTML source.

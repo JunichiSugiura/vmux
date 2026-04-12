@@ -3,6 +3,7 @@ use crate::common::{
     HostWindow, IpcEventRawSender, ResolvedWebviewUri, WebviewSize, WebviewSource,
 };
 use crate::cursor_icon::SystemCursorIconSender;
+use crate::chrome_state::WebviewChromeStateSender;
 use crate::loading_state::WebviewLoadingStateSender;
 use crate::prelude::PreloadScripts;
 use crate::webview::mesh::MeshWebviewPlugin;
@@ -78,7 +79,10 @@ impl Plugin for WebviewPlugin {
             .init_resource::<CefDiskProfileRoot>()
             .init_non_send_resource::<Browsers>()
             .add_plugins((MeshWebviewPlugin,))
-            .add_systems(Main, send_external_begin_frame)
+            .add_systems(
+                Main,
+                send_external_begin_frame.after(Main::run_main),
+            )
             .add_systems(
                 Update,
                 (
@@ -129,6 +133,7 @@ fn create_webview(
     brp_sender: Res<BrpSender>,
     cursor_icon_sender: Res<SystemCursorIconSender>,
     loading_state_sender: Res<WebviewLoadingStateSender>,
+    chrome_state_sender: Res<WebviewChromeStateSender>,
     webviews: Query<
         (
             Entity,
@@ -173,6 +178,7 @@ fn create_webview(
                 brp_sender.clone(),
                 cursor_icon_sender.clone(),
                 loading_state_sender.0.clone(),
+                chrome_state_sender.0.clone(),
                 &initialize_scripts.0,
                 host_window,
                 disk_profile.0.as_deref(),

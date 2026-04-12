@@ -1,3 +1,21 @@
+//! CEF custom URL schemes used with Bevy assets.
+//!
+//! Chromium requires **two** registrations (see [CEF scheme registration](https://cef-builds.spotifycdn.com/docs/145.0/classCefApp.html)):
+//!
+//! 1. **`on_register_custom_schemes`** — in **every** process (browser + render). Implemented on
+//!    [`BrowserProcessAppBuilder`](crate::browser_process::app::BrowserProcessAppBuilder) and
+//!    [`RenderProcessAppBuilder`](crate::render_process::app::RenderProcessAppBuilder) via
+//!    [`cef_scheme_flags`].
+//! 2. **Scheme handler factories** — per [`RequestContext`](cef::RequestContext) *and* process-wide via
+//!    [`cef::register_scheme_handler_factory`](cef::register_scheme_handler_factory) (see
+//!    [`Browsers::create_browser`](crate::browser_process::browsers::Browsers::create_browser)) so
+//!    the custom embedded page scheme ([`CefEmbeddedPageConfig`]) is recognized everywhere Chromium resolves URLs.
+//!
+//! On macOS debug builds, install the workspace `bevy_cef_debug_render_process` **inside** the CEF
+//! framework’s `Libraries/` directory (`make install-debug-render-process`). Chromium resolves GPU
+//! and other dylibs relative to the helper executable; placing the helper only in `target/debug/`
+//! breaks that lookup and can surface as `ERR_UNKNOWN_URL_SCHEME` for custom schemes.
+
 pub mod v8_accessor;
 mod v8_handler_wrapper;
 pub mod v8_interceptor;
@@ -17,12 +35,86 @@ use cef_dll_sys::cef_scheme_options_t::{
 };
 use std::env::home_dir;
 use std::path::PathBuf;
+use std::sync::{Arc, OnceLock};
 
 pub const EXTENSIONS_SWITCH: &str = "bevy-cef-extensions";
 
 pub const SCHEME_CEF: &str = "cef";
 
 pub const HOST_CEF: &str = "localhost";
+
+pub fn compile_time_cef_embedded_scheme() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/cef_embedded_scheme.txt")).trim()
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedHost {
+    pub host: String,
+    pub default_document: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedHosts(pub Vec<CefEmbeddedHost>);
+
+impl CefEmbeddedHosts {
+    pub fn entry_for_host(&self, host: &str) -> Option<&CefEmbeddedHost> {
+        self.0.iter().find(|e| e.host == host)
+    }
+}
+
+impl From<Vec<CefEmbeddedHost>> for CefEmbeddedHosts {
+    fn from(entries: Vec<CefEmbeddedHost>) -> Self {
+        Self(entries)
+    }
+}
+
+impl Default for CefEmbeddedHosts {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CefEmbeddedPageConfig {
+    pub scheme: String,
+    scheme_prefix: String,
+    pub hosts: CefEmbeddedHosts,
+}
+
+impl CefEmbeddedPageConfig {
+    pub fn new(scheme: impl Into<String>, hosts: CefEmbeddedHosts) -> Self {
+        let scheme = scheme.into().trim().to_string();
+        let scheme_prefix = format!("{scheme}://");
+        Self {
+            scheme,
+            scheme_prefix,
+            hosts,
+        }
+    }
+
+    pub fn scheme_prefix(&self) -> &str {
+        &self.scheme_prefix
+    }
+}
+
+impl Default for CefEmbeddedPageConfig {
+    fn default() -> Self {
+        Self::new(compile_time_cef_embedded_scheme(), CefEmbeddedHosts::default())
+    }
+}
+
+static CEF_EMBEDDED_PAGE_OVERRIDE: OnceLock<Arc<CefEmbeddedPageConfig>> = OnceLock::new();
+
+pub fn try_set_cef_embedded_page_config(config: CefEmbeddedPageConfig) {
+    let _ = CEF_EMBEDDED_PAGE_OVERRIDE.set(Arc::new(config));
+}
+
+pub fn resolved_cef_embedded_page_config() -> Arc<CefEmbeddedPageConfig> {
+    CEF_EMBEDDED_PAGE_OVERRIDE
+        .get()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(CefEmbeddedPageConfig::default()))
+}
 
 pub fn cef_scheme_flags() -> u32 {
     CEF_SCHEME_OPTION_STANDARD as u32

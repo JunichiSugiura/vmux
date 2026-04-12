@@ -337,6 +337,56 @@ fn impl_root_key_bindings(
     })
 }
 
+struct ResolvedKey {
+    key_code: String,
+    implicit_shift: bool,
+}
+
+fn resolve_char_literal(c: char) -> Option<ResolvedKey> {
+    let (key_code, shifted) = match c {
+        'a'..='z' => (format!("Key{}", c.to_ascii_uppercase()), false),
+        'A'..='Z' => (format!("Key{}", c), true),
+        '0'..='9' => (format!("Digit{}", c), false),
+        ')' => ("Digit0".into(), true),
+        '!' => ("Digit1".into(), true),
+        '@' => ("Digit2".into(), true),
+        '#' => ("Digit3".into(), true),
+        '$' => ("Digit4".into(), true),
+        '%' => ("Digit5".into(), true),
+        '^' => ("Digit6".into(), true),
+        '&' => ("Digit7".into(), true),
+        '*' => ("Digit8".into(), true),
+        '(' => ("Digit9".into(), true),
+        '-' => ("Minus".into(), false),
+        '_' => ("Minus".into(), true),
+        '=' => ("Equal".into(), false),
+        '/' => ("Slash".into(), false),
+        '?' => ("Slash".into(), true),
+        '.' => ("Period".into(), false),
+        '>' => ("Period".into(), true),
+        ',' => ("Comma".into(), false),
+        '<' => ("Comma".into(), true),
+        ';' => ("Semicolon".into(), false),
+        ':' => ("Semicolon".into(), true),
+        '\'' => ("Quote".into(), false),
+        '"' => ("Quote".into(), true),
+        '[' => ("BracketLeft".into(), false),
+        '{' => ("BracketLeft".into(), true),
+        ']' => ("BracketRight".into(), false),
+        '}' => ("BracketRight".into(), true),
+        '\\' => ("Backslash".into(), false),
+        '|' => ("Backslash".into(), true),
+        '`' => ("Backquote".into(), false),
+        '~' => ("Backquote".into(), true),
+        ' ' => ("Space".into(), false),
+        _ => return None,
+    };
+    Some(ResolvedKey {
+        key_code,
+        implicit_shift: shifted,
+    })
+}
+
 fn parse_key_combo_tokens(
     s: &str,
     spanned: &syn::Variant,
@@ -346,7 +396,8 @@ fn parse_key_combo_tokens(
     let mut shift = false;
     let mut alt = false;
     let mut super_key = false;
-    let mut key_name: Option<&str> = None;
+    let mut key_name: Option<String> = None;
+    let mut implicit_shift = false;
 
     for part in &parts {
         match *part {
@@ -361,7 +412,20 @@ fn parse_key_combo_tokens(
                         format!("multiple non-modifier keys in binding: {s}"),
                     ));
                 }
-                key_name = Some(other);
+                let chars: Vec<char> = other.chars().collect();
+                if chars.len() == 1 {
+                    if let Some(resolved) = resolve_char_literal(chars[0]) {
+                        key_name = Some(resolved.key_code);
+                        implicit_shift = resolved.implicit_shift;
+                    } else {
+                        return Err(syn::Error::new_spanned(
+                            spanned,
+                            format!("unrecognized character literal '{}'", chars[0]),
+                        ));
+                    }
+                } else {
+                    key_name = Some(other.to_string());
+                }
             }
         }
     }
@@ -373,6 +437,7 @@ fn parse_key_combo_tokens(
         ));
     };
 
+    shift = shift || implicit_shift;
     let key_ident = format_ident!("{}", key_str);
 
     Ok(quote! {

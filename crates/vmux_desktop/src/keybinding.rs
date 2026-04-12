@@ -159,7 +159,76 @@ fn is_modifier_key(key: KeyCode) -> bool {
     )
 }
 
-pub fn key_code_from_str(s: &str) -> Option<KeyCode> {
+pub struct ResolvedKey {
+    pub key: KeyCode,
+    pub implicit_shift: bool,
+}
+
+pub fn resolve_key(s: &str) -> Option<ResolvedKey> {
+    if let Some(key) = key_code_from_str(s) {
+        return Some(ResolvedKey {
+            key,
+            implicit_shift: false,
+        });
+    }
+
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() == 1 {
+        return resolve_char_literal(chars[0]);
+    }
+
+    None
+}
+
+fn resolve_char_literal(c: char) -> Option<ResolvedKey> {
+    let (key, shifted) = match c {
+        'a'..='z' => (
+            key_code_from_str(&format!("Key{}", c.to_ascii_uppercase()))?,
+            false,
+        ),
+        'A'..='Z' => (key_code_from_str(&format!("Key{}", c))?, true),
+        '0'..='9' => (key_code_from_str(&format!("Digit{}", c))?, false),
+        ')' => (KeyCode::Digit0, true),
+        '!' => (KeyCode::Digit1, true),
+        '@' => (KeyCode::Digit2, true),
+        '#' => (KeyCode::Digit3, true),
+        '$' => (KeyCode::Digit4, true),
+        '%' => (KeyCode::Digit5, true),
+        '^' => (KeyCode::Digit6, true),
+        '&' => (KeyCode::Digit7, true),
+        '*' => (KeyCode::Digit8, true),
+        '(' => (KeyCode::Digit9, true),
+        '-' => (KeyCode::Minus, false),
+        '_' => (KeyCode::Minus, true),
+        '=' => (KeyCode::Equal, false),
+        '/' => (KeyCode::Slash, false),
+        '?' => (KeyCode::Slash, true),
+        '.' => (KeyCode::Period, false),
+        '>' => (KeyCode::Period, true),
+        ',' => (KeyCode::Comma, false),
+        '<' => (KeyCode::Comma, true),
+        ';' => (KeyCode::Semicolon, false),
+        ':' => (KeyCode::Semicolon, true),
+        '\'' => (KeyCode::Quote, false),
+        '"' => (KeyCode::Quote, true),
+        '[' => (KeyCode::BracketLeft, false),
+        '{' => (KeyCode::BracketLeft, true),
+        ']' => (KeyCode::BracketRight, false),
+        '}' => (KeyCode::BracketRight, true),
+        '\\' => (KeyCode::Backslash, false),
+        '|' => (KeyCode::Backslash, true),
+        '`' => (KeyCode::Backquote, false),
+        '~' => (KeyCode::Backquote, true),
+        ' ' => (KeyCode::Space, false),
+        _ => return None,
+    };
+    Some(ResolvedKey {
+        key,
+        implicit_shift: shifted,
+    })
+}
+
+fn key_code_from_str(s: &str) -> Option<KeyCode> {
     match s {
         "Backquote" => Some(KeyCode::Backquote),
         "Backslash" => Some(KeyCode::Backslash),

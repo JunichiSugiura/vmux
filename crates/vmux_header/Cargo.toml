@@ -1,6 +1,6 @@
 [package]
-name = "vmux_status_bar"
-description = "Bevy + CEF + Dioxus status bar webview"
+name = "vmux_header"
+description = "Bevy + CEF + Dioxus header webview"
 version.workspace = true
 edition.workspace = true
 publish = false
@@ -12,7 +12,7 @@ debug = []
 web = []
 
 [[bin]]
-name = "vmux_status_bar_app"
+name = "vmux_header_app"
 path = "src/main.rs"
 required-features = ["web"]
 

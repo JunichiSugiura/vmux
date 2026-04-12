@@ -24,7 +24,7 @@
 ### Feature
 
 - `vmux_ui`
-    - Refactor existing dioxus based ui plugin (e.g. status_bar, history etc.)
+    - Refactor existing dioxus based ui plugin (e.g. header, history etc.)
     - Show storybook like ui in pane for debugging
 - `vmux_terminal`
     - Add terminal pane to provide terminal emulator

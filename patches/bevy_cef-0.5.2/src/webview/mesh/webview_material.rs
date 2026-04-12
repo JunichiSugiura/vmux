@@ -32,7 +32,7 @@ pub struct WebviewMaterial {
     #[sampler(102)]
     pub surface: Option<Handle<Image>>,
     /// Rounded-rect clip in **layout pixels**: `x` = corner radius, `y` = width, `z` = height,
-    /// `w` = `0` = all corners; `1` = bottom corners only (status strip).
+    /// `w` = `0` = all corners; `1` = bottom only; `2` = top only.
     #[uniform(103)]
     pub pane_corner_clip: Vec4,
 }

@@ -60,7 +60,7 @@ regex = "1"
 opt-level = "z"
 codegen-units = 1
 
-[profile.release.package.vmux_status_bar]
+[profile.release.package.vmux_header]
 opt-level = "z"
 codegen-units = 1
 

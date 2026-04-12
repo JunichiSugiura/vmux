@@ -8,11 +8,11 @@ DX_VERSION := 0.7.4
 CEF_FRAMEWORK_DIR := $(HOME)/.local/share/Chromium Embedded Framework.framework
 CEF_DEBUG_RENDER := $(CEF_FRAMEWORK_DIR)/Libraries/bevy_cef_debug_render_process
 
-# Status bar / history / UI library `dist/` folders are built by each crate’s `build.rs` via **`dx build`** when you compile `vmux_desktop` (needs `dioxus-cli` on PATH).
+# Header / history / UI library `dist/` folders are built by each crate’s `build.rs` via **`dx build`** when you compile `vmux_desktop` (needs `dioxus-cli` on PATH).
 
 # Build then exec the binary instead of `cargo run` so the foreground process is vmux_desktop (not Cargo).
 run-mac: build-mac-debug
-	exec env -u CEF_PATH ./target/debug/vmux_desktop
+	exec env -u CEF_PATH ./target/debug/Vmux
 
 build-mac-debug: ensure-run-mac-deps
 	env -u CEF_PATH "$(CARGO_BIN)" build -p vmux_desktop --features debug

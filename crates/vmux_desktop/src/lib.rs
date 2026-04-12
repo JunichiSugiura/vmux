@@ -1,7 +1,7 @@
+mod browser;
 mod command;
 mod layout;
-mod menu;
-mod rounded;
+mod os_menu;
 mod scene;
 mod settings;
 mod unit;
@@ -11,16 +11,9 @@ use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
 
 use {
-    // browser::BrowserPlugin,
-    command::CommandPlugin,
-    layout::LayoutPlugin,
-    menu::NativeMenuPlugin,
-    rounded::RoundedMaterialPlugin,
-    scene::ScenePlugin,
-    settings::SettingsPlugin,
-    vmux_status_bar::StatusBarPlugin,
+    browser::BrowserPlugin, command::CommandPlugin, layout::LayoutPlugin, os_menu::OsMenuPlugin,
+    scene::ScenePlugin, settings::SettingsPlugin, vmux_header::HeaderPlugin,
 };
-// use vmux_history::HistoryPlugin;
 
 pub struct VmuxPlugin;
 
@@ -46,15 +39,13 @@ impl Plugin for VmuxPlugin {
                     silence_startup_warning: true,
                 })
                 .set(window_plugin),
-            RoundedMaterialPlugin,
             SettingsPlugin,
             CommandPlugin,
             ScenePlugin,
-            NativeMenuPlugin,
-            StatusBarPlugin,
+            OsMenuPlugin,
             LayoutPlugin,
-            // BrowserPlugin,
-            // HistoryPlugin,
+            BrowserPlugin,
+            HeaderPlugin,
         ));
     }
 }

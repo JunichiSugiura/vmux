@@ -8,11 +8,11 @@ use std::sync::LazyLock;
 static PENDING_MENU_EVENTS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[allow(dead_code)]
-struct NativeMenuResource(Menu);
+struct OsMenuResource(Menu);
 
-pub struct NativeMenuPlugin;
+pub struct OsMenuPlugin;
 
-impl Plugin for NativeMenuPlugin {
+impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup).add_systems(
             Update,
@@ -32,7 +32,7 @@ fn setup(world: &mut World) {
         PENDING_MENU_EVENTS.lock().push(event.id.0.clone());
     }));
 
-    world.insert_non_send_resource(NativeMenuResource(menu));
+    world.insert_non_send_resource(OsMenuResource(menu));
 }
 
 fn forward_menu_events(world: &mut World) {

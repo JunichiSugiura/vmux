@@ -17,7 +17,95 @@ use cef::{
 use cef_dll_sys::{_cef_resource_handler_t, cef_base_ref_counted_t};
 use serde::{Deserialize, Serialize};
 use std::os::raw::c_int;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+use crate::util::{CefEmbeddedPageConfig, resolved_cef_embedded_page_config};
+
+/// Map navigated custom-scheme URLs to a Bevy [`AssetServer`] load path.
+///
+/// - `cef://localhost/embedded/…` → `embedded://…` ([embedded assets](https://bevy.org/examples/assets/embedded-asset/)).
+/// - `cef://localhost/…` (otherwise) → path as-is (disk assets under the app asset root).
+/// - `<scheme>://<host>/` (prefix from [`CefEmbeddedPageConfig::scheme_prefix`], set via
+///   [`crate::util::try_set_cef_embedded_page_config`]) → `embedded://<default_document>` for that host.
+/// - `<scheme>://<host>/<path>` → `embedded://<dir>/<path>` when `dir` is the parent of that host’s
+///   `default_document` (e.g. default `history/index.html` → `embedded://history/<path>`); if the
+///   default document has no parent directory, `embedded://<path>` only.
+/// - Unknown `<host>`: `embedded://` + full path after the scheme prefix (first segment not in the table).
+///
+/// The render subprocess registers [`crate::util::compile_time_cef_embedded_scheme`] (defaults with the
+/// `bevy_cef_core` build; override with env `BEVY_CEF_EMBEDDED_SCHEME` when building this crate). It must
+/// match the runtime [`CefEmbeddedPageConfig::scheme`] from [`crate::util::try_set_cef_embedded_page_config`].
+fn split_custom_scheme_host_and_tail(path_part: &str) -> Option<(&str, &str)> {
+    let s = path_part.trim_start_matches('/');
+    if s.is_empty() {
+        return None;
+    }
+    match s.find('/') {
+        Some(i) => {
+            let host = s[..i].trim();
+            let tail = s[i + 1..].trim_matches('/');
+            if host.is_empty() {
+                None
+            } else {
+                Some((host, tail))
+            }
+        }
+        None => Some((s.trim(), "")),
+    }
+}
+
+pub(crate) fn asset_load_path_from_request_url_with(url: &str, cfg: &CefEmbeddedPageConfig) -> String {
+    const CEF_LOCAL: &str = concat!("cef", "://", "localhost", "/");
+    const EMBEDDED_LEAF: &str = "embedded/";
+    const EMBEDDED_SCHEME: &str = "embedded://";
+
+    if let Some(rest) = url.strip_prefix(CEF_LOCAL) {
+        if let Some(tail) = rest.strip_prefix(EMBEDDED_LEAF) {
+            format!("{EMBEDDED_SCHEME}{tail}")
+        } else {
+            rest.to_string()
+        }
+    } else if let Some(rest) = url.strip_prefix(cfg.scheme_prefix()) {
+        let path_part = rest.split(['?', '#']).next().unwrap_or(rest);
+        let Some((host, tail)) = split_custom_scheme_host_and_tail(path_part) else {
+            return String::new();
+        };
+        if tail.starts_with(EMBEDDED_SCHEME) {
+            return tail.to_string();
+        }
+        if let Some(entry) = cfg.hosts.entry_for_host(host) {
+            if tail.is_empty() {
+                format!("{EMBEDDED_SCHEME}{}", entry.default_document)
+            } else {
+                let rel = Path::new(entry.default_document.as_str())
+                    .parent()
+                    .and_then(|p| p.to_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && *s != ".")
+                    .map(|base| base.trim_matches(['/', '\\']))
+                    .filter(|s| !s.is_empty());
+                match rel {
+                    Some(base) => format!("{EMBEDDED_SCHEME}{base}/{tail}"),
+                    None => format!("{EMBEDDED_SCHEME}{tail}"),
+                }
+            }
+        } else {
+            let full = path_part.trim_start_matches('/').trim_end_matches('/');
+            if full.is_empty() {
+                String::new()
+            } else {
+                format!("{EMBEDDED_SCHEME}{full}")
+            }
+        }
+    } else {
+        String::new()
+    }
+}
+
+pub(crate) fn asset_load_path_from_request_url(url: &str) -> String {
+    asset_load_path_from_request_url_with(url, resolved_cef_embedded_page_config().as_ref())
+}
 
 /// `cef://` scheme response asset.
 #[derive(Asset, Reflect, Debug, Clone, Serialize, Deserialize)]
@@ -199,10 +287,7 @@ impl ImplResourceHandler for LocalResourceHandlerBuilder {
                 let (tx, rx) = async_channel::bounded(1);
                 let _ = requester
                     .send(CefRequest {
-                        uri: url
-                            .strip_prefix("cef://localhost/")
-                            .unwrap_or_default()
-                            .to_string(),
+                        uri: asset_load_path_from_request_url(&url),
                         responser: Responser(tx),
                     })
                     .await;
@@ -277,5 +362,107 @@ impl ImplResourceHandler for LocalResourceHandlerBuilder {
     #[inline]
     fn get_raw(&self) -> *mut _cef_resource_handler_t {
         self.object.cast()
+    }
+}
+
+#[cfg(test)]
+mod custom_scheme_url_tests {
+    use super::asset_load_path_from_request_url_with;
+    use crate::util::{CefEmbeddedHost, CefEmbeddedHosts, CefEmbeddedPageConfig};
+
+    fn test_scheme() -> &'static str {
+        crate::util::compile_time_cef_embedded_scheme()
+    }
+
+    fn history_config() -> CefEmbeddedPageConfig {
+        CefEmbeddedPageConfig::new(
+            test_scheme(),
+            CefEmbeddedHosts(vec![CefEmbeddedHost {
+                host: "history".to_string(),
+                default_document: "history/index.html".to_string(),
+            }]),
+        )
+    }
+
+    fn empty_hosts_config() -> CefEmbeddedPageConfig {
+        CefEmbeddedPageConfig::new(test_scheme(), CefEmbeddedHosts::default())
+    }
+
+    #[test]
+    fn registered_host_root_maps_to_default_embedded_document() {
+        let cfg = history_config();
+        let p = cfg.scheme_prefix();
+        for url in [
+            format!("{p}history/"),
+            format!("{p}history"),
+            format!("{p}history/?q=1"),
+            format!("{p}history#frag"),
+        ] {
+            assert_eq!(
+                asset_load_path_from_request_url_with(&url, &cfg),
+                "embedded://history/index.html",
+                "{url}"
+            );
+        }
+    }
+
+    #[test]
+    fn registered_host_subpath_maps_to_embedded() {
+        let cfg = history_config();
+        let p = cfg.scheme_prefix();
+        assert_eq!(
+            asset_load_path_from_request_url_with(
+                &format!("{p}history/other/page.html"),
+                &cfg
+            ),
+            "embedded://history/other/page.html"
+        );
+    }
+
+    #[test]
+    fn custom_host_uses_its_default_document() {
+        let cfg = CefEmbeddedPageConfig::new(
+            test_scheme(),
+            CefEmbeddedHosts(vec![CefEmbeddedHost {
+                host: "help".to_string(),
+                default_document: "help/index.html".to_string(),
+            }]),
+        );
+        let p = cfg.scheme_prefix();
+        assert_eq!(
+            asset_load_path_from_request_url_with(&format!("{p}help/"), &cfg),
+            "embedded://help/index.html"
+        );
+        assert_eq!(
+            asset_load_path_from_request_url_with(&format!("{p}help/topic.html"), &cfg),
+            "embedded://help/topic.html"
+        );
+    }
+
+    #[test]
+    fn cef_localhost_embedded_prefix() {
+        assert_eq!(
+            asset_load_path_from_request_url_with(
+                "cef://localhost/embedded/crate/foo.html",
+                &empty_hosts_config()
+            ),
+            "embedded://crate/foo.html"
+        );
+    }
+
+    #[test]
+    fn cef_localhost_disk_style_path() {
+        assert_eq!(
+            asset_load_path_from_request_url_with("cef://localhost/index.html", &empty_hosts_config()),
+            "index.html"
+        );
+    }
+
+    #[test]
+    fn unknown_scheme_yields_empty() {
+        assert_eq!(
+            asset_load_path_from_request_url_with("https://example.com/", &empty_hosts_config()),
+            ""
+        );
     }
 }

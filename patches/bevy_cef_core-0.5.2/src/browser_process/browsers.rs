@@ -10,21 +10,24 @@ use bevy_remote::BrpMessage;
 use cef::{
     Browser, BrowserHost, BrowserSettings, CefString, Client, CompositionUnderline,
     DictionaryValue, ImplBrowser, ImplBrowserHost, ImplDictionaryValue, ImplFrame, ImplListValue,
-    ImplProcessMessage, ImplRequestContext, MouseButtonType, ProcessId, Range, RequestContext,
-    RequestContextSettings, WindowInfo, browser_host_create_browser_sync, dictionary_value_create,
-    process_message_create,
+    ImplProcessMessage, ImplRequestContext, MouseButtonType, PaintElementType, ProcessId, Range,
+    RequestContext, RequestContextSettings, WindowInfo, browser_host_create_browser_sync,
+    dictionary_value_create, process_message_create, register_scheme_handler_factory,
 };
 use cef_dll_sys::{cef_event_flags_t, cef_mouse_button_type_t};
 #[allow(deprecated)]
 use raw_window_handle::RawWindowHandle;
 use std::cell::Cell;
 use std::rc::Rc;
+use std::sync::Once;
 
 mod devtool_render_handler;
 mod keyboard;
 
 use crate::browser_process::browsers::devtool_render_handler::DevToolRenderHandlerBuilder;
-use crate::browser_process::display_handler::{DisplayHandlerBuilder, SystemCursorIconSenderInner};
+use crate::browser_process::display_handler::{
+    DisplayHandlerBuilder, SystemCursorIconSenderInner, WebviewChromeStateSenderInner,
+};
 use crate::browser_process::load_handler::{
     WebviewLoadHandlerBuilder, WebviewLoadingStateSenderInner,
 };
@@ -34,6 +37,8 @@ pub use keyboard::*;
 /// CEF [`BrowserSettings::background_color`] is ARGB (`A` in the high byte). Matches the dark
 /// gray used by bevy_cef’s webview placeholder texture (sRGB 43, 44, 47) so OSR clears are not white.
 const CEF_OSR_BACKGROUND_COLOR_ARGB: u32 = 0xFF2B2C2F;
+
+static REGISTER_GLOBAL_SCHEME_HANDLER_FACTORIES: Once = Once::new();
 
 /// Disk profile root for [`RequestContextSettings::cache_path`], aligned with `CefPlugin::root_cache_path` in the `bevy_cef` crate.
 /// Inserted by that plugin; when `bevy_cef_core` is used without it, initialize via `init_resource` (default `None`).
@@ -81,6 +86,7 @@ impl Browsers {
         brp_sender: Sender<BrpMessage>,
         system_cursor_icon_sender: SystemCursorIconSenderInner,
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
+        webview_chrome_state_sender: WebviewChromeStateSenderInner,
         initialize_scripts: &[String],
         _window_handle: Option<RawWindowHandle>,
         disk_profile_root: Option<&str>,
@@ -96,7 +102,46 @@ impl Browsers {
             brp_sender,
             system_cursor_icon_sender,
             webview_loading_state_sender,
+            webview_chrome_state_sender,
         );
+
+        // `RequestContext::register_scheme_handler_factory` is not always enough: some navigations
+        // still consult the process-wide factories registered via `cef_register_scheme_handler_factory`
+        // (see CEF capi). Without this, custom embedded scheme URLs can yield ERR_UNKNOWN_URL_SCHEME
+        // despite `on_register_custom_schemes` and per-context registration.
+        let requester_for_global = requester.clone();
+        REGISTER_GLOBAL_SCHEME_HANDLER_FACTORIES.call_once(move || {
+            let cfg = resolved_cef_embedded_page_config();
+            let ct = compile_time_cef_embedded_scheme();
+            if cfg.scheme != ct {
+                bevy::log::warn!(
+                    "bevy_cef_core: runtime embedded scheme {:?} != build-time scheme {:?}; rebuild bevy_cef_core with the same scheme as CefPlugin.embedded_scheme (optional env BEVY_CEF_EMBEDDED_SCHEME during that build)",
+                    cfg.scheme.as_str(),
+                    ct
+                );
+            }
+            let emb_scheme = cfg.scheme.clone();
+            let mut cef_factory = LocalSchemaHandlerBuilder::build(requester_for_global.clone());
+            let ok_cef = register_scheme_handler_factory(
+                Some(&SCHEME_CEF.into()),
+                Some(&HOST_CEF.into()),
+                Some(&mut cef_factory),
+            );
+            assert_eq!(
+                ok_cef, 1,
+                "cef_register_scheme_handler_factory(cef) failed with code {ok_cef}"
+            );
+            let mut embedded_factory = LocalSchemaHandlerBuilder::build(requester_for_global);
+            let ok_embedded = register_scheme_handler_factory(
+                Some(&emb_scheme.as_str().into()),
+                None,
+                Some(&mut embedded_factory),
+            );
+            assert_eq!(
+                ok_embedded, 1,
+                "cef_register_scheme_handler_factory(embedded page scheme) failed with code {ok_embedded}"
+            );
+        });
 
         // Holds the per-browser ephemeral context when not using `shared_disk_context`.
         #[allow(unused_assignments)]
@@ -173,13 +218,20 @@ impl Browsers {
             .is_some_and(|b| b.client.main_frame().is_some())
     }
 
+    #[inline]
+    pub fn set_osr_not_hidden(&self, webview: &Entity) {
+        if let Some(b) = self.browsers.get(webview) {
+            b.host.was_hidden(0);
+        }
+    }
+
     pub fn send_external_begin_frame(&mut self) {
         for browser in self.browsers.values_mut() {
             browser.host.send_external_begin_frame();
         }
     }
 
-    /// Align CEF focus with the tiled pane that has keyboard target / `Active` in vmux.
+    /// Align CEF focus with the tiled pane that has keyboard target / `Active` in the host app.
     ///
     /// Windowless (OSR) browsers may not composite visible frames until the host calls
     /// `CefBrowserHost::set_focus`; without this, the active pane can stay stuck until the first
@@ -187,7 +239,7 @@ impl Browsers {
     ///
     /// `auxiliary_osr_focus` is for **additional** visible webviews that must keep compositing
     /// while another pane is active (e.g. a history split next to the main browser). Keyboard
-    /// routing in vmux uses the `CefKeyboardTarget` component, not CEF `set_focus`.
+    /// routing in the host app uses the `CefKeyboardTarget` component, not CEF `set_focus`.
     ///
     /// Chromium ties **clipboard shortcuts** (⌘C / ⌘V / …) to the browser that last received
     /// `set_focus(true)`. We therefore focus each auxiliary in order (so they can composite), then
@@ -386,6 +438,8 @@ impl Browsers {
             browser.device_scale.set(device_scale_factor);
             browser.host.notify_screen_info_changed();
             browser.host.was_resized();
+            browser.host.invalidate(PaintElementType::VIEW);
+            browser.host.send_external_begin_frame();
         }
     }
 
@@ -594,9 +648,15 @@ impl Browsers {
             Some(&mut RequestContextHandlerBuilder::build()),
         );
         if let Some(context) = context.as_mut() {
+            let emb_scheme = resolved_cef_embedded_page_config().scheme.clone();
             context.register_scheme_handler_factory(
                 Some(&SCHEME_CEF.into()),
                 Some(&HOST_CEF.into()),
+                Some(&mut LocalSchemaHandlerBuilder::build(requester.clone())),
+            );
+            context.register_scheme_handler_factory(
+                Some(&emb_scheme.as_str().into()),
+                None,
                 Some(&mut LocalSchemaHandlerBuilder::build(requester)),
             );
         }
@@ -609,9 +669,15 @@ impl Browsers {
             Some(&mut RequestContextHandlerBuilder::build()),
         );
         if let Some(context) = context.as_mut() {
+            let emb_scheme = resolved_cef_embedded_page_config().scheme.clone();
             context.register_scheme_handler_factory(
                 Some(&SCHEME_CEF.into()),
                 Some(&HOST_CEF.into()),
+                Some(&mut LocalSchemaHandlerBuilder::build(requester.clone())),
+            );
+            context.register_scheme_handler_factory(
+                Some(&emb_scheme.as_str().into()),
+                None,
                 Some(&mut LocalSchemaHandlerBuilder::build(requester)),
             );
         }
@@ -627,6 +693,7 @@ impl Browsers {
         brp_sender: Sender<BrpMessage>,
         system_cursor_icon_sender: SystemCursorIconSenderInner,
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
+        webview_chrome_state_sender: WebviewChromeStateSenderInner,
     ) -> Client {
         ClientHandlerBuilder::new(RenderHandlerBuilder::build(
             webview,
@@ -634,7 +701,11 @@ impl Browsers {
             size.clone(),
             device_scale.clone(),
         ))
-        .with_display_handler(DisplayHandlerBuilder::build(system_cursor_icon_sender))
+        .with_display_handler(DisplayHandlerBuilder::build(
+            webview,
+            system_cursor_icon_sender,
+            webview_chrome_state_sender,
+        ))
         .with_load_handler(WebviewLoadHandlerBuilder::build(
             webview,
             webview_loading_state_sender,

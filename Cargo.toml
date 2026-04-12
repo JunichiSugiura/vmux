@@ -1,22 +1,22 @@
-# Workspace layout mirrors [Bevy](https://github.com/bevyengine/bevy/): virtual root; crate dirs use underscores (`crates/vmux_input`, etc.).
+# Workspace root package holds repo-level `examples/`; member crates live under `crates/`.
+[package]
+name = "vmux"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+bevy = { workspace = true }
+bevy_cef = { workspace = true, features = ["debug"] }
+bevy_ecs = { workspace = true }
+chrono = { workspace = true }
+ron = { workspace = true }
+url = { workspace = true }
+vmux_history = { path = "crates/vmux_history" }
+vmux_webview_app = { path = "crates/vmux_webview_app" }
+
 [workspace]
-members = [
-    "crates/vmux_utils",
-    "crates/vmux_core",
-    "crates/vmux_command",
-    "crates/vmux_layout",
-    "crates/vmux_input",
-    "crates/vmux_settings",
-    "crates/vmux_session",
-    "crates/vmux_desktop",
-    "crates/vmux_scene",
-    "crates/vmux_server",
-    "crates/vmux_browser",
-    "crates/vmux_webview",
-    "crates/vmux_status_bar",
-    "crates/vmux_history",
-    "crates/vmux_ui",
-]
+members = [".", "crates/*", "patches/*"]
 default-members = ["crates/vmux_desktop"]
 resolver = "3"
 
@@ -31,21 +31,36 @@ bevy_winit = { version = "0.18", default-features = true }
 bevy_cef = "0.5.2"
 bevy_cef_core = "0.5.2"
 leafwing-input-manager = "0.20"
-# Session persistence: `bevy_save` on crates.io targets Bevy 0.16.x; vmux uses Bevy 0.18, so we use moonshine-save.
 moonshine-save = "0.6.1"
-tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "net"] }
-axum = { version = "0.7", default-features = false, features = ["http1", "tokio"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "sync",
+    "macros",
+    "net",
+] }
+axum = { version = "0.7", default-features = false, features = [
+    "http1",
+    "tokio",
+] }
 tower-http = { version = "0.5", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 ron = "0.8"
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+] }
+url = "2"
 crossbeam-channel = "0.5"
 notify = "6"
-# Dioxus web UIs (`vmux_status_bar`, `vmux_history` wasm): `dioxus-cli` must match this semver (`dx --version`).
 dioxus = { version = "0.7.4", features = ["web"] }
+regex = "1"
 
-# Smaller / faster-to-parse WASM for the embedded history UI (see `crates/vmux_history/build.rs`).
 [profile.release.package.vmux_history]
+opt-level = "z"
+codegen-units = 1
+
+[profile.release.package.vmux_header]
 opt-level = "z"
 codegen-units = 1
 
@@ -53,8 +68,10 @@ codegen-units = 1
 opt-level = "z"
 codegen-units = 1
 
+[profile.release.package.vmux_ui_native]
+opt-level = "z"
+codegen-units = 1
+
 [patch.crates-io]
-winit = { path = "patches/winit-0.30.13" }
-wgpu-hal = { path = "patches/wgpu-hal-27.0.4" }
 bevy_cef = { path = "patches/bevy_cef-0.5.2" }
 bevy_cef_core = { path = "patches/bevy_cef_core-0.5.2" }

@@ -8,11 +8,11 @@ DX_VERSION := 0.7.4
 CEF_FRAMEWORK_DIR := $(HOME)/.local/share/Chromium Embedded Framework.framework
 CEF_DEBUG_RENDER := $(CEF_FRAMEWORK_DIR)/Libraries/bevy_cef_debug_render_process
 
-# Status bar / history / UI library `dist/` folders are built by each crate’s `build.rs` via **`dx build`** when you compile `vmux_desktop` (needs `dioxus-cli` on PATH).
+# Header / history / UI library `dist/` folders are built by each crate’s `build.rs` via **`dx build`** when you compile `vmux_desktop` (needs `dioxus-cli` on PATH).
 
 # Build then exec the binary instead of `cargo run` so the foreground process is vmux_desktop (not Cargo).
 run-mac: build-mac-debug
-	exec env -u CEF_PATH ./target/debug/vmux_desktop
+	exec env -u CEF_PATH ./target/debug/Vmux
 
 build-mac-debug: ensure-run-mac-deps
 	env -u CEF_PATH "$(CARGO_BIN)" build -p vmux_desktop --features debug
@@ -29,11 +29,12 @@ setup-cef:
 	"$(CARGO_BIN)" install export-cef-dir@145.6.1+145.0.28 --force
 	"$(EXPORT_CEF_BIN)" --force "$$HOME/.local/share"
 
-# After setup-cef: copy debug render helper for macOS dev (see README)
+# Build from vmux-patched bevy_cef_core (required when adding CEF schemes such as vmux://).
+# Installs into the same path `bevy_cef` debug mode loads on macOS.
 install-debug-render-process:
-	"$(CARGO_BIN)" install bevy_cef_debug_render_process
-	cp "$$HOME/.cargo/bin/bevy_cef_debug_render_process" \
-	  "$$HOME/.local/share/Chromium Embedded Framework.framework/Libraries/bevy_cef_debug_render_process"
+	env -u CEF_PATH "$(CARGO_BIN)" build -p bevy_cef_debug_render_process
+	cp "$(CURDIR)/target/debug/bevy_cef_debug_render_process" \
+	  "$(CEF_FRAMEWORK_DIR)/Libraries/bevy_cef_debug_render_process"
 
 # Friendly prerequisite report (colors / emoji when terminal); README: make run-doctor
 run-doctor: doctor-mac

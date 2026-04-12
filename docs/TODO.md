@@ -24,7 +24,7 @@
 ### Feature
 
 - `vmux_ui`
-    - Refactor existing dioxus based ui plugin (e.g. status_bar, history etc.)
+    - Refactor existing dioxus based ui plugin (e.g. header, history etc.)
     - Show storybook like ui in pane for debugging
 - `vmux_terminal`
     - Add terminal pane to provide terminal emulator
@@ -57,6 +57,7 @@
 
 ### Chore
 
+- Setup CI: lint, test, build
 - Deploy to crates.io
 - `vmux_desktop`
     - Release bundle
@@ -93,3 +94,16 @@
 
 - Windows support
 - Linux support
+
+### Architecture refactoring
+
+- Tab
+- Pane
+- Browser
+    - Loading indicator
+    - Navigation
+    - History
+- Native Menu
+- Keyboard Input / Key bindings
+- Mouse Input
+- Profile / Session

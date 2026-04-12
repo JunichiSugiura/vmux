@@ -1,14 +1,14 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
 
-pub const STATUS_BAR_WEBVIEW_URL: &str = "vmux://status_bar/";
+pub const HEADER_WEBVIEW_URL: &str = "vmux://header/";
 
 #[derive(Component)]
-pub struct StatusBar;
+pub struct Header;
 
 #[derive(Bundle)]
-pub struct StatusBarBundle {
-    pub marker: StatusBar,
+pub struct HeaderBundle {
+    pub marker: Header,
     pub source: WebviewSource,
     pub mesh: Mesh3d,
     pub material: MeshMaterial3d<WebviewExtendStandardMaterial>,

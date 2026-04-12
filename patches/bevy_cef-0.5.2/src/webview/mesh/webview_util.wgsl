@@ -25,7 +25,7 @@ fn rounded_rect_sdf_alpha(
     box_w: f32,
     box_h: f32,
     r_px: f32,
-    bottom_only: bool,
+    corner_mode: f32,
 ) -> f32 {
     if r_px <= 0.0 {
         let p = vec2((uv.x - 0.5) * uv_scale_w, (uv.y - 0.5) * uv_scale_h);
@@ -39,23 +39,24 @@ fn rounded_rect_sdf_alpha(
     let r_cap = min(r_px, 0.5 * min(w, h));
     let p = vec2((uv.x - 0.5) * uv_scale_w, (uv.y - 0.5) * uv_scale_h);
     let b = vec2(w * 0.5, h * 0.5);
-    let radii = select(
-        vec4(r_cap, r_cap, r_cap, r_cap),
-        vec4(r_cap, 0.0, r_cap, 0.0),
-        bottom_only,
-    );
+    var radii = vec4(r_cap, r_cap, r_cap, r_cap);
+    if corner_mode > 1.5 {
+        radii = vec4(0.0, r_cap, 0.0, r_cap);
+    } else if corner_mode > 0.5 {
+        radii = vec4(r_cap, 0.0, r_cap, 0.0);
+    }
     let d = sd_round_box_corners(p, b, radii);
     let aa = max(fwidth(d) * 1.5, 1e-3);
     return 1.0 - smoothstep(-aa, aa, d);
 }
 
-/// Rounded rect in **layout pixel space**; `w` = 1 means only bottom corners rounded (status bar).
+/// Rounded rect in **layout pixel space**; `w` = 0 all corners, 1 bottom only, 2 top only.
 fn rounded_rect_cover(uv: vec2<f32>) -> f32 {
     let r_px = webview_corner.x;
     let w_px = max(webview_corner.y, 1.0);
     let h_px = max(webview_corner.z, 1.0);
-    let bottom_only = webview_corner.w > 0.5;
-    return rounded_rect_sdf_alpha(uv, w_px, h_px, w_px, h_px, r_px, bottom_only);
+    let corner_mode = webview_corner.w;
+    return rounded_rect_sdf_alpha(uv, w_px, h_px, w_px, h_px, r_px, corner_mode);
 }
 
 fn surface_color(uv: vec2<f32>) -> vec4<f32> {

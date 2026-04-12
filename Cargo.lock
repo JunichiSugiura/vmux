@@ -8250,10 +8250,24 @@ dependencies = [
  "raw-window-handle",
  "ron 0.8.1",
  "serde",
+ "vmux_header",
  "vmux_history",
  "vmux_macro",
- "vmux_status_bar",
  "vmux_webview_app",
+]
+
+[[package]]
+name = "vmux_header"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_cef",
+ "bevy_ecs",
+ "dioxus",
+ "serde",
+ "vmux_ui",
+ "vmux_webview_app",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -8280,20 +8294,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "vmux_status_bar"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_cef",
- "bevy_ecs",
- "dioxus",
- "serde",
- "vmux_ui",
- "vmux_webview_app",
- "wasm-bindgen",
 ]
 
 [[package]]

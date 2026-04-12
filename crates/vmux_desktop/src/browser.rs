@@ -1,124 +1,334 @@
-use std::path::PathBuf;
-
-use bevy::camera::CameraUpdateSystems;
-use bevy::prelude::*;
-use bevy::render::alpha::AlphaMode;
+use crate::{
+    layout::{
+        display::{DisplayGlass, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_MAIN, WEBVIEW_Z_HEADER},
+        pane::{Active, Pane},
+    },
+    settings::AppSettings,
+};
+use bevy::{
+    ecs::relationship::Relationship,
+    prelude::*,
+    render::alpha::AlphaMode,
+    ui::{UiGlobalTransform, UiSystems},
+    window::PrimaryWindow,
+};
 use bevy_cef::prelude::*;
-use vmux_webview_app::JsEmitUiReadyPlugin;
+use bevy_cef_core::prelude::RenderTextureMessage;
+use std::{collections::HashSet, path::PathBuf};
+use vmux_header::{
+    Header, PageMetadata,
+    event::{TABS_EVENT, TabRow, TabsHostEvent},
+};
+use vmux_webview_app::UiReady;
 
-use crate::layout_next::{LayoutPlane, Tab, TabLayoutSync};
-use crate::settings::AppSettings;
+pub(crate) struct BrowserPlugin;
 
 impl Plugin for BrowserPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            JsEmitUiReadyPlugin,
-            CefPlugin {
-                root_cache_path: cef_root_cache_path(),
-                ..default()
-            },
-        ))
-        .add_observer(spawn_browser_on_tab_added)
+        app.add_plugins(CefPlugin {
+            root_cache_path: cef_root_cache_path(),
+            embedded_hosts: CefEmbeddedHosts(vec![CefEmbeddedHost {
+                host: "header".into(),
+                default_document: "header/index.html".into(),
+            }]),
+            ..default()
+        })
+        .add_systems(
+            Update,
+            push_tabs_host_emit.after(vmux_header::system::apply_chrome_state_from_cef),
+        )
         .add_systems(
             PostUpdate,
-            sync_browser_plane_to_window
-                .after(TabLayoutSync)
-                .after(CameraUpdateSystems),
+            (
+                sync_keyboard_target,
+                sync_children_to_ui,
+                sync_cef_webview_resize_after_ui,
+                sync_webview_pane_corner_clip,
+                sync_osr_webview_focus,
+                kick_tab_startup_navigation,
+                flush_pending_osr_textures,
+            )
+                .chain()
+                .after(UiSystems::Layout)
+                .before(render_standard_materials),
         );
     }
 }
 
-#[derive(Bundle)]
-struct BrowserBundle {
-    browser: Browser,
-    source: WebviewSource,
-    mesh: Mesh3d,
-    material: MeshMaterial3d<WebviewExtendStandardMaterial>,
-    webview_size: WebviewSize,
+#[derive(Component)]
+pub(crate) struct Browser;
+
+pub(crate) fn browser_bundle(
+    meshes: &mut ResMut<Assets<Mesh>>,
+    webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
+    url: &str,
+) -> impl Bundle {
+    (
+        Browser,
+        vmux_header::PageMetadata {
+            title: url.to_string(),
+            url: url.to_string(),
+            favicon_url: String::new(),
+        },
+        WebviewSource::new(url),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+        MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+            base: StandardMaterial {
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
+                ..default()
+            },
+            ..default()
+        })),
+        WebviewSize(Vec2::new(1280.0, 720.0)),
+        Transform::default(),
+        GlobalTransform::default(),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            right: Val::Px(0.0),
+            top: Val::Px(0.0),
+            bottom: Val::Px(0.0),
+            ..default()
+        },
+        Visibility::Inherited,
+    )
 }
 
-#[derive(Component)]
-struct Browser;
-
-pub struct BrowserPlugin;
-
-fn spawn_browser_on_tab_added(
-    add: On<Add, Tab>,
+fn sync_keyboard_target(
+    browsers: NonSend<Browsers>,
+    active_pane: Query<Entity, With<Active>>,
+    child_of_q: Query<&ChildOf>,
+    status_q: Query<(), With<Header>>,
+    mut browser_q: Query<(Entity, &mut Visibility, Has<CefKeyboardTarget>), With<Browser>>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
-    settings: Res<AppSettings>,
-    layout_on_tab: Query<&LayoutPlane, With<Tab>>,
-    children_q: Query<&Children>,
-    browser_q: Query<(), With<Browser>>,
 ) {
-    let tab = add.entity;
-    if let Ok(children) = children_q.get(tab) {
-        for child in children.iter() {
-            if browser_q.contains(child) {
-                return;
-            }
-        }
-    }
-    let Ok(layout_plane) = layout_on_tab.get(tab) else {
+    let Ok(active_entity) = active_pane.single() else {
         return;
     };
-    let layout = *layout_plane;
-    let mut mat = WebviewExtendStandardMaterial::default();
-    mat.base.unlit = true;
-    mat.base.alpha_mode = AlphaMode::Blend;
-    mat.extension.pane_corner_clip = webview_corner_clip_uniform(&layout);
-    let inner_mesh = meshes.add(Plane3d::new(Vec3::Z, layout.inner_world_half));
-    let browser_id = commands
-        .spawn(BrowserBundle {
-            browser: Browser,
-            source: WebviewSource::new(settings.browser.startup_url.as_str()),
-            mesh: Mesh3d(inner_mesh),
-            material: MeshMaterial3d(materials.add(mat)),
-            webview_size: WebviewSize(layout.inner_px),
-        })
-        .id();
-    commands.entity(tab).add_child(browser_id);
+    for (browser_e, mut visibility, has_kb) in &mut browser_q {
+        if status_q.contains(browser_e) {
+            continue;
+        }
+        *visibility = Visibility::Inherited;
+        browsers.set_osr_not_hidden(&browser_e);
+
+        let in_active = child_of_q
+            .get(browser_e)
+            .ok()
+            .map(|co| co.get() == active_entity)
+            .unwrap_or(false);
+
+        if in_active && !has_kb {
+            commands.entity(browser_e).insert(CefKeyboardTarget);
+        } else if !in_active && has_kb {
+            commands.entity(browser_e).remove::<CefKeyboardTarget>();
+        }
+    }
 }
 
-fn sync_browser_plane_to_window(
-    tabs: Query<Ref<LayoutPlane>, With<Tab>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
-    mut browsers: Query<
+fn sync_children_to_ui(
+    mut browser_q: Query<
         (
+            &mut Transform,
+            &ComputedNode,
+            &UiGlobalTransform,
             &ChildOf,
             &mut WebviewSize,
-            &mut Mesh3d,
-            &MeshMaterial3d<WebviewExtendStandardMaterial>,
+            Option<&Header>,
         ),
         With<Browser>,
     >,
+    pane_rect: Query<(&ComputedNode, &UiGlobalTransform), With<Pane>>,
+    glass: Single<(Entity, &ComputedNode, &UiGlobalTransform), With<DisplayGlass>>,
 ) {
-    for (child_of, mut webview_size, mesh_3d, mat_h) in browsers.iter_mut() {
-        let tab = child_of.parent();
-        let Ok(plane_ref) = tabs.get(tab) else {
-            continue;
+    let &(glass_entity, glass_node, glass_ui_gt) = &*glass;
+    let pad = glass_node.padding;
+    let glass_size_px = glass_node.size + pad.min_inset + pad.max_inset;
+
+    for (mut tf, self_computed, self_ui_gt, child_of, mut webview_size, status) in
+        browser_q.iter_mut()
+    {
+        let parent = child_of.get();
+        let (computed, ui_gt) = match pane_rect.get(parent) {
+            Ok((cn, gt)) => (cn, gt),
+            Err(_) => (self_computed, self_ui_gt),
         };
-        if !plane_ref.is_changed() {
+
+        if glass_size_px.x <= 0.0 || glass_size_px.y <= 0.0 {
             continue;
         }
-        let layout = *plane_ref;
-        webview_size.0 = layout.inner_px;
-        if let Some(mesh) = meshes.get_mut(&mesh_3d.0) {
-            *mesh = Mesh::from(Plane3d::new(Vec3::Z, layout.inner_world_half));
+
+        let size_px = computed.size;
+        if size_px.x <= 0.0 || size_px.y <= 0.0 {
+            continue;
         }
-        if let Some(mat) = materials.get_mut(&mat_h.0) {
-            mat.base.unlit = true;
-            mat.extension.pane_corner_clip = webview_corner_clip_uniform(&layout);
+
+        let sx = size_px.x / glass_size_px.x;
+        let sy = size_px.y / glass_size_px.y;
+        tf.scale = Vec3::new(sx, sy, 1.0);
+
+        let center_ui = ui_gt.transform_point2(Vec2::ZERO);
+        let glass_center_ui = glass_ui_gt.transform_point2(Vec2::ZERO);
+        let delta_px = center_ui - glass_center_ui;
+
+        let tx = delta_px.x / glass_size_px.x;
+        let ty = -delta_px.y / glass_size_px.y;
+        let z = if status.is_some() {
+            WEBVIEW_Z_HEADER
+        } else if parent != glass_entity {
+            WEBVIEW_Z_MAIN
+        } else {
+            0.01 + self_computed.stack_index as f32 * 0.001
+        };
+        tf.translation = Vec3::new(tx, ty, z);
+
+        let dip = (size_px * computed.inverse_scale_factor).max(Vec2::splat(1.0));
+        if webview_size.0 != dip {
+            webview_size.0 = dip;
         }
     }
 }
 
-fn webview_corner_clip_uniform(layout: &LayoutPlane) -> Vec4 {
-    let w = layout.inner_px.x.max(1.0e-6);
-    let h = layout.inner_px.y.max(1.0e-6);
-    Vec4::new(layout.r_px, w, h, 0.0)
+fn sync_cef_webview_resize_after_ui(
+    browsers: NonSend<Browsers>,
+    webviews: Query<(Entity, &WebviewSize), (Changed<WebviewSize>, With<Browser>)>,
+    host_window: Query<&HostWindow>,
+    windows: Query<&Window>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
+) {
+    for (entity, size) in webviews.iter() {
+        if !browsers.has_browser(entity) {
+            continue;
+        }
+        let window_entity = host_window
+            .get(entity)
+            .ok()
+            .map(|h| h.0)
+            .or_else(|| primary_window.single().ok());
+        let device_scale_factor = window_entity
+            .and_then(|e| windows.get(e).ok())
+            .map(|w| w.resolution.scale_factor() as f32)
+            .filter(|s| s.is_finite() && *s > 0.0)
+            .unwrap_or(1.0);
+        browsers.resize(&entity, size.0, device_scale_factor);
+    }
+}
+
+fn sync_webview_pane_corner_clip(
+    settings: Res<AppSettings>,
+    mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
+    tabs: Query<(&WebviewSize, &MeshMaterial3d<WebviewExtendStandardMaterial>), With<Browser>>,
+    status: Query<(&WebviewSize, &MeshMaterial3d<WebviewExtendStandardMaterial>), With<Header>>,
+) {
+    let r = settings.layout.pane.radius;
+    for (size, mat_h) in &tabs {
+        let w = size.0.x.max(1.0e-6);
+        let h = size.0.y.max(1.0e-6);
+        if let Some(mat) = materials.get_mut(mat_h.id()) {
+            mat.extension.pane_corner_clip = Vec4::new(r, w, h, 0.0);
+        }
+    }
+    for (size, mat_h) in &status {
+        let w = size.0.x.max(1.0e-6);
+        let h = size.0.y.max(1.0e-6);
+        if let Some(mat) = materials.get_mut(mat_h.id()) {
+            mat.extension.pane_corner_clip = Vec4::new(r, w, h, 2.0);
+        }
+    }
+}
+
+fn sync_osr_webview_focus(
+    browsers: NonSend<Browsers>,
+    webviews: Query<Entity, With<WebviewSource>>,
+    keyboard_target: Query<Entity, (With<WebviewSource>, With<CefKeyboardTarget>)>,
+    status_chrome: Query<Entity, (With<Header>, With<Browser>)>,
+    mut ready: Local<Vec<Entity>>,
+    mut auxiliary: Local<Vec<Entity>>,
+) {
+    ready.clear();
+    ready.extend(webviews.iter().filter(|&e| browsers.has_browser(e)));
+    if ready.is_empty() {
+        return;
+    }
+    ready.sort_by_key(|e| e.to_bits());
+
+    let active = keyboard_target
+        .iter()
+        .filter(|&k| ready.iter().any(|&e| e == k))
+        .min_by_key(|e| e.to_bits())
+        .unwrap_or(ready[0]);
+
+    auxiliary.clear();
+    auxiliary.extend(ready.iter().copied().filter(|&e| e != active));
+    browsers.sync_osr_focus_to_active_pane(Some(active), auxiliary.as_slice());
+    for e in status_chrome.iter() {
+        browsers.set_osr_not_hidden(&e);
+    }
+}
+
+fn kick_tab_startup_navigation(
+    browsers: NonSend<Browsers>,
+    q: Query<(Entity, &WebviewSource), With<Browser>>,
+    mut kicked: Local<HashSet<u64>>,
+) {
+    for (entity, source) in &q {
+        let WebviewSource::Url(url) = source else {
+            continue;
+        };
+        let key = entity.to_bits();
+        if kicked.contains(&key) {
+            continue;
+        }
+        if !browsers.has_browser(entity) || !browsers.host_emit_ready(&entity) {
+            continue;
+        }
+        browsers.navigate(&entity, url);
+        kicked.insert(key);
+    }
+}
+
+fn flush_pending_osr_textures(
+    mut ew: MessageWriter<RenderTextureMessage>,
+    browsers: NonSend<Browsers>,
+) {
+    while let Ok(texture) = browsers.try_receive_texture() {
+        ew.write(texture);
+    }
+}
+
+fn push_tabs_host_emit(
+    mut commands: Commands,
+    browsers: NonSend<Browsers>,
+    status: Single<Entity, (With<Header>, With<UiReady>)>,
+    browser_q: Query<(&PageMetadata, &ChildOf), With<Browser>>,
+    active_pane: Query<(), With<Active>>,
+    mut last: Local<String>,
+) {
+    let status_e = *status;
+    if !browsers.has_browser(status_e) || !browsers.host_emit_ready(&status_e) {
+        return;
+    }
+    let mut rows: Vec<TabRow> = Vec::new();
+    for (meta, child_of) in &browser_q {
+        if !active_pane.contains(child_of.get()) {
+            continue;
+        }
+        rows.push(TabRow {
+            title: meta.title.clone(),
+            url: meta.url.clone(),
+            favicon_url: meta.favicon_url.clone(),
+            is_active: true,
+        });
+    }
+    let payload = TabsHostEvent { tabs: rows };
+    let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
+    if ron_body.as_str() == last.as_str() {
+        return;
+    }
+    commands.trigger(HostEmitEvent::new(status_e, TABS_EVENT, &ron_body));
+    *last = ron_body;
 }
 
 fn cef_root_cache_path() -> Option<String> {

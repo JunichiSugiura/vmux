@@ -32,8 +32,8 @@ use std::rc::Rc;
 pub(crate) const FOV_Y: f32 = std::f32::consts::FRAC_PI_4;
 const BOUNCE_DISPLAY_CLEARANCE: f32 = 2.0;
 
-fn camera_margin_px(settings: &AppSettings) -> f32 {
-    settings.layout.window.padding + settings.layout.pane.outline.width
+fn camera_margin_px(_settings: &AppSettings) -> f32 {
+    0.0
 }
 
 #[derive(Component)]
@@ -109,7 +109,6 @@ pub(crate) fn setup(
             ..default()
         },
         state,
-        Bloom::NATURAL,
     ));
 }
 
@@ -242,12 +241,19 @@ fn on_reset_camera(
 fn on_toggle_free_camera(
     mut reader: MessageReader<AppCommand>,
     mut state: Single<&mut FreeCameraState, With<MainCamera>>,
+    camera: Single<Entity, With<MainCamera>>,
+    mut commands: Commands,
 ) {
     for cmd in reader.read() {
         let AppCommand::Camera(CameraCommand::ToggleFreeCamera) = *cmd else {
             continue;
         };
         state.enabled = !state.enabled;
+        if state.enabled {
+            commands.entity(*camera).insert(Bloom::NATURAL);
+        } else {
+            commands.entity(*camera).remove::<Bloom>();
+        }
     }
 }
 

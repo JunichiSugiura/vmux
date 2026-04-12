@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-use vmux_status_bar::event::{TABS_EVENT, TabRow, TabsHostEvent};
+use vmux_header::event::{TABS_EVENT, TabRow, TabsHostEvent};
 use vmux_ui::hooks::use_event_listener;
 
 fn host_for_favicon_fallback(page_url: &str) -> Option<&str> {
@@ -35,7 +35,7 @@ pub fn App() -> Element {
     let favicon_src = active_row.as_ref().and_then(favicon_src_for_tab);
 
     rsx! {
-        div { class: "box-border flex min-h-0 min-w-0 flex-1 border-t border-border bg-card text-foreground",
+        div { class: "box-border flex min-h-0 min-w-0 flex-1 border-b border-border bg-card text-foreground",
             if (listener.is_loading)() {
                 div { class: "flex w-full items-center px-3 py-2",
                     span { class: "text-ui text-muted-foreground", "Connecting…" }

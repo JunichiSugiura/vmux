@@ -1,5 +1,5 @@
 mod command;
-mod layout3;
+mod layout;
 mod menu;
 mod rounded;
 mod scene;
@@ -13,7 +13,7 @@ use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
 use {
     // browser::BrowserPlugin,
     command::CommandPlugin,
-    layout3::Layout3Plugin,
+    layout::LayoutPlugin,
     menu::NativeMenuPlugin,
     rounded::RoundedMaterialPlugin,
     scene::ScenePlugin,
@@ -52,7 +52,7 @@ impl Plugin for VmuxPlugin {
             ScenePlugin,
             NativeMenuPlugin,
             StatusBarPlugin,
-            Layout3Plugin,
+            LayoutPlugin,
             // BrowserPlugin,
             // HistoryPlugin,
         ));

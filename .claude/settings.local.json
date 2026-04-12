@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo check:*)",
+      "Bash(afplay /System/Library/Sounds/Glass.aiff)",
+      "Bash(osascript -e 'display notification \"Done\" with title \"Claude Code\" sound name \"Glass\"')",
+      "Bash(osascript -e 'display notification \"Try 8px outline width\" with title \"Claude Code\" sound name \"Glass\"')",
+      "Bash(osascript -e 'display notification \"Done — padding + gap added\" with title \"Claude Code\" sound name \"Glass\"')",
+      "Bash(osascript -e 'display notification \"Done — inset outline + hover-to-activate\" with title \"Claude Code\" sound name \"Glass\"')",
+      "Bash(osascript -e 'display notification \"Done — outset outline with auto padding\" with title \"Claude Code\" sound name \"Glass\"')",
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")"
+    ]
+  }
+}

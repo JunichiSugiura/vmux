@@ -55,6 +55,10 @@ pub enum PaneCommand {
     SplitV,
     #[menu(id = "split_h", label = "Split Horizontally")]
     SplitH,
+    #[menu(id = "toggle_pane", label = "Toggle Pane")]
+    Toggle,
+    #[menu(id = "close_pane", label = "Close Pane")]
+    Close,
 }
 
 #[derive(OsSubMenu, Debug, Clone, Copy, PartialEq, Eq, Default)]

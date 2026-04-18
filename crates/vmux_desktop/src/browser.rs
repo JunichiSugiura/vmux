@@ -606,6 +606,7 @@ fn on_side_sheet_command_emit(
     commands.entity(target_tab).insert(Active);
 
     hover_intent.target = None;
+    hover_intent.last_activation = Some(std::time::Instant::now());
 
     if let Ok(ui_gt) = pane_ui_q.get(target_pane) {
         let center = ui_gt.transform_point2(Vec2::ZERO);

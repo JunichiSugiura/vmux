@@ -157,7 +157,42 @@ fn handle_tab_commands(
             | TabCommand::SelectIndex6
             | TabCommand::SelectIndex7
             | TabCommand::SelectIndex8
-            | TabCommand::SelectLast => {}
+            | TabCommand::SelectLast => {
+                let Ok(pane) = active_pane.single() else {
+                    continue;
+                };
+                let Ok(children) = pane_children.get(pane) else {
+                    continue;
+                };
+                let tabs: Vec<Entity> = children
+                    .iter()
+                    .filter(|&e| tab_q.contains(e))
+                    .collect();
+                if tabs.is_empty() {
+                    continue;
+                }
+                let target_idx = match tab_cmd {
+                    TabCommand::SelectIndex1 => 0,
+                    TabCommand::SelectIndex2 => 1,
+                    TabCommand::SelectIndex3 => 2,
+                    TabCommand::SelectIndex4 => 3,
+                    TabCommand::SelectIndex5 => 4,
+                    TabCommand::SelectIndex6 => 5,
+                    TabCommand::SelectIndex7 => 6,
+                    TabCommand::SelectIndex8 => 7,
+                    TabCommand::SelectLast => tabs.len() - 1,
+                    _ => continue,
+                };
+                if target_idx >= tabs.len() {
+                    continue;
+                }
+                for &t in &tabs {
+                    if active_tabs.contains(t) {
+                        commands.entity(t).remove::<Active>();
+                    }
+                }
+                commands.entity(tabs[target_idx]).insert(Active);
+            }
             TabCommand::Reopen
             | TabCommand::Duplicate
             | TabCommand::Pin

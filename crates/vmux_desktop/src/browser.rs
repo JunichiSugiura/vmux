@@ -607,7 +607,7 @@ fn on_side_sheet_command_emit(
     if let Ok(ui_gt) = pane_ui_q.get(target_pane) {
         let center = ui_gt.transform_point2(Vec2::ZERO);
         if let Ok(mut window) = windows.single_mut() {
-            window.set_cursor_position(Some(center));
+            window.set_physical_cursor_position(Some(center.as_dvec2()));
         }
     }
 }

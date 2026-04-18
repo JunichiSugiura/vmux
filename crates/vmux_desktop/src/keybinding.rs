@@ -54,7 +54,7 @@ impl Default for ChordState {
 
 fn init_keybindings(mut commands: Commands, settings: Option<Res<AppSettings>>) {
     let mut map = KeyBindingMap {
-        bindings: Vec::new(),
+        bindings: AppCommand::default_key_bindings(),
         chord_timeout_ms: 1000,
     };
 

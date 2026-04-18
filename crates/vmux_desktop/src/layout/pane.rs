@@ -17,11 +17,13 @@ use bevy_cef::prelude::*;
 pub(crate) struct PanePlugin;
 
 const HOVER_DEBOUNCE_MS: u64 = 80;
+const HOVER_COOLDOWN_MS: u64 = 300;
 
 #[derive(Resource, Default)]
 pub(crate) struct PaneHoverIntent {
     pub target: Option<Entity>,
     pub since: Option<Instant>,
+    pub last_activation: Option<Instant>,
 }
 
 impl Plugin for PanePlugin {
@@ -318,6 +320,7 @@ fn on_pane_select(
 
         if let Some((target, _)) = best {
             hover_intent.target = None;
+            hover_intent.last_activation = Some(Instant::now());
             commands.entity(current).remove::<Active>();
             commands.entity(target).insert(Active);
         }
@@ -331,6 +334,11 @@ fn poll_cursor_pane_focus(
     mut intent: ResMut<PaneHoverIntent>,
     mut commands: Commands,
 ) {
+    if let Some(last) = intent.last_activation {
+        if last.elapsed().as_millis() < HOVER_COOLDOWN_MS as u128 {
+            return;
+        }
+    }
     let Ok(window) = windows.single() else {
         return;
     };
@@ -379,6 +387,7 @@ fn poll_cursor_pane_focus(
     }
     commands.entity(target).insert(Active);
     intent.target = None;
+    intent.last_activation = Some(Instant::now());
 }
 
 fn collect_space_leaf_panes(

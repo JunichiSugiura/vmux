@@ -174,6 +174,7 @@ fn sync_children_to_ui(
     >,
     child_of_q: Query<&ChildOf>,
     pane_rect: Query<(&ComputedNode, &UiGlobalTransform), With<Pane>>,
+    active_tab_q: Query<(), (With<Active>, With<Tab>)>,
     glass: Single<(Entity, &ComputedNode, &UiGlobalTransform), With<VmuxWindow>>,
 ) {
     let &(glass_entity, glass_node, glass_ui_gt) = &*glass;
@@ -217,7 +218,11 @@ fn sync_children_to_ui(
         } else if side_sheet.is_some() {
             WEBVIEW_Z_SIDE_SHEET
         } else if parent != glass_entity {
-            WEBVIEW_Z_MAIN
+            if active_tab_q.contains(parent) {
+                WEBVIEW_Z_MAIN
+            } else {
+                WEBVIEW_Z_MAIN - 0.01
+            }
         } else {
             0.01 + self_computed.stack_index as f32 * 0.001
         };

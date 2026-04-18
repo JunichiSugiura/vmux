@@ -18,9 +18,9 @@ pub(crate) struct PanePlugin;
 const HOVER_DEBOUNCE_MS: u64 = 80;
 
 #[derive(Resource, Default)]
-struct PaneHoverIntent {
-    target: Option<Entity>,
-    since: Option<Instant>,
+pub(crate) struct PaneHoverIntent {
+    pub target: Option<Entity>,
+    pub since: Option<Instant>,
 }
 
 impl Plugin for PanePlugin {
@@ -257,6 +257,7 @@ fn on_pane_select(
     leaf_pane_q: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
     active_pane: Query<Entity, (With<Active>, With<Pane>)>,
     pane_pos_q: Query<(&ComputedNode, &UiGlobalTransform), With<Pane>>,
+    mut hover_intent: ResMut<PaneHoverIntent>,
     mut commands: Commands,
 ) {
     for cmd in reader.read() {
@@ -317,6 +318,7 @@ fn on_pane_select(
         }
 
         if let Some((target, _)) = best {
+            hover_intent.target = None;
             commands.entity(current).remove::<Active>();
             commands.entity(target).insert(Active);
         }

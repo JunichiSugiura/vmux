@@ -5,7 +5,7 @@ use crate::{
             VmuxWindow, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN,
             WEBVIEW_Z_SIDE_SHEET,
         },
-        pane::{Pane, PaneSplit},
+        pane::{Pane, PaneHoverIntent, PaneSplit},
         side_sheet::SideSheet,
         space::Space,
         tab::{Active, Tab, focused_tab},
@@ -562,6 +562,7 @@ fn on_side_sheet_command_emit(
     tab_q: Query<Entity, With<Tab>>,
     pane_ui_q: Query<&UiGlobalTransform, With<Pane>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    mut hover_intent: ResMut<PaneHoverIntent>,
     mut commands: Commands,
 ) {
     let evt = &trigger.event().payload;
@@ -603,6 +604,8 @@ fn on_side_sheet_command_emit(
     }
     commands.entity(target_pane).insert(Active);
     commands.entity(target_tab).insert(Active);
+
+    hover_intent.target = None;
 
     if let Ok(ui_gt) = pane_ui_q.get(target_pane) {
         let center = ui_gt.transform_point2(Vec2::ZERO);

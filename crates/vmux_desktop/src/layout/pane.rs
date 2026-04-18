@@ -1,6 +1,7 @@
 use crate::{
     browser::browser_bundle,
     command::{AppCommand, PaneCommand, ReadAppCommands, TabCommand},
+    layout::space::Space,
     layout::tab::{Active, Tab, tab_bundle},
     settings::AppSettings,
 };
@@ -235,7 +236,9 @@ fn handle_pane_commands(
 
 fn on_pane_cycle(
     mut reader: MessageReader<AppCommand>,
-    leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
+    active_space: Query<Entity, (With<Active>, With<Space>)>,
+    all_children: Query<&Children>,
+    leaf_pane_q: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
     active_pane: Query<Entity, (With<Active>, With<Pane>)>,
     mut commands: Commands,
 ) {
@@ -245,7 +248,10 @@ fn on_pane_cycle(
             AppCommand::Tab(TabCommand::Previous) => -1,
             _ => continue,
         };
-        let mut panes: Vec<Entity> = leaf_panes.iter().collect();
+        let Ok(space) = active_space.single() else {
+            continue;
+        };
+        let mut panes = collect_space_leaf_panes(space, &all_children, &leaf_pane_q);
         if panes.len() < 2 {
             continue;
         }
@@ -286,4 +292,24 @@ fn on_pane_click(
         commands.entity(current).remove::<Active>();
     }
     commands.entity(entity).insert(Active);
+}
+
+fn collect_space_leaf_panes(
+    root: Entity,
+    all_children: &Query<&Children>,
+    leaf_q: &Query<Entity, (With<Pane>, Without<PaneSplit>)>,
+) -> Vec<Entity> {
+    let mut result = Vec::new();
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if leaf_q.contains(entity) {
+            result.push(entity);
+        }
+        if let Ok(children) = all_children.get(entity) {
+            for child in children.iter() {
+                stack.push(child);
+            }
+        }
+    }
+    result
 }

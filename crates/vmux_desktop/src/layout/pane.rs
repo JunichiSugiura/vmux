@@ -21,7 +21,7 @@ impl Plugin for PanePlugin {
             (on_pane_cycle, handle_pane_commands).in_set(ReadAppCommands),
         )
         .add_observer(on_pane_added)
-        .add_observer(on_pane_click);
+        .add_observer(on_pane_hover);
     }
 }
 
@@ -277,11 +277,11 @@ fn on_pane_cycle(
 }
 
 fn on_pane_added(trigger: On<Add, Pane>, mut commands: Commands) {
-    commands.entity(trigger.entity).observe(on_pane_click);
+    commands.entity(trigger.entity).observe(on_pane_hover);
 }
 
-fn on_pane_click(
-    trigger: On<Pointer<Click>>,
+fn on_pane_hover(
+    trigger: On<Pointer<Over>>,
     pane_q: Query<(), (With<Pane>, Without<PaneSplit>)>,
     active_pane: Query<Entity, (With<Active>, With<Pane>)>,
     mut commands: Commands,

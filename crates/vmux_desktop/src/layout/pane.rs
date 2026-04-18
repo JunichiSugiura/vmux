@@ -9,6 +9,7 @@ use bevy::{
     ecs::relationship::Relationship,
     prelude::*,
     ui::{FlexDirection, UiGlobalTransform},
+    window::PrimaryWindow,
 };
 use std::time::Instant;
 use bevy_cef::prelude::*;
@@ -30,9 +31,7 @@ impl Plugin for PanePlugin {
                 Update,
                 (on_pane_select, handle_pane_commands).in_set(ReadAppCommands),
             )
-            .add_systems(Update, apply_hover_intent)
-            .add_observer(on_pane_added)
-            .add_observer(on_pane_hover);
+            .add_systems(Update, poll_cursor_pane_focus);
     }
 }
 
@@ -325,54 +324,57 @@ fn on_pane_select(
     }
 }
 
-fn on_pane_added(trigger: On<Add, Pane>, mut commands: Commands) {
-    commands.entity(trigger.entity).observe(on_pane_hover);
-}
-
-fn on_pane_hover(
-    trigger: On<Pointer<Over>>,
-    pane_q: Query<(), (With<Pane>, Without<PaneSplit>)>,
+fn poll_cursor_pane_focus(
+    windows: Query<&Window, With<PrimaryWindow>>,
+    leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
     active_pane: Query<Entity, (With<Active>, With<Pane>)>,
     mut intent: ResMut<PaneHoverIntent>,
+    mut commands: Commands,
 ) {
-    let entity = trigger.entity;
-    if !pane_q.contains(entity) {
+    let Ok(window) = windows.single() else {
         return;
+    };
+    let Some(cursor_pos) = window.physical_cursor_position() else {
+        return;
+    };
+    let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
+
+    let mut hovered_pane: Option<Entity> = None;
+    for (entity, node, ui_gt) in &leaf_panes {
+        let center = ui_gt.transform_point2(Vec2::ZERO);
+        let half = node.size * 0.5;
+        let min = center - half;
+        let max = center + half;
+        if cursor.x >= min.x && cursor.x <= max.x && cursor.y >= min.y && cursor.y <= max.y {
+            hovered_pane = Some(entity);
+            break;
+        }
     }
-    if active_pane.single().ok() == Some(entity) {
+
+    let Some(target) = hovered_pane else {
+        intent.target = None;
+        return;
+    };
+
+    if active_pane.single().ok() == Some(target) {
         intent.target = None;
         return;
     }
-    if intent.target != Some(entity) {
-        intent.target = Some(entity);
-        intent.since = Some(Instant::now());
-    }
-}
 
-fn apply_hover_intent(
-    mut intent: ResMut<PaneHoverIntent>,
-    active_pane: Query<Entity, (With<Active>, With<Pane>)>,
-    pane_q: Query<(), (With<Pane>, Without<PaneSplit>)>,
-    mut commands: Commands,
-) {
-    let Some(target) = intent.target else {
+    if intent.target != Some(target) {
+        intent.target = Some(target);
+        intent.since = Some(Instant::now());
         return;
-    };
+    }
+
     let Some(since) = intent.since else {
         return;
     };
     if since.elapsed().as_millis() < HOVER_DEBOUNCE_MS as u128 {
         return;
     }
-    if !pane_q.contains(target) {
-        intent.target = None;
-        return;
-    }
+
     if let Ok(current) = active_pane.single() {
-        if current == target {
-            intent.target = None;
-            return;
-        }
         commands.entity(current).remove::<Active>();
     }
     commands.entity(target).insert(Active);

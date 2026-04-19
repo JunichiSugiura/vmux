@@ -5,10 +5,10 @@ use crate::{
             VmuxWindow, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN,
             WEBVIEW_Z_SIDE_SHEET,
         },
-        pane::{Pane, PaneHoverIntent, PaneSplit},
+        pane::{Pane, PaneHoverIntent, PaneSplit, active_tab_in_pane, first_leaf_descendant, first_tab_in_pane},
         side_sheet::SideSheet,
         space::Space,
-        tab::{Active, Tab, focused_tab},
+        tab::{Active, Tab, focused_tab, tab_bundle},
     },
     settings::AppSettings,
 };
@@ -25,7 +25,7 @@ use bevy_cef_core::prelude::RenderTextureMessage;
 use std::path::PathBuf;
 use vmux_header::{
     Header, PageMetadata,
-    event::{HeaderCommandEvent, TABS_EVENT, TabRow, TabsHostEvent},
+    event::{HeaderCommandEvent, RELOAD_EVENT, TABS_EVENT, TabRow, TabsHostEvent},
 };
 use vmux_side_sheet::event::{
     PANE_TREE_EVENT, PaneNode, PaneTreeEvent, SideSheetCommandEvent,
@@ -54,6 +54,7 @@ impl Plugin for BrowserPlugin {
         .add_plugins(JsEmitEventPlugin::<SideSheetCommandEvent>::default())
         .add_observer(on_header_command_emit)
         .add_observer(on_side_sheet_command_emit)
+        .add_observer(on_reload_notify_header)
         .add_systems(
             Update,
             handle_browser_commands.in_set(ReadAppCommands),
@@ -564,6 +565,19 @@ fn on_header_command_emit(
     messages.write(AppCommand::Browser(cmd));
 }
 
+fn on_reload_notify_header(
+    _trigger: On<RequestReload>,
+    header: Option<Single<Entity, (With<Header>, With<UiReady>)>>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
+) {
+    let Some(header) = header else { return };
+    let header_e = *header;
+    if browsers.has_browser(header_e) && browsers.host_emit_ready(&header_e) {
+        commands.trigger(HostEmitEvent::new(header_e, RELOAD_EVENT, &"()"));
+    }
+}
+
 fn on_side_sheet_command_emit(
     trigger: On<Receive<SideSheetCommandEvent>>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
@@ -571,22 +585,21 @@ fn on_side_sheet_command_emit(
     active_tab_q: Query<Entity, (With<Active>, With<Tab>)>,
     pane_children: Query<&Children, With<Pane>>,
     tab_q: Query<Entity, With<Tab>>,
+    child_of_q: Query<&ChildOf>,
+    split_q: Query<(), With<PaneSplit>>,
     pane_ui_q: Query<&UiGlobalTransform, With<Pane>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut hover_intent: ResMut<PaneHoverIntent>,
+    settings: Res<AppSettings>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
     mut commands: Commands,
 ) {
     let evt = &trigger.event().payload;
-    if evt.command != "activate_tab" {
-        return;
-    }
     let Ok(pane_id) = evt.pane_id.parse::<u64>() else {
         return;
     };
-    let target_pane = leaf_panes
-        .iter()
-        .find(|e| e.to_bits() == pane_id);
-    let Some(target_pane) = target_pane else {
+    let Some(target_pane) = leaf_panes.iter().find(|e| e.to_bits() == pane_id) else {
         return;
     };
     let Ok(children) = pane_children.get(target_pane) else {
@@ -596,34 +609,139 @@ fn on_side_sheet_command_emit(
         .iter()
         .filter(|&e| tab_q.contains(e))
         .collect();
-    let Some(&target_tab) = tab_entities.get(evt.tab_index) else {
-        return;
-    };
-    if let Ok(old_pane) = active_pane_q.single() {
-        if old_pane != target_pane {
-            commands.entity(old_pane).remove::<Active>();
-        }
-    }
-    let old_tab_in_pane = pane_children
-        .get(target_pane)
-        .ok()
-        .and_then(|ch| ch.iter().find(|&e| active_tab_q.contains(e)));
-    if let Some(old_tab) = old_tab_in_pane {
-        if old_tab != target_tab {
-            commands.entity(old_tab).remove::<Active>();
-        }
-    }
-    commands.entity(target_pane).insert(Active);
-    commands.entity(target_tab).insert(Active);
 
-    hover_intent.target = None;
-    hover_intent.last_activation = Some(std::time::Instant::now());
+    match evt.command.as_str() {
+        "activate_tab" => {
+            let Some(&target_tab) = tab_entities.get(evt.tab_index) else {
+                return;
+            };
+            if let Ok(old_pane) = active_pane_q.single() {
+                if old_pane != target_pane {
+                    commands.entity(old_pane).remove::<Active>();
+                }
+            }
+            let old_tab_in_pane = children.iter().find(|&e| active_tab_q.contains(e));
+            if let Some(old_tab) = old_tab_in_pane {
+                if old_tab != target_tab {
+                    commands.entity(old_tab).remove::<Active>();
+                }
+            }
+            commands.entity(target_pane).insert(Active);
+            commands.entity(target_tab).insert(Active);
 
-    if let Ok(ui_gt) = pane_ui_q.get(target_pane) {
-        let center = ui_gt.transform_point2(Vec2::ZERO);
-        if let Ok(mut window) = windows.single_mut() {
-            window.set_physical_cursor_position(Some(center.as_dvec2()));
+            hover_intent.target = None;
+            hover_intent.last_activation = Some(std::time::Instant::now());
+
+            if let Ok(ui_gt) = pane_ui_q.get(target_pane) {
+                let center = ui_gt.transform_point2(Vec2::ZERO);
+                if let Ok(mut window) = windows.single_mut() {
+                    window.set_physical_cursor_position(Some(center.as_dvec2()));
+                }
+            }
         }
+        "close_tab" => {
+            let Some(&target_tab) = tab_entities.get(evt.tab_index) else {
+                return;
+            };
+
+            if tab_entities.len() > 1 {
+                let was_active = active_tab_q.contains(target_tab);
+                commands.entity(target_tab).despawn();
+                if was_active {
+                    let next = tab_entities.iter().copied().find(|&e| e != target_tab).unwrap();
+                    commands.entity(next).insert(Active);
+                }
+            } else if leaf_panes.iter().count() <= 1 {
+                let startup_url = settings.browser.startup_url.as_str();
+                commands.entity(target_tab).despawn();
+                let tab = commands
+                    .spawn((tab_bundle(), Active, ChildOf(target_pane)))
+                    .id();
+                commands.spawn((
+                    Browser::new(&mut meshes, &mut webview_mt, startup_url),
+                    ChildOf(tab),
+                ));
+            } else {
+                let Ok(pane_co) = child_of_q.get(target_pane) else {
+                    return;
+                };
+                let parent = pane_co.get();
+                let Ok(parent_children) = pane_children.get(parent) else {
+                    return;
+                };
+                let is_pane =
+                    |e: Entity| leaf_panes.contains(e) || split_q.contains(e);
+                let Some(sibling) = parent_children
+                    .iter()
+                    .find(|&e| e != target_pane && is_pane(e))
+                else {
+                    return;
+                };
+
+                let target_pane_is_active = active_pane_q.contains(target_pane);
+                let sibling_is_active = active_pane_q.contains(sibling);
+
+                let sibling_children: Vec<Entity> = pane_children
+                    .get(sibling)
+                    .map(|c| c.iter().collect())
+                    .unwrap_or_default();
+                for &child in &sibling_children {
+                    commands.entity(child).insert(ChildOf(parent));
+                }
+
+                let (new_active_pane, tab_to_activate);
+                if split_q.contains(sibling) {
+                    new_active_pane =
+                        first_leaf_descendant(sibling, &pane_children, &leaf_panes);
+                    tab_to_activate = active_tab_in_pane(
+                        new_active_pane,
+                        &pane_children,
+                        &active_tab_q,
+                    )
+                    .or_else(|| {
+                        first_tab_in_pane(new_active_pane, &pane_children, &tab_q)
+                    });
+                    commands.entity(sibling).remove::<ChildOf>();
+                    commands.queue(move |world: &mut World| {
+                        world.despawn(sibling);
+                    });
+                } else {
+                    new_active_pane = parent;
+                    tab_to_activate = sibling_children
+                        .iter()
+                        .copied()
+                        .find(|&e| active_tab_q.contains(e))
+                        .or_else(|| {
+                            sibling_children
+                                .iter()
+                                .copied()
+                                .find(|&e| tab_q.contains(e))
+                        });
+                    commands.entity(parent).remove::<PaneSplit>();
+                    commands.entity(parent).insert(Node {
+                        flex_grow: 1.0,
+                        flex_basis: Val::Px(0.0),
+                        align_items: AlignItems::Stretch,
+                        justify_content: JustifyContent::Stretch,
+                        ..default()
+                    });
+                    commands.entity(sibling).despawn();
+                }
+
+                commands.entity(target_pane).despawn();
+
+                if target_pane_is_active || sibling_is_active {
+                    commands.entity(new_active_pane).insert(Active);
+                    if let Some(tab) = tab_to_activate {
+                        commands.entity(tab).insert(Active);
+                    }
+                }
+            }
+
+            hover_intent.target = None;
+            hover_intent.last_activation = Some(std::time::Instant::now());
+        }
+        _ => {}
     }
 }
 

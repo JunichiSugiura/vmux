@@ -89,9 +89,9 @@ fn TabRow(tab: TabNode, pane_id: u64) -> Element {
     rsx! {
         div {
             class: if is_active {
-                "flex cursor-default items-center gap-2 rounded-md bg-muted px-2 py-1.5"
+                "group flex cursor-default items-center gap-2 rounded-md bg-muted px-2 py-1.5"
             } else {
-                "flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
             },
             onclick: move |_| {
                 let _ = try_cef_emit_serde(&SideSheetCommandEvent {
@@ -110,11 +110,23 @@ fn TabRow(tab: TabNode, pane_id: u64) -> Element {
             }
             span {
                 class: if is_active {
-                    "min-w-0 truncate text-ui font-medium text-foreground"
+                    "min-w-0 flex-1 truncate text-ui font-medium text-foreground"
                 } else {
-                    "min-w-0 truncate text-ui"
+                    "min-w-0 flex-1 truncate text-ui"
                 },
                 "{tab.title}"
+            }
+            button {
+                class: "ml-auto flex h-4 w-4 shrink-0 items-center justify-center rounded-sm opacity-0 transition-colors group-hover:opacity-100 hover:bg-foreground/10 active:bg-transparent",
+                onclick: move |evt| {
+                    evt.stop_propagation();
+                    let _ = try_cef_emit_serde(&SideSheetCommandEvent {
+                        command: "close_tab".to_string(),
+                        pane_id: pane_id.to_string(),
+                        tab_index,
+                    });
+                },
+                span { class: "text-[10px] leading-none", "\u{00d7}" }
             }
         }
     }

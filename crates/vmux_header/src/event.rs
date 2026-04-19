@@ -1,4 +1,5 @@
 pub const TABS_EVENT: &str = "tabs";
+pub const RELOAD_EVENT: &str = "reload";
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct HeaderCommandEvent {

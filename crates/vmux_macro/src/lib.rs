@@ -2,6 +2,15 @@ use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{Attribute, Data, DeriveInput, Fields, LitStr, parse_macro_input};
 
+#[proc_macro_derive(CommandPalette, attributes(menu))]
+pub fn derive_command_palette(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match impl_command_palette(input) {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
+
 #[proc_macro_derive(DefaultKeyBindings, attributes(bind, menu))]
 pub fn derive_default_key_bindings(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -490,4 +499,148 @@ impl BindProps {
         }
         Ok(BindProps { direct, chord })
     }
+}
+
+// ---------------------------------------------------------------------------
+// CommandPalette derive
+// ---------------------------------------------------------------------------
+
+fn impl_command_palette(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+    let ident = &input.ident;
+    let Data::Enum(data) = &input.data else {
+        return Err(syn::Error::new_spanned(
+            ident,
+            "CommandPalette only supports enums",
+        ));
+    };
+
+    let first_variant = data.variants.first();
+    let is_leaf = first_variant
+        .map(|v| matches!(v.fields, Fields::Unit))
+        .unwrap_or(true);
+
+    if is_leaf {
+        impl_command_palette_leaf(ident, data)
+    } else {
+        impl_command_palette_root(ident, data)
+    }
+}
+
+fn impl_command_palette_leaf(
+    ident: &syn::Ident,
+    data: &syn::DataEnum,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut entries = Vec::new();
+
+    for variant in &data.variants {
+        let props = MenuProps::from_attrs(&variant.attrs)?;
+        let (Some(id), Some(label)) = (&props.id, &props.label) else {
+            continue;
+        };
+
+        // Split label on \t: name is before, tab-hint is after
+        let (name, tab_hint) = if let Some(pos) = label.find('\t') {
+            (&label[..pos], Some(label[pos + 1..].to_string()))
+        } else {
+            (label.as_str(), None)
+        };
+
+        // Build display shortcut: prefer accel, fall back to tab hint
+        let shortcut = if let Some(ref accel) = props.accel {
+            accel_to_display(accel)
+        } else if let Some(ref hint) = tab_hint {
+            hint.clone()
+        } else {
+            String::new()
+        };
+
+        entries.push(quote! {
+            (#id, #name, #shortcut)
+        });
+    }
+
+    Ok(quote! {
+        impl #ident {
+            pub fn palette_entries() -> ::std::vec::Vec<(&'static str, &'static str, &'static str)> {
+                ::std::vec![#(#entries),*]
+            }
+        }
+    })
+}
+
+fn impl_command_palette_root(
+    ident: &syn::Ident,
+    data: &syn::DataEnum,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let mut extend_calls = Vec::new();
+
+    for variant in &data.variants {
+        let Fields::Unnamed(fields) = &variant.fields else {
+            return Err(syn::Error::new_spanned(
+                &variant.fields,
+                "CommandPalette root expects tuple variants",
+            ));
+        };
+        let Some(field) = fields.unnamed.first() else {
+            return Err(syn::Error::new_spanned(
+                variant,
+                "tuple variant needs one field",
+            ));
+        };
+        let inner_ty = &field.ty;
+        extend_calls.push(quote! {
+            entries.extend(<#inner_ty>::palette_entries());
+        });
+    }
+
+    Ok(quote! {
+        impl #ident {
+            pub fn palette_entries() -> ::std::vec::Vec<(&'static str, &'static str, &'static str)> {
+                let mut entries = ::std::vec::Vec::new();
+                #(#extend_calls)*
+                entries
+            }
+        }
+    })
+}
+
+/// Convert muda accelerator format to display symbols.
+/// e.g. "super+shift+r" → "⌘⇧R", "super+alt+i" → "⌘⌥I"
+fn accel_to_display(accel: &str) -> String {
+    let parts: Vec<&str> = accel.split('+').map(|p| p.trim()).collect();
+    let mut out = String::new();
+    let mut key = "";
+
+    for part in &parts {
+        match *part {
+            "super" => out.push('\u{2318}'),  // ⌘
+            "shift" => out.push('\u{21e7}'),  // ⇧
+            "alt" => out.push('\u{2325}'),    // ⌥
+            "ctrl" => out.push('^'),
+            other => key = other,
+        }
+    }
+
+    // Capitalise the key for display
+    match key {
+        "tab" => out.push('\u{21e5}'),     // ⇥
+        "space" => out.push('\u{2423}'),   // ␣
+        "enter" => out.push('\u{21a9}'),   // ↩
+        "escape" => out.push_str("Esc"),
+        "delete" => out.push('\u{232b}'),  // ⌫
+        "[" => out.push('['),
+        "]" => out.push(']'),
+        "=" => out.push('='),
+        "-" => out.push('-'),
+        "," => out.push(','),
+        "." => out.push('.'),
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" => out.push_str(key),
+        _ => {
+            for ch in key.chars() {
+                out.push(ch.to_ascii_uppercase());
+            }
+        }
+    }
+
+    out
 }

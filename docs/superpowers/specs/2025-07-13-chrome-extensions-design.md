@@ -53,10 +53,10 @@ Enable Chrome Web Store extension support in vmux. Users install extensions from
 ┌─────────────────────────────────────────────────────┐
 │  Extension Manager (vmux_desktop ECS resource)       │
 │  ~/Library/Application Support/vmux/extensions/      │
-│  ├── registry.json                                    │
+│  ├── Extension entities (ECS, persisted via moonshine-save) │
 │  ├── <extension_id>/manifest.json, icons/, ...        │
 │  ├── CRX download + unpack                            │
-│  └── Builds --load-extension comma-separated paths   │
+│  └── Builds --load-extension from ExtensionEnabled query │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -97,32 +97,32 @@ CefPlugin {
 
 New module: `crates/vmux_desktop/src/extension.rs`
 
-### Data Model
+### Data Model (ECS)
+
+Each installed extension is an ECS entity, persisted via moonshine-save like tabs/panes/spaces.
 
 ```rust
-/// Persisted to ~/Library/Application Support/vmux/extensions/registry.json
-#[derive(Serialize, Deserialize)]
-struct ExtensionRegistry {
-    extensions: Vec<ExtensionEntry>,
-}
+/// Persisted components (saved/loaded via moonshine-save)
 
-#[derive(Serialize, Deserialize)]
-struct ExtensionEntry {
-    id: String,
-    enabled: bool,
-    installed_at: String, // ISO 8601
+#[derive(Component, Serialize, Deserialize)]
+struct Extension {
+    id: String,             // Chrome Web Store extension ID
     name: String,
     version: String,
+    manifest_version: u8,   // 2 or 3
+    installed_at: String,    // ISO 8601
 }
 
-/// Parsed from manifest.json at runtime
+#[derive(Component, Serialize, Deserialize)]
+struct ExtensionEnabled;    // marker component — absence means disabled
+
+/// Runtime-only components (re-parsed from manifest.json on startup)
+
+#[derive(Component)]
 struct ExtensionManifest {
-    name: String,
-    version: String,
-    manifest_version: u8, // 2 or 3
     permissions: Vec<String>,
     content_scripts: Vec<ContentScriptEntry>,
-    action: Option<ActionEntry>, // MV3 action / MV2 browser_action
+    action: Option<ActionEntry>,   // MV3 action / MV2 browser_action
     background: Option<BackgroundEntry>,
     icons: HashMap<String, String>, // size -> path
 }
@@ -132,13 +132,33 @@ struct ActionEntry {
     default_icon: Option<HashMap<String, String>>,
     default_title: Option<String>,
 }
+
+#[derive(Component, Default)]
+struct ExtensionBadge {
+    text: String,
+    color: [u8; 4],
+}
+```
+
+Persistence strategy: only `Extension` and `ExtensionEnabled` are saved via moonshine-save. `ExtensionManifest` and `ExtensionBadge` are runtime-only, reconstructed on startup by scanning the extensions directory and parsing each `manifest.json`.
+
+Querying for the extension toolbar:
+
+```rust
+fn extension_toolbar_system(
+    extensions: Query<(
+        Entity,
+        &Extension,
+        &ExtensionManifest,
+        Option<&ExtensionBadge>,
+    ), With<ExtensionEnabled>>,
+) { /* build toolbar state for vmux_header */ }
 ```
 
 ### Directory Layout
 
 ```
 ~/Library/Application Support/vmux/extensions/
-├── registry.json
 ├── nkbihfbeogaeaoehlefnkodbefgpgknn/    # Bitwarden
 │   ├── manifest.json
 │   ├── background.js
@@ -163,8 +183,8 @@ struct ActionEntry {
     &x=id%3D{extension_id}%26uc
   ```
 - `unpack_crx(crx_path: &Path)` -- CRX files are ZIP with a header. Strip the CRX header (magic bytes + version + lengths), then unzip to `extensions/<id>/`.
-- `enable(id)` / `disable(id)` -- Toggle in registry.json.
-- `remove(id)` -- Delete directory and registry entry.
+- `enable(id)` / `disable(id)` -- Add/remove `ExtensionEnabled` marker component on the extension entity.
+- `remove(id)` -- Despawn extension entity and delete directory from disk.
 - `load_extension_paths()` -- Return comma-separated paths of enabled extensions for `--load-extension`.
 
 ### CRX Format
@@ -234,7 +254,7 @@ On receiving the install message in `OnProcessMessageReceived`:
 
 1. Download CRX using extension ID.
 2. Unpack to extensions directory.
-3. Update registry.json.
+3. Spawn extension ECS entity with `Extension` + `ExtensionEnabled` components.
 4. Show "restart to activate" notification in header.
 
 ## chrome.tabs Bridge

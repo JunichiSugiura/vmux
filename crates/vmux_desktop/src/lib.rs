@@ -1,6 +1,7 @@
 mod browser;
 mod command;
 pub(crate) mod keybinding;
+mod palette;
 mod layout;
 mod persistence;
 mod profile;

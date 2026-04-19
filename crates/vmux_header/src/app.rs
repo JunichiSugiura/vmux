@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
-use vmux_header::event::{HeaderCommandEvent, TABS_EVENT, TabRow, TabsHostEvent};
+use vmux_header::event::{HeaderCommandEvent, RELOAD_EVENT, TABS_EVENT, TabRow, TabsHostEvent};
 use vmux_ui::components::icon::Icon;
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener};
 
@@ -31,12 +31,17 @@ pub fn App() -> Element {
         tabs_state.set(data);
     });
 
+    let mut reload_key = use_signal(|| 0u32);
+    let _reload_listener = use_event_listener::<(), _>(RELOAD_EVENT, move |_| {
+        reload_key.set(reload_key() + 1);
+    });
+
     let TabsHostEvent { tabs } = tabs_state();
     let active_row = tabs.iter().find(|t| t.is_active).cloned();
     let favicon_src = active_row.as_ref().and_then(favicon_src_for_tab);
 
     rsx! {
-        div { class: "box-border grid min-h-0 min-w-0 flex-1 grid-cols-3 items-center gap-2 border-b border-border bg-card px-2 text-foreground",
+        div { class: "box-border flex min-h-0 min-w-0 flex-1 items-center gap-2 border-b border-border bg-card px-2 text-foreground",
             if (listener.is_loading)() {
                 div { class: "col-span-3 flex w-full items-center px-3 py-2",
                     span { class: "text-ui text-muted-foreground", "Connecting…" }
@@ -60,15 +65,19 @@ pub fn App() -> Element {
                         }
                     }
                     NavButton { label: "Reload", command: "reload",
-                        Icon { class: "h-4 w-4",
-                            path { d: "M21 12a9 9 0 11-3-6.7L21 8" }
-                            path { d: "M21 3v5h-5" }
+                        span {
+                            key: "{reload_key}",
+                            class: if reload_key() > 0 { "inline-flex animate-spin-once" } else { "inline-flex" },
+                            Icon { class: "h-4 w-4",
+                                path { d: "M21 12a9 9 0 11-3-6.7L21 8" }
+                                path { d: "M21 3v5h-5" }
+                            }
                         }
                     }
                 }
-                div { class: "flex min-w-0 items-center justify-self-center",
+                div { class: "flex min-w-0 flex-1 items-center",
                     if let Some(tab) = active_row.as_ref() {
-                        div { class: "flex min-w-0 max-w-md items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 shadow-sm",
+                        div { class: "flex min-w-0 flex-1 items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 shadow-sm",
                             if let Some(src) = favicon_src.as_ref() {
                                 img {
                                     class: "h-3.5 w-3.5 shrink-0 rounded-sm object-contain",
@@ -81,7 +90,6 @@ pub fn App() -> Element {
                         }
                     }
                 }
-                div { class: "flex min-w-0 items-center gap-1 justify-self-end" }
             }
         }
     }
@@ -94,7 +102,7 @@ fn NavButton(label: &'static str, command: &'static str, children: Element) -> E
             r#type: "button",
             aria_label: label,
             title: label,
-            class: "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground",
+            class: "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-transparent active:text-muted-foreground",
             onclick: move |_| {
                 let _ = try_cef_emit_serde(&HeaderCommandEvent {
                     header_command: command.to_string(),

@@ -139,6 +139,13 @@ module.exports = {
           from: { opacity: "0" },
           to: { opacity: "1" },
         },
+        "spin-once": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+      },
+      animation: {
+        "spin-once": "spin-once 0.25s ease-in-out",
       },
     },
   },

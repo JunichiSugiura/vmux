@@ -1,5 +1,5 @@
 use crate::{
-    browser::{browser_bundle, Browser},
+    browser::Browser,
     layout::pane::{Pane, PaneSplit, leaf_pane_bundle},
     layout::rounded::{RoundedCorners, RoundedMaterial},
     layout::side_sheet::{SideSheet, SideSheetPosition},
@@ -210,7 +210,7 @@ fn setup(
                             children![(
                                 tab_bundle(),
                                 Active,
-                                children![browser_bundle(
+                                children![Browser::new(
                                     &mut meshes,
                                     &mut webview_mt,
                                     startup_url

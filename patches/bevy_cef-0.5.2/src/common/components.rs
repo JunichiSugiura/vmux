@@ -111,12 +111,8 @@ impl WebviewSource {
     }
 }
 
-/// Internal component holding the resolved URL string passed to CEF.
-///
-/// This is automatically managed by the resolver system and should not be
-/// inserted manually.
 #[derive(Component, Debug, Clone)]
-pub(crate) struct ResolvedWebviewUri(pub(crate) String);
+pub struct ResolvedWebviewUri(pub String);
 
 /// Specifies the view size of the webview.
 ///
@@ -177,5 +173,6 @@ where
 /// This component is automatically inserted and updated by the render systems.
 /// It provides material-type-agnostic access to the webview texture.
 #[derive(Component, Debug, Clone)]
-#[allow(dead_code)]
-pub(crate) struct WebviewSurface(pub(crate) Handle<Image>);
+pub struct WebviewSurface(pub Handle<Image>);
+
+

@@ -80,8 +80,9 @@ pub fn render_standard_materials(
                 images.get_mut(handle.id())
             }
         {
-            //OPTIMIZE: Avoid cloning the texture.
             update_webview_image(texture.clone(), image);
+        } else {
+            bevy::log::warn!("[tex-apply] FAILED to apply texture for {:?} {}x{}", texture.webview, texture.width, texture.height);
         }
     }
 }

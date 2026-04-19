@@ -42,7 +42,11 @@ impl Plugin for VmuxPlugin {
                 .set(WebAssetPlugin {
                     silence_startup_warning: true,
                 })
-                .set(window_plugin),
+                .set(window_plugin)
+                .set(bevy::log::LogPlugin {
+                    filter: "bevy_camera_controller=warn".into(),
+                    ..default()
+                }),
             SettingsPlugin,
             CommandPlugin,
             KeyBindingPlugin,

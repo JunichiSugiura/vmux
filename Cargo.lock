@@ -8244,6 +8244,7 @@ dependencies = [
  "bevy_infinite_grid",
  "bevy_log",
  "directories",
+ "libc",
  "liquid-glass-rs",
  "muda",
  "parking_lot",

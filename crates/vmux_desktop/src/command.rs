@@ -115,10 +115,10 @@ pub enum BrowserCommand {
 #[derive(OsSubMenu, DefaultKeyBindings, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaneCommand {
     #[default]
-    #[menu(id = "split_v", label = "Split Vertically\tCtrl+B, V")]
+    #[menu(id = "split_v", label = "Split Vertically\tCtrl+B, %")]
     #[bind(chord = "Ctrl+b, v")]
     SplitV,
-    #[menu(id = "split_h", label = "Split Horizontally\tCtrl+B, H")]
+    #[menu(id = "split_h", label = "Split Horizontally\tCtrl+B, \"")]
     #[bind(chord = "Ctrl+b, h")]
     SplitH,
     #[menu(id = "toggle_pane", label = "Toggle Pane\tCtrl+B, T")]

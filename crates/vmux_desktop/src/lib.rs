@@ -2,6 +2,7 @@ mod browser;
 mod command;
 pub(crate) mod keybinding;
 mod layout;
+mod persistence;
 mod profile;
 mod os_menu;
 mod scene;
@@ -15,7 +16,8 @@ use bevy::winit::WinitWindows;
 
 use {
     browser::BrowserPlugin, command::CommandPlugin, keybinding::KeyBindingPlugin,
-    layout::LayoutPlugin, os_menu::OsMenuPlugin, profile::ProfilePlugin,
+    layout::LayoutPlugin, os_menu::OsMenuPlugin,
+    persistence::PersistencePlugin, profile::ProfilePlugin,
     scene::ScenePlugin, settings::SettingsPlugin,
     vmux_header::HeaderPlugin, vmux_side_sheet::SideSheetWebviewPlugin,
     vmux_webview_app::WebviewAppRegistryPlugin,
@@ -58,6 +60,7 @@ impl Plugin for VmuxPlugin {
             HeaderPlugin,
             SideSheetWebviewPlugin,
             BrowserPlugin,
+            PersistencePlugin,
             ProfilePlugin,
             LayoutPlugin,
         ))

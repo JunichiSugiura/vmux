@@ -34,9 +34,10 @@ use crate::browser_process::load_handler::{
 use crate::browser_process::renderer_handler::SharedDeviceScaleFactor;
 pub use keyboard::*;
 
-/// CEF [`BrowserSettings::background_color`] is ARGB (`A` in the high byte). Matches the dark
-/// gray used by bevy_cef’s webview placeholder texture (sRGB 43, 44, 47) so OSR clears are not white.
-const CEF_OSR_BACKGROUND_COLOR_ARGB: u32 = 0xFF2B2C2F;
+
+/// CEF [`BrowserSettings::background_color`] ARGB. Alpha=0 enables transparent
+/// OSR rendering so webviews show the glass background behind them.
+const CEF_OSR_BACKGROUND_COLOR_ARGB: u32 = 0x00000000;
 
 static REGISTER_GLOBAL_SCHEME_HANDLER_FACTORIES: Once = Once::new();
 

@@ -168,16 +168,8 @@ fn handle_tab_commands(
                     let parent = pane_co.get();
 
                     if !split_dir_q.contains(parent) {
-                        // Last pane — recreate tab
-                        let startup_url = settings.browser.startup_url.as_str();
+                        // Last pane, last tab — just remove it
                         commands.entity(active).despawn();
-                        let tab = commands
-                            .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
-                            .id();
-                        commands.spawn((
-                            Browser::new(&mut meshes, &mut webview_mt, startup_url),
-                            ChildOf(tab),
-                        ));
                         continue;
                     }
 

@@ -67,8 +67,8 @@ For commands with chord bindings but no `accel`, the chord is embedded in the me
 
 | Variant | menu id | label | accel | Menu Display | bind | Handler |
 |---------|---------|-------|-------|--------------|------|---------|
-| SplitV | split_v | Split Vertically\tCtrl+B, V | | Split Vertically  Ctrl+B, V | ctrl+b, v | ✅ |
-| SplitH | split_h | Split Horizontally\tCtrl+B, H | | Split Horizontally  Ctrl+B, H | ctrl+b, h | ✅ |
+| SplitV | split_v | Split Vertically\tCtrl+B, % | | Split Vertically  Ctrl+B, % | ctrl+b, % | ✅ |
+| SplitH | split_h | Split Horizontally\tCtrl+B, " | | Split Horizontally  Ctrl+B, " | ctrl+b, " | ✅ |
 | Close | close_pane | Close Pane\tCtrl+B, X | | Close Pane  Ctrl+B, X | ctrl+b, x | ✅ |
 | Toggle | toggle_pane | Toggle Pane\tCtrl+B, T | | Toggle Pane  Ctrl+B, T | ctrl+b, t | 🔲 |
 | Zoom | zoom_pane | Zoom Pane\tCtrl+B, Z | | Zoom Pane  Ctrl+B, Z | ctrl+b, z | 🔲 |

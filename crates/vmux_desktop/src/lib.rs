@@ -28,7 +28,7 @@ impl Plugin for VmuxPlugin {
             composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
             decorations: true,
             titlebar_shown: false,
-            movable_by_window_background: true,
+            movable_by_window_background: false,
             fullsize_content_view: true,
             ..default()
         };

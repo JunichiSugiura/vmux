@@ -130,16 +130,16 @@ pub enum PaneCommand {
     #[menu(id = "zoom_pane", label = "Zoom Pane\tCtrl+B, Z")]
     #[bind(chord = "Ctrl+b, z")]
     Zoom,
-    #[menu(id = "select_pane_left", label = "Select Left Pane\tCtrl+B, Left")]
+    #[menu(id = "select_pane_left", label = "Select Left Pane\tCtrl+B, H")]
     #[bind(chord = "Ctrl+b, ArrowLeft")]
     SelectLeft,
-    #[menu(id = "select_pane_right", label = "Select Right Pane\tCtrl+B, Right")]
+    #[menu(id = "select_pane_right", label = "Select Right Pane\tCtrl+B, L")]
     #[bind(chord = "Ctrl+b, ArrowRight")]
     SelectRight,
-    #[menu(id = "select_pane_up", label = "Select Up Pane\tCtrl+B, Up")]
+    #[menu(id = "select_pane_up", label = "Select Up Pane\tCtrl+B, K")]
     #[bind(chord = "Ctrl+b, ArrowUp")]
     SelectUp,
-    #[menu(id = "select_pane_down", label = "Select Down Pane\tCtrl+B, Down")]
+    #[menu(id = "select_pane_down", label = "Select Down Pane\tCtrl+B, J")]
     #[bind(chord = "Ctrl+b, ArrowDown")]
     SelectDown,
     #[menu(id = "swap_pane_prev", label = "Swap Pane Previous\tCtrl+B, {")]

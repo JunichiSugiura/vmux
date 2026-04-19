@@ -88,10 +88,6 @@ impl Plugin for WebviewPlugin {
             .init_non_send_resource::<Browsers>()
             .add_plugins((MeshWebviewPlugin,))
             .add_systems(
-                Main,
-                send_external_begin_frame.after(Main::run_main),
-            )
-            .add_systems(
                 Update,
                 (
                     resize.run_if(any_resized),
@@ -129,10 +125,6 @@ fn any_resized(webviews: Query<Entity, Changed<WebviewSize>>) -> bool {
     !webviews.is_empty()
 }
 
-fn send_external_begin_frame(mut hosts: NonSendMut<Browsers>) {
-    hosts.send_external_begin_frame();
-}
-
 #[allow(clippy::too_many_arguments)]
 fn create_webview(
     mut browsers: NonSendMut<Browsers>,
@@ -151,6 +143,7 @@ fn create_webview(
             &PreloadScripts,
             Option<&HostWindow>,
         ),
+        Added<ResolvedWebviewUri>,
     >,
     windows: Query<&Window>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
@@ -158,9 +151,6 @@ fn create_webview(
     WINIT_WINDOWS.with(|winit_windows| {
         let winit_windows = winit_windows.borrow();
         for (entity, uri, size, initialize_scripts, host_window) in webviews.iter() {
-            if browsers.has_browser(entity) {
-                continue;
-            }
             let window_entity = host_window
                 .map(|h| h.0)
                 .or_else(|| primary_window.single().ok());

@@ -14,6 +14,7 @@ use crate::{
 };
 use bevy::{
     ecs::{message::Messages, relationship::Relationship},
+    picking::Pickable,
     prelude::*,
     render::alpha::AlphaMode,
     ui::{UiGlobalTransform, UiSystems},
@@ -21,7 +22,7 @@ use bevy::{
 };
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::RenderTextureMessage;
-use std::{collections::HashSet, path::PathBuf};
+use std::path::PathBuf;
 use vmux_header::{
     Header, PageMetadata,
     event::{HeaderCommandEvent, TABS_EVENT, TabRow, TabsHostEvent},
@@ -70,7 +71,6 @@ impl Plugin for BrowserPlugin {
                 sync_cef_webview_resize_after_ui,
                 sync_webview_pane_corner_clip,
                 sync_osr_webview_focus,
-                kick_tab_startup_navigation,
                 flush_pending_osr_textures,
             )
                 .chain()
@@ -83,19 +83,21 @@ impl Plugin for BrowserPlugin {
 #[derive(Component)]
 pub(crate) struct Browser;
 
-pub(crate) fn browser_bundle(
-    meshes: &mut ResMut<Assets<Mesh>>,
-    webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
-    url: &str,
-) -> impl Bundle {
-    (
-        Browser,
+impl Browser {
+    pub(crate) fn new(
+        meshes: &mut ResMut<Assets<Mesh>>,
+        webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
+        url: &str,
+    ) -> impl Bundle {
+        (
+            Self,
         vmux_header::PageMetadata {
             title: url.to_string(),
             url: url.to_string(),
             favicon_url: String::new(),
         },
         WebviewSource::new(url),
+        ResolvedWebviewUri(url.to_string()),
         Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
         MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
             base: StandardMaterial {
@@ -118,7 +120,9 @@ pub(crate) fn browser_bundle(
             ..default()
         },
         Visibility::Inherited,
-    )
+            Pickable::default(),
+        )
+    }
 }
 
 fn sync_keyboard_target(
@@ -203,9 +207,22 @@ fn sync_children_to_ui(
             continue;
         }
 
+        let is_inactive_tab = parent != glass_entity
+            && status.is_none()
+            && side_sheet.is_none()
+            && !active_tab_q.contains(parent);
+
         let sx = size_px.x / glass_size_px.x;
         let sy = size_px.y / glass_size_px.y;
-        tf.scale = Vec3::new(sx, sy, 1.0);
+        let new_scale = if is_inactive_tab {
+            Vec3::splat(1e-6)
+        } else {
+            Vec3::new(sx, sy, 1.0)
+        };
+        if parent != glass_entity && status.is_none() && side_sheet.is_none() && (tf.scale - new_scale).length() > 0.01 {
+            info!("[ui] browser child_of={:?} scale {:?} -> {:?} (inactive={})", parent, tf.scale, new_scale, is_inactive_tab);
+        }
+        tf.scale = new_scale;
 
         let center_ui = ui_gt.transform_point2(Vec2::ZERO);
         let glass_center_ui = glass_ui_gt.transform_point2(Vec2::ZERO);
@@ -237,13 +254,18 @@ fn sync_children_to_ui(
 
 fn sync_cef_webview_resize_after_ui(
     browsers: NonSend<Browsers>,
-    webviews: Query<(Entity, &WebviewSize), (Changed<WebviewSize>, With<Browser>)>,
+    webviews: Query<(Entity, &WebviewSize), With<Browser>>,
     host_window: Query<&HostWindow>,
     windows: Query<&Window>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
+    mut last_sizes: Local<Vec<(u64, Vec2)>>,
 ) {
     for (entity, size) in webviews.iter() {
         if !browsers.has_browser(entity) {
+            continue;
+        }
+        let key = entity.to_bits();
+        if last_sizes.iter().any(|(k, s)| *k == key && *s == size.0) {
             continue;
         }
         let window_entity = host_window
@@ -257,6 +279,11 @@ fn sync_cef_webview_resize_after_ui(
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         browsers.resize(&entity, size.0, device_scale_factor);
+        if let Some(entry) = last_sizes.iter_mut().find(|(k, _)| *k == key) {
+            entry.1 = size.0;
+        } else {
+            last_sizes.push((key, size.0));
+        }
     }
 }
 
@@ -334,27 +361,6 @@ fn sync_osr_webview_focus(
     }
     for &e in ready.iter() {
         browsers.set_osr_not_hidden(&e);
-    }
-}
-
-fn kick_tab_startup_navigation(
-    browsers: NonSend<Browsers>,
-    q: Query<(Entity, &WebviewSource), With<Browser>>,
-    mut kicked: Local<HashSet<u64>>,
-) {
-    for (entity, source) in &q {
-        let WebviewSource::Url(url) = source else {
-            continue;
-        };
-        let key = entity.to_bits();
-        if kicked.contains(&key) {
-            continue;
-        }
-        if !browsers.has_browser(entity) || !browsers.host_emit_ready(&entity) {
-            continue;
-        }
-        browsers.navigate(&entity, url);
-        kicked.insert(key);
     }
 }
 

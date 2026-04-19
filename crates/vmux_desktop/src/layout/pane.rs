@@ -1,5 +1,5 @@
 use crate::{
-    browser::browser_bundle,
+    browser::Browser,
     command::{AppCommand, PaneCommand, ReadAppCommands},
     layout::space::Space,
     layout::tab::{Active, Tab, tab_bundle},
@@ -148,7 +148,7 @@ fn handle_pane_commands(
                 let startup_url = settings.browser.startup_url.as_str();
                 let new_tab = commands.spawn((tab_bundle(), Active, ChildOf(pane2))).id();
                 commands.spawn((
-                    browser_bundle(&mut meshes, &mut webview_mt, startup_url),
+                    Browser::new(&mut meshes, &mut webview_mt, startup_url),
                     ChildOf(new_tab),
                 ));
 
@@ -177,7 +177,7 @@ fn handle_pane_commands(
                     let leaf = spawn_leaf_pane(&mut commands, parent);
                     let tab = commands.spawn((tab_bundle(), Active, ChildOf(leaf))).id();
                     commands.spawn((
-                        browser_bundle(&mut meshes, &mut webview_mt, startup_url),
+                        Browser::new(&mut meshes, &mut webview_mt, startup_url),
                         ChildOf(tab),
                     ));
                     commands.entity(leaf).insert(Active);

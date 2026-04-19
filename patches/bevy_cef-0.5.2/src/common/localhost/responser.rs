@@ -55,18 +55,20 @@ fn resolve_webview_source(
     mut commands: Commands,
     mut store: ResMut<InlineHtmlStore>,
     query: Query<
-        (Entity, &WebviewSource, Option<&InlineHtmlId>),
+        (Entity, &WebviewSource, Option<&InlineHtmlId>, Option<&ResolvedWebviewUri>),
         Or<(Added<WebviewSource>, Changed<WebviewSource>)>,
     >,
 ) {
-    for (entity, source, existing_id) in query.iter() {
-        // Clean up old inline entry if switching away or updating
+    for (entity, source, existing_id, existing_resolved) in query.iter() {
         if let Some(old_id) = existing_id {
             store.by_id.remove(&old_id.0);
         }
 
         match source {
             WebviewSource::Url(url) => {
+                if existing_resolved.is_some_and(|r| r.0 == *url) {
+                    continue;
+                }
                 let mut entity_commands = commands.entity(entity);
                 entity_commands.insert(ResolvedWebviewUri(url.clone()));
                 if existing_id.is_some() {

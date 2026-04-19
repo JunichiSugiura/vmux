@@ -1,5 +1,5 @@
 use crate::{
-    browser::browser_bundle,
+    browser::Browser,
     command::{AppCommand, ReadAppCommands, TabCommand},
     layout::pane::Pane,
     layout::space::Space,
@@ -12,7 +12,8 @@ pub(crate) struct TabPlugin;
 
 impl Plugin for TabPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_tab_commands.in_set(ReadAppCommands));
+        app.add_systems(Update, handle_tab_commands.in_set(ReadAppCommands))
+            .add_systems(PostUpdate, sync_tab_picking);
     }
 }
 
@@ -48,6 +49,7 @@ pub(crate) fn tab_bundle() -> impl Bundle {
             bottom: Val::Px(0.0),
             ..default()
         },
+        ZIndex(0),
     )
 }
 
@@ -88,7 +90,7 @@ fn handle_tab_commands(
                     .spawn((tab_bundle(), Active, ChildOf(pane)))
                     .id();
                 commands.spawn((
-                    browser_bundle(&mut meshes, &mut webview_mt, startup_url),
+                    Browser::new(&mut meshes, &mut webview_mt, startup_url),
                     ChildOf(tab),
                 ));
             }
@@ -113,7 +115,7 @@ fn handle_tab_commands(
                         .spawn((tab_bundle(), Active, ChildOf(pane)))
                         .id();
                     commands.spawn((
-                        browser_bundle(&mut meshes, &mut webview_mt, startup_url),
+                        Browser::new(&mut meshes, &mut webview_mt, startup_url),
                         ChildOf(tab),
                     ));
                     continue;
@@ -198,6 +200,17 @@ fn handle_tab_commands(
             | TabCommand::Pin
             | TabCommand::Mute
             | TabCommand::MoveToPane => {}
+        }
+    }
+}
+
+fn sync_tab_picking(
+    mut tabs: Query<(Has<Active>, &mut ZIndex), With<Tab>>,
+) {
+    for (is_active, mut z) in &mut tabs {
+        let target = if is_active { ZIndex(1) } else { ZIndex(0) };
+        if *z != target {
+            *z = target;
         }
     }
 }

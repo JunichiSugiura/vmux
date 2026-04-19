@@ -10,7 +10,7 @@ use bevy_remote::BrpMessage;
 use cef::{
     Browser, BrowserHost, BrowserSettings, CefString, Client, CompositionUnderline,
     DictionaryValue, ImplBrowser, ImplBrowserHost, ImplDictionaryValue, ImplFrame, ImplListValue,
-    ImplProcessMessage, ImplRequestContext, MouseButtonType, PaintElementType, ProcessId, Range,
+    ImplProcessMessage, ImplRequestContext, MouseButtonType, ProcessId, Range,
     RequestContext, RequestContextSettings, WindowInfo, browser_host_create_browser_sync,
     dictionary_value_create, process_message_create, register_scheme_handler_factory,
 };
@@ -78,7 +78,7 @@ impl Browsers {
     pub fn create_browser(
         &mut self,
         webview: Entity,
-        uri: &str,
+        _uri: &str,
         webview_size: Vec2,
         device_scale_factor: f32,
         requester: Requester,
@@ -164,7 +164,7 @@ impl Browsers {
         let browser = browser_host_create_browser_sync(
             Some(&WindowInfo {
                 windowless_rendering_enabled: true as _,
-                external_begin_frame_enabled: true as _,
+                external_begin_frame_enabled: false as _,
                 #[cfg(target_os = "macos")]
                 parent_view: match _window_handle {
                     Some(RawWindowHandle::AppKit(handle)) => handle.ns_view.as_ptr(),
@@ -181,7 +181,7 @@ impl Browsers {
                 ..Default::default()
             }),
             Some(&mut client),
-            Some(&uri.into()),
+            Some(&_uri.into()),
             Some(&BrowserSettings {
                 // Cap for OSR; matches ProMotion / 120 Hz displays when the host can sustain it.
                 windowless_frame_rate: 120,
@@ -193,13 +193,13 @@ impl Browsers {
         )
         .expect("Failed to create browser");
         let host = browser.host().expect("Failed to get browser host");
+        host.was_hidden(0);
         let webview_browser = WebviewBrowser {
             host,
             client: browser,
             size,
             device_scale,
         };
-
         self.browsers.insert(webview, webview_browser);
     }
 
@@ -225,11 +225,7 @@ impl Browsers {
         }
     }
 
-    pub fn send_external_begin_frame(&mut self) {
-        for browser in self.browsers.values_mut() {
-            browser.host.send_external_begin_frame();
-        }
-    }
+
 
     /// Align CEF focus with the tiled pane that has keyboard target / `Active` in the host app.
     ///
@@ -438,8 +434,6 @@ impl Browsers {
             browser.device_scale.set(device_scale_factor);
             browser.host.notify_screen_info_changed();
             browser.host.was_resized();
-            browser.host.invalidate(PaintElementType::VIEW);
-            browser.host.send_external_begin_frame();
         }
     }
 

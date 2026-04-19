@@ -57,6 +57,7 @@ impl Plugin for BrowserPlugin {
         .add_observer(on_header_command_emit)
         .add_observer(on_side_sheet_command_emit)
         .add_observer(on_reload_notify_header)
+        .add_observer(on_hard_reload_notify_header)
         .add_systems(
             Update,
             (
@@ -573,14 +574,14 @@ fn handle_browser_commands(
             BrowserCommand::PrevPage => commands.trigger(RequestGoBack { webview }),
             BrowserCommand::NextPage => commands.trigger(RequestGoForward { webview }),
             BrowserCommand::Reload => commands.trigger(RequestReload { webview }),
-            BrowserCommand::HardReload => {}
+            BrowserCommand::HardReload => commands.trigger(RequestReloadIgnoreCache { webview }),
             BrowserCommand::Stop => {}
             BrowserCommand::FocusAddressBar => {}
             BrowserCommand::Find => {}
             BrowserCommand::ZoomIn => {}
             BrowserCommand::ZoomOut => {}
             BrowserCommand::ZoomReset => {}
-            BrowserCommand::DevTools => {}
+            BrowserCommand::DevTools => commands.trigger(RequestShowDevTool { webview }),
             BrowserCommand::ViewSource => {}
             BrowserCommand::Print => {}
         }
@@ -602,6 +603,19 @@ fn on_header_command_emit(
 
 fn on_reload_notify_header(
     _trigger: On<RequestReload>,
+    header: Option<Single<Entity, (With<Header>, With<UiReady>)>>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
+) {
+    let Some(header) = header else { return };
+    let header_e = *header;
+    if browsers.has_browser(header_e) && browsers.host_emit_ready(&header_e) {
+        commands.trigger(HostEmitEvent::new(header_e, RELOAD_EVENT, &"()"));
+    }
+}
+
+fn on_hard_reload_notify_header(
+    _trigger: On<RequestReloadIgnoreCache>,
     header: Option<Single<Entity, (With<Header>, With<UiReady>)>>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,

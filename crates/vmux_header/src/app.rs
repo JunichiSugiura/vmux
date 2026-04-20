@@ -78,7 +78,7 @@ pub fn App() -> Element {
                 div { class: "flex min-w-0 flex-1 items-center",
                     if let Some(tab) = active_row.as_ref() {
                         div {
-                            class: "glass flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 shadow-sm",
+                            class: "glass flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 shadow-sm",
                             onclick: move |_| {
                                 let _ = try_cef_emit_serde(&HeaderCommandEvent {
                                     header_command: "focus_address_bar".to_string(),
@@ -86,13 +86,13 @@ pub fn App() -> Element {
                             },
                             if let Some(src) = favicon_src.as_ref() {
                                 img {
-                                    class: "h-3.5 w-3.5 shrink-0 rounded-sm object-contain",
+                                    class: "h-4 w-4 shrink-0 rounded-sm object-contain",
                                     src: "{src}",
                                 }
                             } else {
-                                div { class: "box-border h-3.5 w-3.5 shrink-0 rounded-sm border border-border bg-muted" }
+                                div { class: "box-border h-4 w-4 shrink-0 rounded-sm border border-border bg-muted" }
                             }
-                            span { class: "min-w-0 truncate text-ui text-foreground", "{tab.url}" }
+                            span { class: "min-w-0 truncate text-sm text-foreground", "{tab.url}" }
                         }
                     }
                 }

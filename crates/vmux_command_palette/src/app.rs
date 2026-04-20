@@ -105,6 +105,10 @@ pub fn App() -> Element {
         query.set(data.url.clone());
         selected.set(0);
         state.set(data);
+        // Focus the input after the DOM updates with new state
+        document::eval(
+            r#"setTimeout(() => { let el = document.getElementById('palette-input'); if (el) { el.focus(); el.select(); } }, 0);"#,
+        );
     });
 
     let PaletteOpenEvent {
@@ -139,6 +143,7 @@ pub fn App() -> Element {
                 onclick: move |e| { e.stop_propagation(); },
                 div { class: "p-2",
                     input {
+                        id: "palette-input",
                         r#type: "text",
                         class: "w-full rounded-lg bg-muted px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground",
                         placeholder: "Type a URL, search tabs, or > for commands...",
@@ -149,6 +154,7 @@ pub fn App() -> Element {
                             selected.set(0);
                         },
                         onkeydown: move |e| {
+                            let is_ctrl = e.modifiers().ctrl();
                             match e.key() {
                                 Key::Escape => { emit_action("dismiss", ""); }
                                 Key::ArrowDown => {
@@ -156,6 +162,15 @@ pub fn App() -> Element {
                                     selected.set((sel + 1).min(max));
                                 }
                                 Key::ArrowUp => {
+                                    selected.set(sel.saturating_sub(1));
+                                }
+                                Key::Character(c) if is_ctrl && (c == "n" || c == "j") => {
+                                    e.prevent_default();
+                                    let max = results.len().saturating_sub(1);
+                                    selected.set((sel + 1).min(max));
+                                }
+                                Key::Character(c) if is_ctrl && (c == "p" || c == "k") => {
+                                    e.prevent_default();
                                     selected.set(sel.saturating_sub(1));
                                 }
                                 Key::Enter => {

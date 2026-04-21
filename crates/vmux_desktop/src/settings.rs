@@ -16,6 +16,8 @@ pub struct AppSettings {
     pub layout: LayoutSettings,
     #[serde(default)]
     pub keybindings: KeyBindingSettings,
+    #[serde(default)]
+    pub terminal: Option<TerminalSettings>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -96,6 +98,11 @@ impl KeyComboDef {
 #[derive(Clone, Debug, Deserialize)]
 pub struct BrowserSettings {
     pub startup_url: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TerminalSettings {
+    pub shell: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]

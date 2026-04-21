@@ -8,6 +8,7 @@ mod profile;
 mod os_menu;
 mod scene;
 mod settings;
+mod terminal;
 mod unit;
 
 use bevy::asset::io::web::WebAssetPlugin;
@@ -19,9 +20,10 @@ use {
     browser::BrowserPlugin, command::CommandPlugin, keybinding::KeyBindingPlugin,
     layout::LayoutPlugin, os_menu::OsMenuPlugin,
     palette::PalettePlugin, persistence::PersistencePlugin, profile::ProfilePlugin,
-    scene::ScenePlugin, settings::SettingsPlugin,
+    scene::ScenePlugin, settings::SettingsPlugin, terminal::TerminalPlugin,
     vmux_command_palette::CommandPaletteWebviewPlugin,
     vmux_header::HeaderPlugin, vmux_side_sheet::SideSheetWebviewPlugin,
+    vmux_terminal::TerminalWebviewPlugin,
     vmux_webview_app::WebviewAppRegistryPlugin,
 };
 
@@ -62,8 +64,12 @@ impl Plugin for VmuxPlugin {
             HeaderPlugin,
             SideSheetWebviewPlugin,
             CommandPaletteWebviewPlugin,
+            TerminalWebviewPlugin,
             PalettePlugin,
             BrowserPlugin,
+        ))
+        .add_plugins((
+            TerminalPlugin,
             PersistencePlugin,
             ProfilePlugin,
             LayoutPlugin,

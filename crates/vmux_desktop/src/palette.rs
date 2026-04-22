@@ -237,7 +237,7 @@ fn on_palette_action(
             };
 
             // vmux://terminal/ requires a full Terminal entity with PTY
-            if url.trim_end_matches('/') == "vmux://terminal" {
+            if url.starts_with("vmux://terminal") {
                 writer.write(AppCommand::Tab(TabCommand::NewTerminal));
             } else {
                 let (_, _, active_tab) =

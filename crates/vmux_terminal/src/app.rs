@@ -41,6 +41,8 @@ pub fn App() -> Element {
 
     let vp = viewport();
 
+
+
     // Install resize observer and mouse event handlers.
     use_effect(|| {
         document::eval(
@@ -200,8 +202,22 @@ pub fn App() -> Element {
 
             div { style: "padding:{padding}px;",
                 for (row_idx , line) in vp.lines.iter().enumerate() {
+                    {
+                        // Hash span attributes so Dioxus detects row changes
+                        // (class/style diffs on keyed children can be missed).
+                        let row_hash = line.spans.iter().fold(0u64, |h, s| {
+                            h.wrapping_mul(31)
+                                .wrapping_add(s.flags as u64)
+                                .wrapping_mul(31)
+                                .wrapping_add(match s.bg {
+                                    TermColor::Default => 0,
+                                    TermColor::Indexed(i) => i as u64 + 1,
+                                    TermColor::Rgb(r,g,b) => ((r as u64) << 16) | ((g as u64) << 8) | b as u64,
+                                })
+                        });
+                        rsx! {
                     div {
-                        key: "{row_idx}",
+                        key: "{row_idx}-{row_hash}",
                         class: "flex whitespace-pre",
                         style: "height: 1.2em;",
                         for (span_idx , span) in line.spans.iter().enumerate() {
@@ -229,6 +245,8 @@ pub fn App() -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
                         }
                     }
                 }

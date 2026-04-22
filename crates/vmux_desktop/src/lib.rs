@@ -15,7 +15,7 @@ mod unit;
 use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, PrimaryWindow, Window as NativeWindow, WindowPlugin};
-use bevy::winit::WinitWindows;
+use bevy::winit::{WinitSettings, WinitWindows};
 
 use {
     browser::BrowserPlugin, command::CommandPlugin, keybinding::KeyBindingPlugin,
@@ -46,7 +46,8 @@ impl Plugin for VmuxPlugin {
             ..default()
         };
 
-        app.add_plugins((
+        app.insert_resource(WinitSettings::desktop_app())
+        .add_plugins((
             DefaultPlugins
                 .set(WebAssetPlugin {
                     silence_startup_warning: true,

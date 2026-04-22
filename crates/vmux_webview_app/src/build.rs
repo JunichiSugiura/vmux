@@ -135,6 +135,7 @@ impl WebviewAppBuilder {
                 .join("assets")
                 .join(CEF_EMBEDDED_APP_INDEX_CSS),
             self.manifest_dir.join("../vmux_ui/assets/theme.css"),
+            self.manifest_dir.join("../vmux_ui/assets/fonts"),
         ];
         v.extend(self.extra_tracked.iter().cloned());
         collect_rs_files(&self.manifest_dir.join("src"), &mut v);
@@ -359,6 +360,24 @@ pub fn copy_shared_theme_css_to_cef_dist(dist: &Path, workspace_root: &Path) -> 
         }
         fs::copy(&src, &dest)?;
     }
+
+    // Copy shared font files
+    let fonts_src = workspace_root.join("crates/vmux_ui/assets/fonts");
+    if fonts_src.is_dir() {
+        for dest_dir in [
+            dist.join("assets/fonts"),
+            dist.join("vmux_ui/assets/fonts"),
+        ] {
+            fs::create_dir_all(&dest_dir)?;
+            for entry in fs::read_dir(&fonts_src)?.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    fs::copy(&path, dest_dir.join(entry.file_name()))?;
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 

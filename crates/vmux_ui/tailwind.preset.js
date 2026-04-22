@@ -3,6 +3,9 @@ module.exports = {
   darkMode: ["class"],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['"Inter"', 'system-ui', '-apple-system', 'sans-serif'],
+      },
       colors: {
         border: "var(--border)",
         input: "var(--input)",

@@ -176,8 +176,8 @@ fn sync_keyboard_target(
     content_q: Query<(Entity, Has<CefKeyboardTarget>), With<Browser>>,
     mut commands: Commands,
 ) {
-    // Don't reassign keyboard target while palette is open
-    if crate::palette::is_palette_open(&modal_q) {
+    // Don't reassign keyboard target while command bar is open
+    if crate::command_bar::is_command_bar_open(&modal_q) {
         return;
     }
     let (_, _, active_tab_opt) = focused_tab(
@@ -482,6 +482,9 @@ fn push_tabs_host_emit(
     let mut rows: Vec<TabRow> = Vec::new();
     let mut can_go_back = false;
     let mut can_go_forward = false;
+    if active_tab_opt.is_none() {
+        warn!("[tabs-debug] no active tab, will emit empty TabsHostEvent");
+    }
     if let Some(active_tab_entity) = active_tab_opt {
         for (meta, child_of, nav_state) in &browser_q {
             let tab_entity = child_of.get();
@@ -509,6 +512,7 @@ fn push_tabs_host_emit(
     if ron_body.as_str() == last.as_str() {
         return;
     }
+    warn!("[tabs-debug] emitting TabsHostEvent: {} tabs, ron_len={}", payload.tabs.len(), ron_body.len());
     commands.trigger(HostEmitEvent::new(status_e, TABS_EVENT, &ron_body));
     *last = ron_body;
 }

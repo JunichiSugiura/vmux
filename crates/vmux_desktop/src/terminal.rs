@@ -1,4 +1,5 @@
 use crate::{
+    browser::Browser,
     layout::window::WEBVIEW_MESH_DEPTH_BIAS,
     settings::AppSettings,
 };
@@ -118,6 +119,7 @@ impl Terminal {
         cmd.env("TERM", "xterm-256color");
 
         let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+        let pid = child.process_id().unwrap_or(0);
         let reader = pair
             .master
             .try_clone_reader()
@@ -150,6 +152,7 @@ impl Terminal {
         (
             (
                 Self,
+                Browser,
                 TerminalState {
                     term,
                     processor,
@@ -163,7 +166,7 @@ impl Terminal {
                 },
                 PageMetadata {
                     title: format!("Terminal - {}", shell),
-                    url: TERMINAL_WEBVIEW_URL.to_string(),
+                    url: format!("{}?session={}", TERMINAL_WEBVIEW_URL, pid),
                     favicon_url: String::new(),
                 },
                 WebviewSource::new(TERMINAL_WEBVIEW_URL),

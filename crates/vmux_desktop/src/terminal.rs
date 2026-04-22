@@ -1,5 +1,6 @@
 use crate::{
     browser::Browser,
+    command::{AppCommand, TabCommand},
     layout::window::WEBVIEW_MESH_DEPTH_BIAS,
     settings::AppSettings,
 };
@@ -11,6 +12,7 @@ use alacritty_terminal::{
     vte::ansi::{Color, NamedColor, Processor},
 };
 use bevy::{
+    ecs::relationship::Relationship,
     input::{
         ButtonState, InputSystems,
         keyboard::{Key, KeyboardInput},
@@ -27,12 +29,17 @@ use std::{
     sync::{mpsc, Arc, Mutex},
 };
 use vmux_header::PageMetadata;
+use vmux_history::LastActivatedAt;
 use vmux_terminal::event::*;
 use vmux_webview_app::UiReady;
 
 /// Marker component for terminal content entities (analogous to Browser).
 #[derive(Component)]
 pub(crate) struct Terminal;
+
+/// Marker: PTY child process has exited; tab close is pending.
+#[derive(Component)]
+struct PtyExited;
 
 /// Holds the alacritty_terminal state for a terminal instance.
 #[derive(Component)]
@@ -249,8 +256,12 @@ impl Dimensions for PtyDimensions {
 }
 
 /// Drain PTY output from background thread, feed to alacritty_terminal.
-fn poll_pty_output(mut q: Query<(&mut TerminalState, &PtyHandle), With<Terminal>>) {
-    for (mut state, pty) in &mut q {
+fn poll_pty_output(
+    mut q: Query<(Entity, &mut TerminalState, &PtyHandle, &ChildOf), (With<Terminal>, Without<PtyExited>)>,
+    mut commands: Commands,
+    mut writer: MessageWriter<AppCommand>,
+) {
+    for (entity, mut state, pty, child_of) in &mut q {
         let rx = pty.rx.lock().unwrap();
         let mut got_data = false;
         while let Ok(data) = rx.try_recv() {
@@ -260,6 +271,17 @@ fn poll_pty_output(mut q: Query<(&mut TerminalState, &PtyHandle), With<Terminal>
         }
         if got_data {
             state.dirty = true;
+        }
+
+        // Check if the shell process has exited.
+        if let Ok(mut child) = pty.child.lock() {
+            if let Ok(Some(_status)) = child.try_wait() {
+                commands.entity(entity).insert(PtyExited);
+                // Activate the parent tab so TabCommand::Close targets it.
+                let tab = child_of.get();
+                commands.entity(tab).insert(LastActivatedAt::now());
+                writer.write(AppCommand::Tab(TabCommand::Close));
+            }
         }
     }
 }

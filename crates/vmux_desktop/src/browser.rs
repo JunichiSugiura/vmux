@@ -434,12 +434,15 @@ fn drain_loading_state(
     mut commands: Commands,
 ) {
     while let Ok(ev) = receiver.0.try_recv() {
+        let Ok(mut ecmds) = commands.get_entity(ev.webview) else {
+            continue;
+        };
         if ev.is_loading {
-            commands.entity(ev.webview).insert(Loading);
+            ecmds.insert(Loading);
         } else {
-            commands.entity(ev.webview).remove::<Loading>();
+            ecmds.remove::<Loading>();
         }
-        commands.entity(ev.webview).insert(NavigationState {
+        ecmds.insert(NavigationState {
             can_go_back: ev.can_go_back,
             can_go_forward: ev.can_go_forward,
         });
@@ -911,7 +914,9 @@ fn sync_page_metadata_to_tab(
         if !tab_q.contains(parent) || status_q.contains(parent) || side_sheet_q.contains(parent) {
             continue;
         }
-        commands.entity(parent).insert(meta.clone());
+        if let Ok(mut ecmds) = commands.get_entity(parent) {
+            ecmds.insert(meta.clone());
+        }
     }
 }
 

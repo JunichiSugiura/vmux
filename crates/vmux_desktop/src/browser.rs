@@ -479,31 +479,30 @@ fn push_tabs_host_emit(
     let (_, active_pane, active_tab_opt) = focused_tab(
         &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children_q, &tab_ts,
     );
-    let Some(active_tab_entity) = active_tab_opt else {
-        return;
-    };
     let mut rows: Vec<TabRow> = Vec::new();
     let mut can_go_back = false;
     let mut can_go_forward = false;
-    for (meta, child_of, nav_state) in &browser_q {
-        let tab_entity = child_of.get();
-        let tab_pane = child_of_q.get(tab_entity).ok().map(|co| co.get());
-        if tab_pane != active_pane {
-            continue;
-        }
-        let is_active = tab_entity == active_tab_entity;
-        if is_active {
-            if let Some(ns) = nav_state {
-                can_go_back = ns.can_go_back;
-                can_go_forward = ns.can_go_forward;
+    if let Some(active_tab_entity) = active_tab_opt {
+        for (meta, child_of, nav_state) in &browser_q {
+            let tab_entity = child_of.get();
+            let tab_pane = child_of_q.get(tab_entity).ok().map(|co| co.get());
+            if tab_pane != active_pane {
+                continue;
             }
+            let is_active = tab_entity == active_tab_entity;
+            if is_active {
+                if let Some(ns) = nav_state {
+                    can_go_back = ns.can_go_back;
+                    can_go_forward = ns.can_go_forward;
+                }
+            }
+            rows.push(TabRow {
+                title: meta.title.clone(),
+                url: meta.url.clone(),
+                favicon_url: meta.favicon_url.clone(),
+                is_active,
+            });
         }
-        rows.push(TabRow {
-            title: meta.title.clone(),
-            url: meta.url.clone(),
-            favicon_url: meta.favicon_url.clone(),
-            is_active,
-        });
     }
     let payload = TabsHostEvent { tabs: rows, can_go_back, can_go_forward };
     let ron_body = ron::ser::to_string(&payload).unwrap_or_default();

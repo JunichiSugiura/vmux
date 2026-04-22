@@ -104,14 +104,28 @@ fn send_key_event(
         if suppress.0 {
             continue;
         }
-        // Deduplicate non-character pressed keys within the same batch.
+        // Deduplicate non-character pressed keys.
+        // On macOS, bevy_winit can deliver two Pressed messages for a single
+        // physical press of navigation/editing keys.  The duplicates may arrive
+        // in the same frame (caught by `non_char_pressed` vec) **or** across
+        // consecutive frames (caught by `ButtonInput::just_pressed`).
         if event.state == ButtonState::Pressed && !event.repeat {
             if is_non_character_key(event.key_code) {
+                // Same-frame dedup: skip if we already forwarded this key code
+                // in the current batch.
                 if non_char_pressed.contains(&event.key_code) {
                     cef::do_message_loop_work();
                     continue;
                 }
                 non_char_pressed.push(event.key_code);
+                // Cross-frame dedup: `ButtonInput::just_pressed` is only true
+                // on the first frame a key transitions to pressed.  A stale
+                // duplicate arriving one frame later will have
+                // `just_pressed == false` because the key is already held.
+                if !input.just_pressed(event.key_code) {
+                    cef::do_message_loop_work();
+                    continue;
+                }
             }
         }
         if event.key_code == KeyCode::Enter && is_ime_commiting.0 {

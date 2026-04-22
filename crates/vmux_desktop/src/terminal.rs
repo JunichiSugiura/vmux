@@ -493,8 +493,17 @@ fn handle_terminal_keyboard(
     mut er: MessageReader<KeyboardInput>,
     q: Query<&PtyHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
     input: Res<ButtonInput<KeyCode>>,
+    chord_state: Res<crate::keybinding::ChordState>,
 ) {
     if q.is_empty() {
+        return;
+    }
+    // Suppress keyboard input while a chord prefix is pending so the second
+    // key of a chord (e.g. the `` ` `` in Ctrl+G → `` ` ``) doesn't leak
+    // into the terminal.
+    if chord_state.pending_prefix.is_some() {
+        // Drain events so MessageReader cursor advances
+        for _ in er.read() {}
         return;
     }
     let ctrl = input.pressed(KeyCode::ControlLeft) || input.pressed(KeyCode::ControlRight);
@@ -505,13 +514,20 @@ fn handle_terminal_keyboard(
         if event.state != ButtonState::Pressed {
             continue;
         }
-        // Deduplicate non-character keys within the same batch — macOS/bevy_winit
-        // can deliver two Pressed messages for a single physical press.
+        // Deduplicate non-character keys — macOS/bevy_winit can deliver two
+        // Pressed messages for a single physical press, either in the same
+        // frame or across consecutive frames.
         if !event.repeat && is_non_character_key(event.key_code) {
+            // Same-frame dedup
             if seen_keys.contains(&event.key_code) {
                 continue;
             }
             seen_keys.push(event.key_code);
+            // Cross-frame dedup: skip if the key was already held from a
+            // previous frame (not a fresh press).
+            if !input.just_pressed(event.key_code) {
+                continue;
+            }
         }
         let bytes = logical_key_to_bytes(&event.logical_key, ctrl, alt);
         if bytes.is_empty() {

@@ -95,6 +95,7 @@ fn process_key_input(
     bindings: Res<KeyBindingMap>,
     mut chord_state: ResMut<ChordState>,
     mut writer: MessageWriter<AppCommand>,
+    mut suppress: ResMut<bevy_cef::prelude::CefSuppressKeyboardInput>,
 ) {
     let current_modifiers = read_current_modifiers(&keyboard);
 
@@ -102,6 +103,7 @@ fn process_key_input(
         let timeout = std::time::Duration::from_millis(bindings.chord_timeout_ms);
         if instant.elapsed() > timeout {
             chord_state.pending_prefix = None;
+            suppress.0 = false;
         }
     }
 
@@ -118,19 +120,35 @@ fn process_key_input(
         if let Some((ref prefix, instant)) = chord_state.pending_prefix {
             let timeout = std::time::Duration::from_millis(bindings.chord_timeout_ms);
             if instant.elapsed() <= timeout {
+                // Strip prefix modifiers from the second key so that holding
+                // Ctrl through the whole chord still works (tmux-style).
+                // e.g. Ctrl+G → Ctrl+x matches chord "Ctrl+G, x".
+                let mut effective = pressed.clone();
+                if prefix.modifiers.ctrl {
+                    effective.modifiers.ctrl = false;
+                }
+                if prefix.modifiers.alt {
+                    effective.modifiers.alt = false;
+                }
+                if prefix.modifiers.super_key {
+                    effective.modifiers.super_key = false;
+                }
                 for (binding, cmd_id) in &bindings.bindings {
                     if let KeyBinding::Chord(b_prefix, b_second) = binding {
-                        if b_prefix == prefix && b_second == &pressed {
+                        if b_prefix == prefix && *b_second == effective {
                             if let Some(cmd) = AppCommand::from_menu_id(cmd_id.as_str()) {
                                 writer.write(cmd);
                             }
                             chord_state.pending_prefix = None;
+                            suppress.0 = false;
                             return;
                         }
                     }
                 }
             }
+            // No chord matched — clear pending state and suppress
             chord_state.pending_prefix = None;
+            suppress.0 = false;
         }
 
         for (binding, cmd_id) in &bindings.bindings {
@@ -143,6 +161,9 @@ fn process_key_input(
                 }
                 KeyBinding::Chord(prefix, _) if *prefix == pressed => {
                     chord_state.pending_prefix = Some((pressed, Instant::now()));
+                    // Suppress keyboard forwarding to CEF while waiting for
+                    // the second key of the chord.
+                    suppress.0 = true;
                     return;
                 }
                 _ => {}

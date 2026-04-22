@@ -8,7 +8,7 @@
 
 **Tech Stack:** alacritty_terminal 0.26.0, portable-pty 0.9.0, Dioxus (WASM), Bevy 0.18, CEF (bevy_cef)
 
-**Spec:** `docs/superpowers/specs/2025-06-23-terminal-web-app-design.md`
+**Spec:** `docs/specs/2025-06-23-terminal-web-app-design.md`
 
 ---
 

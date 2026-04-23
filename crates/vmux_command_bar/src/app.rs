@@ -5,6 +5,7 @@ use vmux_command_bar::event::{
     CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent, CommandBarTab,
     COMMAND_BAR_OPEN_EVENT,
 };
+use vmux_ui::components::icon::Icon;
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener, use_theme};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -189,8 +190,10 @@ pub fn App() -> Element {
             class: "flex h-full w-full items-start justify-center pt-[15%]",
             onclick: move |_| { is_open.set(false); emit_action("dismiss", ""); },
             div {
-                class: "flex w-full max-w-xl flex-col overflow-hidden rounded-xl border border-white/30 bg-white/30 shadow-2xl shadow-black/60 ring-1 ring-white/20 backdrop-blur-3xl backdrop-saturate-200",
+                class: "relative flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white/10 shadow-2xl backdrop-blur-2xl backdrop-saturate-150",
                 onclick: move |e| { e.stop_propagation(); },
+                // Inner glow overlay
+                div { class: "pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/20 to-transparent" }
                 div { class: "flex items-center gap-2 p-2",
                     span { class: "select-none pl-2 font-mono text-base text-muted-foreground", ">_" }
                     input {
@@ -277,7 +280,10 @@ pub fn App() -> Element {
                                     },
                                     ResultItem::Navigate { url } => rsx! {
                                         div { class: "flex items-center gap-2",
-                                            span { class: "shrink-0 text-base text-muted-foreground", "\u{1F50D}" }
+                                            Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
+                                                circle { cx: "11", cy: "11", r: "8" }
+                                                path { d: "m21 21-4.3-4.3" }
+                                            }
                                             if url.is_empty() {
                                                 span { class: "text-base text-foreground", "Search" }
                                             } else {

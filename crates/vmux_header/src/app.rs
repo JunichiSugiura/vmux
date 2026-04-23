@@ -85,15 +85,23 @@ pub fn App() -> Element {
                     }
                 }
                 div { class: "flex min-w-0 flex-1 items-center",
-                    div {
-                        class: "glass flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full px-3 py-1.5 shadow-sm",
-                        onclick: move |_| {
-                            let _ = try_cef_emit_serde(&HeaderCommandEvent {
-                                header_command: "focus_address_bar".to_string(),
-                            });
-                        },
-                        if let Some(tab) = active_row.as_ref() {
-                            if !tab.url.is_empty() {
+                    {
+                        let has_content = active_row.as_ref().is_some_and(|t| !t.url.is_empty());
+                        let bar_class = if has_content {
+                            "glass flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full px-3 shadow-sm"
+                        } else {
+                            "flex h-8 min-w-0 flex-1 items-center rounded-full px-3"
+                        };
+                        rsx! {
+                            div {
+                                class: bar_class,
+                                onclick: move |_| {
+                                    let _ = try_cef_emit_serde(&HeaderCommandEvent {
+                                        header_command: "focus_address_bar".to_string(),
+                                    });
+                                },
+                                if let Some(tab) = active_row.as_ref() {
+                                    if !tab.url.is_empty() {
                                 if tab.url.starts_with("vmux://terminal") {
                                     Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
                                         path { d: "M4 17 10 11 4 5" }
@@ -122,6 +130,8 @@ pub fn App() -> Element {
                                 }
                                 span { class: "min-w-0 truncate text-sm text-foreground", "{tab.url}" }
                             }
+                        }
+                    }
                         }
                     }
                 }

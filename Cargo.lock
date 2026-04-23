@@ -8408,6 +8408,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vmux_core"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_ecs",
+ "bevy_reflect",
+ "moonshine-save",
+ "serde",
+]
+
+[[package]]
 name = "vmux_desktop"
 version = "0.1.0"
 dependencies = [
@@ -8427,6 +8438,7 @@ dependencies = [
  "ron 0.8.1",
  "serde",
  "vmux_command_bar",
+ "vmux_core",
  "vmux_header",
  "vmux_history",
  "vmux_macro",
@@ -8447,6 +8459,7 @@ dependencies = [
  "dioxus",
  "moonshine-save",
  "serde",
+ "vmux_core",
  "vmux_ui",
  "vmux_webview_app",
  "wasm-bindgen",
@@ -8466,6 +8479,7 @@ dependencies = [
  "ron 0.8.1",
  "serde",
  "url",
+ "vmux_core",
  "vmux_header",
  "vmux_ui",
  "vmux_webview_app",

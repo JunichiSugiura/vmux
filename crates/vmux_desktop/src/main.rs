@@ -29,7 +29,10 @@ fn main() {
     // re-entrant event handler. A raw sigaction handler runs synchronously
     // on the interrupted thread, calling _exit before AppKit can react.
     unsafe {
-        libc::signal(libc::SIGINT, sigint_handler as *const () as libc::sighandler_t);
+        libc::signal(
+            libc::SIGINT,
+            sigint_handler as *const () as libc::sighandler_t,
+        );
     }
 
     app.run();

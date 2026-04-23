@@ -43,6 +43,18 @@ pub struct TermViewportEvent {
     pub cols: u16,
     pub rows: u16,
     pub title: Option<String>,
+    #[serde(default)]
+    pub selection: Option<TermSelectionRange>,
+}
+
+/// Range of selected cells in viewport coordinates (0-based row/col).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TermSelectionRange {
+    pub start_col: u16,
+    pub start_row: u16,
+    pub end_col: u16,
+    pub end_row: u16,
+    pub is_block: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -71,6 +83,9 @@ pub struct TermCursor {
     pub row: u16,
     pub shape: CursorShape,
     pub visible: bool,
+    /// The character under the cursor (for block-cursor rendering).
+    #[serde(default)]
+    pub ch: String,
 }
 
 impl Default for TermCursor {
@@ -80,6 +95,7 @@ impl Default for TermCursor {
             row: 0,
             shape: CursorShape::Block,
             visible: true,
+            ch: " ".into(),
         }
     }
 }

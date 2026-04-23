@@ -14,18 +14,18 @@ mod unit;
 
 use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
-use bevy::window::{CompositeAlphaMode, PrimaryWindow, Window as NativeWindow, WindowPlugin};
-use bevy::winit::{WinitSettings, WinitWindows};
+use bevy::window::{CompositeAlphaMode, Window as NativeWindow, WindowPlugin};
+use bevy::winit::WinitSettings;
 use std::time::Duration;
 
 use {
     browser::BrowserPlugin, command::CommandPlugin, keybinding::KeyBindingPlugin,
     layout::LayoutPlugin, os_menu::OsMenuPlugin,
-    command_bar::CommandBarPlugin, persistence::PersistencePlugin, profile::ProfilePlugin,
-    scene::ScenePlugin, settings::SettingsPlugin, terminal::TerminalPlugin,
-    vmux_command_bar::CommandBarWebviewPlugin,
-    vmux_header::HeaderPlugin, vmux_side_sheet::SideSheetWebviewPlugin,
-    vmux_terminal::TerminalWebviewPlugin,
+    command_bar::CommandBarInputPlugin, persistence::PersistencePlugin, profile::ProfilePlugin,
+    scene::ScenePlugin, settings::SettingsPlugin, terminal::TerminalInputPlugin,
+    vmux_command_bar::CommandBarPlugin,
+    vmux_header::HeaderPlugin, vmux_side_sheet::SideSheetPlugin,
+    vmux_terminal::TerminalPlugin,
     vmux_webview_app::WebviewAppRegistryPlugin,
 };
 
@@ -73,58 +73,17 @@ impl Plugin for VmuxPlugin {
             OsMenuPlugin,
             WebviewAppRegistryPlugin,
             HeaderPlugin,
-            SideSheetWebviewPlugin,
-            CommandBarWebviewPlugin,
-            TerminalWebviewPlugin,
+            SideSheetPlugin,
             CommandBarPlugin,
+            TerminalPlugin,
+            CommandBarInputPlugin,
             BrowserPlugin,
         ))
         .add_plugins((
-            TerminalPlugin,
+            TerminalInputPlugin,
             PersistencePlugin,
             ProfilePlugin,
             LayoutPlugin,
-        ))
-        .register_type::<layout::space::Space>()
-        .register_type::<layout::pane::Pane>()
-        .register_type::<layout::pane::PaneSplit>()
-        .register_type::<layout::pane::PaneSplitDirection>()
-        .register_type::<layout::pane::PaneSize>()
-        .register_type::<layout::tab::Tab>()
-        .register_type::<vmux_history::CreatedAt>()
-        .register_type::<vmux_history::LastActivatedAt>()
-        .register_type::<vmux_history::Visit>()
-        .register_type::<vmux_header::PageMetadata>()
-        .register_type::<profile::Profile>()
-
-        .add_systems(Update, fit_window_to_screen.run_if(not(resource_exists::<ScreenFitted>)));
+        ));
     }
-}
-
-#[derive(Resource)]
-pub(crate) struct ScreenFitted;
-
-fn fit_window_to_screen(
-    winit_windows: Option<NonSend<WinitWindows>>,
-    mut window_q: Query<(Entity, &mut NativeWindow), With<PrimaryWindow>>,
-    mut commands: Commands,
-) {
-    let Some(winit_windows) = winit_windows else {
-        return;
-    };
-    let Ok((entity, mut window)) = window_q.single_mut() else {
-        return;
-    };
-    let Some(winit_win) = winit_windows.get_window(entity) else {
-        return;
-    };
-    let Some(monitor) = winit_win.current_monitor() else {
-        return;
-    };
-    let size = monitor.size();
-    let scale = monitor.scale_factor() as f32;
-    let logical_w = size.width as f32 / scale;
-    let logical_h = size.height as f32 / scale;
-    window.resolution.set(logical_w, logical_h);
-    commands.insert_resource(ScreenFitted);
 }

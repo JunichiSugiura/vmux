@@ -23,9 +23,9 @@ use vmux_history::LastActivatedAt;
 #[derive(Component)]
 struct PendingCommandBarReveal(u8);
 
-pub(crate) struct CommandBarPlugin;
+pub(crate) struct CommandBarInputPlugin;
 
-impl Plugin for CommandBarPlugin {
+impl Plugin for CommandBarInputPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(JsEmitEventPlugin::<CommandBarActionEvent>::default())
             .add_observer(on_command_bar_action)

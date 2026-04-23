@@ -16,7 +16,8 @@ pub(crate) struct TabPlugin;
 
 impl Plugin for TabPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_tab_commands.in_set(ReadAppCommands))
+        app.register_type::<Tab>()
+            .add_systems(Update, handle_tab_commands.in_set(ReadAppCommands))
             .add_systems(PostUpdate, sync_tab_picking);
     }
 }

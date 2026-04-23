@@ -1,15 +1,8 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
+pub use vmux_core::PageMetadata;
 
 pub const HEADER_HEIGHT_PX: f32 = 40.0;
-
-#[derive(Component, Clone, Debug, Reflect, Default)]
-#[reflect(Component)]
-pub struct PageMetadata {
-    pub title: String,
-    pub url: String,
-    pub favicon_url: String,
-}
 
 #[derive(Component, Clone, Debug, Reflect, Default)]
 #[reflect(Component)]

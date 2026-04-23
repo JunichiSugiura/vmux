@@ -9,7 +9,8 @@ pub(crate) struct SpacePlugin;
 
 impl Plugin for SpacePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_space_commands.in_set(ReadAppCommands))
+        app.register_type::<Space>()
+            .add_systems(Update, handle_space_commands.in_set(ReadAppCommands))
             .add_systems(PostUpdate, sync_space_visibility);
     }
 }

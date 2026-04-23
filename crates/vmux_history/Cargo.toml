@@ -34,6 +34,7 @@ bevy_ecs = { workspace = true }
 chrono = { workspace = true }
 ron = { workspace = true }
 url = { workspace = true }
+vmux_core = { path = "../vmux_core" }
 vmux_header = { path = "../vmux_header" }
 vmux_webview_app = { path = "../vmux_webview_app" }
 

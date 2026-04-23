@@ -10,9 +10,9 @@ use bevy::{
 };
 use vmux_header::Header;
 
-pub(crate) struct SideSheetPlugin;
+pub(crate) struct SideSheetLayoutPlugin;
 
-impl Plugin for SideSheetPlugin {
+impl Plugin for SideSheetLayoutPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(SideSheetOpen(true))
             .insert_resource(SideSheetWidth(0.0)) // set from settings on first sync

@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use vmux_webview_app::{WebviewAppConfig, WebviewAppRegistry};
 
-pub struct SideSheetWebviewPlugin;
+pub struct SideSheetPlugin;
 
-impl Plugin for SideSheetWebviewPlugin {
+impl Plugin for SideSheetPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut()
             .resource_mut::<WebviewAppRegistry>()

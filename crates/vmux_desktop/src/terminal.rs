@@ -7,7 +7,8 @@ use crate::{
 use alacritty_terminal::{
     event::{Event as TermEvent, EventListener as TermEventListener},
     grid::{Dimensions, Scroll},
-    index::{Column, Line},
+    index::{Column, Line, Point, Side},
+    selection::{Selection, SelectionType},
     term::{Config as TermConfig, Term, TermMode, cell::Flags as CellFlags},
     vte::ansi::{Color, NamedColor, Processor},
 };
@@ -47,6 +48,10 @@ pub(crate) struct TerminalState {
     term: Term<VmuxEventProxy>,
     processor: Processor,
     dirty: bool,
+    /// Moving end of keyboard-driven selection (distinct from anchor).
+    /// Tracked separately because `Selection::to_range()` normalizes order,
+    /// making it impossible to know which end the user is extending.
+    selection_cursor: Option<Point>,
 }
 
 /// Receives PTY output from a background reader thread.
@@ -80,11 +85,12 @@ impl TermEventListener for VmuxEventProxy {
     }
 }
 
-pub(crate) struct TerminalPlugin;
+pub(crate) struct TerminalInputPlugin;
 
-impl Plugin for TerminalPlugin {
+impl Plugin for TerminalInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(JsEmitEventPlugin::<TermResizeEvent>::default())
+        app.init_resource::<MouseSelectionState>()
+            .add_plugins(JsEmitEventPlugin::<TermResizeEvent>::default())
             .add_plugins(JsEmitEventPlugin::<TermMouseEvent>::default())
             .add_systems(
                 PreUpdate,
@@ -173,6 +179,7 @@ impl Terminal {
                     term,
                     processor,
                     dirty: true,
+                    selection_cursor: None,
                 },
                 PtyHandle {
                     rx: Mutex::new(rx),
@@ -362,6 +369,33 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
 
     let cursor_point = grid.cursor.point;
     let scrolled_back = offset > 0;
+
+    // Read character under cursor directly from the grid.
+    let cursor_char = {
+        let cursor_row = &grid[cursor_point.line];
+        let cell = &cursor_row[cursor_point.column];
+        cell.c.to_string()
+    };
+
+    // Convert alacritty selection to viewport-relative coordinates.
+    let selection = term
+        .selection
+        .as_ref()
+        .and_then(|sel| sel.to_range(term))
+        .map(|range| {
+            // Selection range points are in grid coordinates (Line is relative
+            // to viewport top when display_offset == 0).  Adjust for scroll.
+            let start_row = (range.start.line.0 + offset) as u16;
+            let end_row = (range.end.line.0 + offset) as u16;
+            TermSelectionRange {
+                start_col: range.start.column.0 as u16,
+                start_row,
+                end_col: range.end.column.0 as u16,
+                end_row,
+                is_block: range.is_block,
+            }
+        });
+
     TermViewportEvent {
         lines,
         cursor: TermCursor {
@@ -369,10 +403,12 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
             row: cursor_point.line.0 as u16,
             shape: CursorShape::Block,
             visible: !scrolled_back,
+            ch: cursor_char,
         },
         cols: num_cols as u16,
         rows: num_lines as u16,
         title: None,
+        selection,
     }
 }
 
@@ -488,10 +524,25 @@ fn is_non_character_key(key: KeyCode) -> bool {
     )
 }
 
+/// Check if a key code is a selection-extending key (used with Shift).
+fn is_selection_key(key: KeyCode) -> bool {
+    matches!(
+        key,
+        KeyCode::ArrowLeft
+            | KeyCode::ArrowRight
+            | KeyCode::ArrowUp
+            | KeyCode::ArrowDown
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+    )
+}
+
 /// Handle keyboard input directly from Bevy, bypassing CEF round-trip.
 fn handle_terminal_keyboard(
     mut er: MessageReader<KeyboardInput>,
-    q: Query<(&PtyHandle, &TerminalState), (With<Terminal>, With<CefKeyboardTarget>)>,
+    mut q: Query<(&PtyHandle, &mut TerminalState), (With<Terminal>, With<CefKeyboardTarget>)>,
     input: Res<ButtonInput<KeyCode>>,
     chord_state: Res<crate::keybinding::ChordState>,
 ) {
@@ -508,6 +559,7 @@ fn handle_terminal_keyboard(
     }
     let ctrl = input.pressed(KeyCode::ControlLeft) || input.pressed(KeyCode::ControlRight);
     let alt = input.pressed(KeyCode::AltLeft) || input.pressed(KeyCode::AltRight);
+    let shift = input.pressed(KeyCode::ShiftLeft) || input.pressed(KeyCode::ShiftRight);
     let super_key = input.pressed(KeyCode::SuperLeft) || input.pressed(KeyCode::SuperRight);
 
     let mut seen_keys: Vec<KeyCode> = Vec::new();
@@ -560,20 +612,20 @@ fn handle_terminal_keyboard(
                     continue;
                 }
                 KeyCode::KeyC => {
-                    // Copy: serialize visible terminal text to clipboard.
-                    // Use pbcopy to avoid objc2/NSPasteboard conflicts with CEF.
-                    for (_pty, state) in &q {
-                        let text = visible_text(&state.term);
+                    // Copy: selected text if selection exists, else full visible grid.
+                    for (_pty, mut state) in &mut q {
+                        let text = if state.term.selection.is_some() {
+                            let s = state.term.selection_to_string().unwrap_or_default();
+                            // Clear selection after copy
+                            state.term.selection = None;
+                            state.selection_cursor = None;
+                            state.dirty = true;
+                            s
+                        } else {
+                            visible_text(&state.term)
+                        };
                         if !text.is_empty() {
-                            if let Ok(mut child) = std::process::Command::new("pbcopy")
-                                .stdin(std::process::Stdio::piped())
-                                .spawn()
-                            {
-                                if let Some(mut stdin) = child.stdin.take() {
-                                    let _ = stdin.write_all(text.as_bytes());
-                                }
-                                let _ = child.wait();
-                            }
+                            pbcopy(&text);
                         }
                     }
                     continue;
@@ -581,6 +633,107 @@ fn handle_terminal_keyboard(
                 _ => {
                     // Skip all other Cmd+key combos — don't send to PTY
                     continue;
+                }
+            }
+        }
+
+        // Shift+Arrow/Home/End/PgUp/PgDn: keyboard text selection.
+        // Don't send these to the PTY — they drive the selection overlay.
+        if shift && is_selection_key(event.key_code) {
+            for (_pty, mut state) in &mut q {
+                let num_cols = state.term.grid().columns();
+                let num_lines = state.term.grid().screen_lines();
+
+                // Use tracked selection_cursor, or fall back to terminal cursor.
+                let cur = state
+                    .selection_cursor
+                    .unwrap_or_else(|| state.term.grid().cursor.point);
+
+                let new_point = match event.key_code {
+                    KeyCode::ArrowLeft => {
+                        if cur.column.0 > 0 {
+                            Point::new(cur.line, cur.column - 1)
+                        } else if cur.line.0 > 0 {
+                            Point::new(cur.line - 1, Column(num_cols - 1))
+                        } else {
+                            cur
+                        }
+                    }
+                    KeyCode::ArrowRight => {
+                        if cur.column.0 + 1 < num_cols {
+                            Point::new(cur.line, cur.column + 1)
+                        } else if (cur.line.0 as usize) + 1 < num_lines {
+                            Point::new(cur.line + 1, Column(0))
+                        } else {
+                            cur
+                        }
+                    }
+                    KeyCode::ArrowUp => {
+                        if cur.line.0 > 0 {
+                            Point::new(cur.line - 1, cur.column)
+                        } else {
+                            cur
+                        }
+                    }
+                    KeyCode::ArrowDown => {
+                        if (cur.line.0 as usize) + 1 < num_lines {
+                            Point::new(cur.line + 1, cur.column)
+                        } else {
+                            cur
+                        }
+                    }
+                    KeyCode::Home => Point::new(cur.line, Column(0)),
+                    KeyCode::End => Point::new(cur.line, Column(num_cols - 1)),
+                    KeyCode::PageUp => {
+                        let target_line = (cur.line.0 - num_lines as i32).max(0);
+                        Point::new(Line(target_line), cur.column)
+                    }
+                    KeyCode::PageDown => {
+                        let target_line =
+                            (cur.line.0 + num_lines as i32).min(num_lines as i32 - 1);
+                        Point::new(Line(target_line), cur.column)
+                    }
+                    _ => cur,
+                };
+
+                if state.term.selection.is_none() {
+                    // Start new selection from cursor position.
+                    let cursor_point = state.term.grid().cursor.point;
+                    let sel_type = if alt {
+                        SelectionType::Block
+                    } else {
+                        SelectionType::Simple
+                    };
+                    state.term.selection =
+                        Some(Selection::new(sel_type, cursor_point, Side::Left));
+                }
+                if let Some(ref mut sel) = state.term.selection {
+                    sel.update(new_point, Side::Left);
+                    sel.include_all();
+                }
+                state.selection_cursor = Some(new_point);
+                state.dirty = true;
+            }
+            continue;
+        }
+
+        // Any non-modifier key press clears the selection.
+        if !matches!(
+            event.key_code,
+            KeyCode::ShiftLeft
+                | KeyCode::ShiftRight
+                | KeyCode::ControlLeft
+                | KeyCode::ControlRight
+                | KeyCode::AltLeft
+                | KeyCode::AltRight
+                | KeyCode::SuperLeft
+                | KeyCode::SuperRight
+        ) {
+            for (_pty, mut state) in &mut q {
+                if state.term.selection.is_some() {
+                    state.term.selection = None;
+                    state.selection_cursor = None;
+                    state.dirty = true;
                 }
             }
         }
@@ -594,6 +747,19 @@ fn handle_terminal_keyboard(
                 let _ = writer.write_all(&bytes);
             }
         }
+    }
+}
+
+/// Write text to system clipboard via pbcopy (avoids objc2/CEF conflicts).
+fn pbcopy(text: &str) {
+    if let Ok(mut child) = std::process::Command::new("pbcopy")
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+    {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        let _ = child.wait();
     }
 }
 
@@ -742,21 +908,85 @@ fn sgr_mouse_sequence(button: u8, col: u16, row: u16, modifiers: u8, pressed: bo
     format!("\x1b[<{};{};{}{}", cb, col + 1, row + 1, suffix).into_bytes()
 }
 
+/// Tracks mouse state for selection (double/triple click detection).
+#[derive(Resource, Default)]
+struct MouseSelectionState {
+    /// Timestamp of last mousedown for multi-click detection.
+    last_click_time: Option<std::time::Instant>,
+    /// Number of consecutive clicks at roughly the same position.
+    click_count: u8,
+    /// Position of last click for multi-click detection.
+    last_click_pos: Option<(u16, u16)>,
+    /// Whether a drag selection is in progress.
+    dragging: bool,
+}
+
 /// Handle mouse events from the terminal webview.
 fn on_term_mouse(
     trigger: On<Receive<TermMouseEvent>>,
-    state_q: Query<&TerminalState, With<Terminal>>,
+    mut state_q: Query<&mut TerminalState, With<Terminal>>,
     pty_q: Query<&PtyHandle, With<Terminal>>,
+    mut mouse_sel: ResMut<MouseSelectionState>,
 ) {
     let entity = trigger.event_target();
     let event = &trigger.payload;
 
-    let Ok(state) = state_q.get(entity) else {
+    let Ok(mut state) = state_q.get_mut(entity) else {
         return;
     };
 
     let mode = *state.term.mode();
+
+    // When mouse reporting is disabled, handle text selection locally.
     if !mode.intersects(TermMode::MOUSE_MODE) {
+        // Only handle left button (button == 0)
+        if event.button == 0 || (event.moving && mouse_sel.dragging) {
+            let point = Point::new(Line(event.row as i32), Column(event.col as usize));
+
+            if event.pressed && !event.moving {
+                // Mouse down — detect click count for single/double/triple
+                let now = std::time::Instant::now();
+                let same_pos = mouse_sel
+                    .last_click_pos
+                    .map_or(false, |(c, r)| c == event.col && r == event.row);
+                let fast_enough = mouse_sel
+                    .last_click_time
+                    .map_or(false, |t| now.duration_since(t).as_millis() < 500);
+
+                if same_pos && fast_enough {
+                    mouse_sel.click_count = (mouse_sel.click_count + 1).min(3);
+                } else {
+                    mouse_sel.click_count = 1;
+                }
+                mouse_sel.last_click_time = Some(now);
+                mouse_sel.last_click_pos = Some((event.col, event.row));
+                mouse_sel.dragging = true;
+
+                let sel_type = match mouse_sel.click_count {
+                    2 => SelectionType::Semantic,
+                    3 => SelectionType::Lines,
+                    _ => SelectionType::Simple,
+                };
+
+                let mut sel = Selection::new(sel_type, point, Side::Left);
+                if sel_type != SelectionType::Simple {
+                    // For semantic/lines, expand both sides immediately
+                    sel.update(point, Side::Right);
+                    sel.include_all();
+                }
+                state.term.selection = Some(sel);
+                state.dirty = true;
+            } else if event.moving && mouse_sel.dragging {
+                // Mouse drag — extend selection
+                if let Some(ref mut sel) = state.term.selection {
+                    sel.update(point, Side::Right);
+                    state.dirty = true;
+                }
+            } else if !event.pressed && !event.moving {
+                // Mouse up — finalize drag
+                mouse_sel.dragging = false;
+            }
+        }
         return;
     }
 
@@ -969,6 +1199,7 @@ fn on_restart_pty(
     state.term = new_term;
     state.processor = Processor::new();
     state.dirty = true;
+    state.selection_cursor = None;
 
     // Replace PtyHandle entirely
     *pty = PtyHandle {

@@ -17,9 +17,6 @@ const _TW_SAFELIST: &[&str] = &[
     "bg-ansi-8",  "bg-ansi-9",  "bg-ansi-10", "bg-ansi-11",
     "bg-ansi-12", "bg-ansi-13", "bg-ansi-14", "bg-ansi-15",
     "text-term-bg", "bg-term-fg",
-    // Compat: classes used by the scaffold WASM binary still in dist/wasm/.
-    // Remove once the WASM is rebuilt with `dx build`.
-    "opacity-0", "w-0", "h-0", "bg-background", "p-1",
 ];
 
 #[component]
@@ -75,7 +72,7 @@ pub fn App() -> Element {
   var measure = document.createElement('span');
   measure.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit';
   measure.className = 'font-mono text-sm';
-  measure.textContent = 'X';
+  measure.textContent = 'X'.repeat(80);
   var container = document.querySelector('.font-mono');
   if (container) container.appendChild(measure);
 
@@ -87,7 +84,7 @@ pub fn App() -> Element {
   window.__termLastRow = -1;
 
   function emitResize() {
-    var cw = measure.getBoundingClientRect().width;
+    var cw = measure.getBoundingClientRect().width / 80;
     var ch = parseFloat(getComputedStyle(container).lineHeight) || measure.getBoundingClientRect().height;
     var padEl = container.firstElementChild || container;
     var cs = getComputedStyle(padEl);
@@ -97,6 +94,10 @@ pub fn App() -> Element {
     var vh = container.clientHeight - py;
     window.__termCW = cw;
     window.__termCH = ch;
+    // Expose measured cell size as CSS custom properties for pixel-perfect
+    // cursor and selection overlay positioning.
+    container.style.setProperty('--cw', cw + 'px');
+    container.style.setProperty('--ch', ch + 'px');
     if (cw > 0 && ch > 0 && window.cef && window.cef.emit) {
       window.cef.emit({char_width: cw, char_height: ch, viewport_width: vw, viewport_height: vh});
     }
@@ -125,6 +126,7 @@ pub fn App() -> Element {
   }
 
   container.addEventListener('mousedown', function(e) {
+    e.preventDefault(); // Suppress browser native text selection
     var pos = mousePos(e);
     if (!pos || !window.cef || !window.cef.emit) return;
     window.__termButtons |= (1 << e.button);
@@ -200,7 +202,7 @@ pub fn App() -> Element {
 
     rsx! {
         div {
-            class: "relative h-full w-full overflow-hidden bg-term-bg text-term-fg font-mono text-sm leading-tight",
+            class: "relative h-full w-full overflow-hidden bg-term-bg text-term-fg font-mono text-sm leading-tight select-none",
             style: "{theme_style}",
 
             div { style: "padding:{padding}px;",
@@ -208,7 +210,8 @@ pub fn App() -> Element {
                     {
                         // Hash span attributes so Dioxus detects row changes
                         // (class/style diffs on keyed children can be missed).
-                        let row_hash = line.spans.iter().fold(0u64, |h, s| {
+                        let sel_hash = selection_row_hash(&vp.selection, row_idx);
+                        let row_hash = line.spans.iter().fold(sel_hash, |h, s| {
                             h.wrapping_mul(31)
                                 .wrapping_add(s.flags as u64)
                                 .wrapping_mul(31)
@@ -218,10 +221,11 @@ pub fn App() -> Element {
                                     TermColor::Rgb(r,g,b) => ((r as u64) << 16) | ((g as u64) << 8) | b as u64,
                                 })
                         });
+                        let sel_range = row_selection_cols(&vp.selection, row_idx, vp.cols);
                         rsx! {
                     div {
                         key: "{row_idx}-{row_hash}",
-                        class: "flex whitespace-pre",
+                        class: "relative flex whitespace-pre",
                         style: "height: 1.2em;",
                         for (span_idx , span) in line.spans.iter().enumerate() {
                             span {
@@ -229,6 +233,13 @@ pub fn App() -> Element {
                                 class: "{span_classes(span)}",
                                 style: "{span_inline_style(span)}",
                                 "{span.text}"
+                            }
+                        }
+                        // Selection highlight overlay
+                        if let Some((sel_start, sel_end)) = sel_range {
+                            div {
+                                class: "absolute top-0 bottom-0 pointer-events-none",
+                                style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});background:rgba(255,255,255,0.25);",
                             }
                         }
                         if row_idx == vp.cursor.row as usize && vp.cursor.visible {
@@ -243,8 +254,8 @@ pub fn App() -> Element {
                                 rsx! {
                                     span {
                                         class: "{cursor_cls}",
-                                        style: "left:calc({padding}px + {vp.cursor.col}ch);{color_css}{blink_css}",
-                                        "{cursor_char(&vp, row_idx)}"
+                                        style: "left:calc(var(--cw, 1ch) * {vp.cursor.col});width:var(--cw, 1ch);text-align:center;{color_css}{blink_css}",
+                                        "{vp.cursor.ch}"
                                     }
                                 }
                             }
@@ -315,18 +326,47 @@ fn span_inline_style(span: &TermSpan) -> String {
     parts.join(";")
 }
 
-fn cursor_char(vp: &TermViewportEvent, row: usize) -> String {
-    if let Some(line) = vp.lines.get(row) {
-        let col = vp.cursor.col as usize;
-        let mut pos = 0;
-        for span in &line.spans {
-            for c in span.text.chars() {
-                if pos == col {
-                    return c.to_string();
-                }
-                pos += 1;
-            }
-        }
+/// Compute the selected column range for a given row, if any.
+/// Returns Some((start_col, end_col_exclusive)) or None.
+fn row_selection_cols(
+    selection: &Option<TermSelectionRange>,
+    row_idx: usize,
+    total_cols: u16,
+) -> Option<(usize, usize)> {
+    let sel = selection.as_ref()?;
+    let row = row_idx as u16;
+    if row < sel.start_row || row > sel.end_row {
+        return None;
     }
-    " ".to_string()
+    if sel.is_block {
+        // Block selection: same column range on every selected row
+        Some((sel.start_col as usize, sel.end_col as usize + 1))
+    } else if sel.start_row == sel.end_row {
+        // Single line selection
+        Some((sel.start_col as usize, sel.end_col as usize + 1))
+    } else if row == sel.start_row {
+        // First line of multi-line selection
+        Some((sel.start_col as usize, total_cols as usize))
+    } else if row == sel.end_row {
+        // Last line of multi-line selection
+        Some((0, sel.end_col as usize + 1))
+    } else {
+        // Middle line — fully selected
+        Some((0, total_cols as usize))
+    }
+}
+
+/// Hash contribution from selection state for a given row, so Dioxus detects
+/// selection changes even when the text content hasn't changed.
+fn selection_row_hash(selection: &Option<TermSelectionRange>, row_idx: usize) -> u64 {
+    match row_selection_cols(selection, row_idx, u16::MAX) {
+        Some((start, end)) => {
+            (start as u64)
+                .wrapping_mul(997)
+                .wrapping_add(end as u64)
+                .wrapping_mul(991)
+                .wrapping_add(1) // marker that selection exists
+        }
+        None => 0,
+    }
 }

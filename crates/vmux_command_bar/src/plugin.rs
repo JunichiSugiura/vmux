@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use vmux_webview_app::{WebviewAppConfig, WebviewAppRegistry};
 
-pub struct CommandBarWebviewPlugin;
+pub struct CommandBarPlugin;
 
-impl Plugin for CommandBarWebviewPlugin {
+impl Plugin for CommandBarPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut()
             .resource_mut::<WebviewAppRegistry>()

@@ -9,6 +9,7 @@ pub struct HeaderPlugin;
 
 impl Plugin for HeaderPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<vmux_core::PageMetadata>();
         app.world_mut()
             .resource_mut::<WebviewAppRegistry>()
             .register(

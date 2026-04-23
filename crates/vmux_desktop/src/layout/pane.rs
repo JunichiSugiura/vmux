@@ -31,7 +31,11 @@ pub(crate) struct PaneHoverIntent {
 
 impl Plugin for PanePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<PaneHoverIntent>()
+        app.register_type::<Pane>()
+            .register_type::<PaneSplit>()
+            .register_type::<PaneSplitDirection>()
+            .register_type::<PaneSize>()
+            .init_resource::<PaneHoverIntent>()
             .init_resource::<PendingCursorWarp>()
             .add_systems(Update, on_pane_select.in_set(ReadAppCommands))
             .add_systems(Update, handle_pane_commands.in_set(ReadAppCommands))

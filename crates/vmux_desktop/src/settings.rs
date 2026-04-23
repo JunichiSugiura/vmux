@@ -244,6 +244,8 @@ pub struct LayoutSettings {
     pub pane: PaneSettings,
     #[serde(default)]
     pub side_sheet: SideSheetSettings,
+    #[serde(default)]
+    pub focus_ring: FocusRingSettings,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -270,13 +272,13 @@ pub struct WindowSettings {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PaneOutlineColor {
+pub struct FocusRingColor {
     pub r: f32,
     pub g: f32,
     pub b: f32,
 }
 
-impl Default for PaneOutlineColor {
+impl Default for FocusRingColor {
     fn default() -> Self {
         Self {
             r: 0.52,
@@ -287,14 +289,14 @@ impl Default for PaneOutlineColor {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PaneOutlineGlow {
+pub struct FocusRingGlow {
     #[serde(default = "default_outline_glow_spread")]
     pub spread: f32,
     #[serde(default = "default_outline_glow_intensity")]
     pub intensity: f32,
 }
 
-impl Default for PaneOutlineGlow {
+impl Default for FocusRingGlow {
     fn default() -> Self {
         Self {
             spread: default_outline_glow_spread(),
@@ -304,7 +306,7 @@ impl Default for PaneOutlineGlow {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PaneOutlineGradient {
+pub struct FocusRingGradient {
     #[serde(default = "default_outline_gradient_enabled")]
     pub enabled: bool,
     #[serde(default = "default_outline_gradient_speed")]
@@ -312,10 +314,10 @@ pub struct PaneOutlineGradient {
     #[serde(default = "default_outline_gradient_cycles")]
     pub cycles: f32,
     #[serde(default = "default_outline_gradient_accent")]
-    pub accent: PaneOutlineColor,
+    pub accent: FocusRingColor,
 }
 
-impl Default for PaneOutlineGradient {
+impl Default for FocusRingGradient {
     fn default() -> Self {
         Self {
             enabled: default_outline_gradient_enabled(),
@@ -338,8 +340,8 @@ fn default_outline_gradient_cycles() -> f32 {
     2.0
 }
 
-fn default_outline_gradient_accent() -> PaneOutlineColor {
-    PaneOutlineColor {
+fn default_outline_gradient_accent() -> FocusRingColor {
+    FocusRingColor {
         r: 0.15,
         g: 0.55,
         b: 1.0,
@@ -347,24 +349,24 @@ fn default_outline_gradient_accent() -> PaneOutlineColor {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PaneOutlineSettings {
+pub struct FocusRingSettings {
     #[serde(default = "default_outline_width")]
     pub width: f32,
     #[serde(default)]
-    pub color: PaneOutlineColor,
+    pub color: FocusRingColor,
     #[serde(default)]
-    pub glow: PaneOutlineGlow,
+    pub glow: FocusRingGlow,
     #[serde(default)]
-    pub gradient: PaneOutlineGradient,
+    pub gradient: FocusRingGradient,
 }
 
-impl Default for PaneOutlineSettings {
+impl Default for FocusRingSettings {
     fn default() -> Self {
         Self {
             width: default_outline_width(),
-            color: PaneOutlineColor::default(),
-            glow: PaneOutlineGlow::default(),
-            gradient: PaneOutlineGradient::default(),
+            color: FocusRingColor::default(),
+            glow: FocusRingGlow::default(),
+            gradient: FocusRingGradient::default(),
         }
     }
 }
@@ -385,8 +387,6 @@ fn default_outline_glow_intensity() -> f32 {
 pub struct PaneSettings {
     pub gap: f32,
     pub radius: f32,
-    #[serde(default)]
-    pub outline: PaneOutlineSettings,
 }
 
 const DEFAULT_SETTINGS: &str = include_str!("settings.ron");

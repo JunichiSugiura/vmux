@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use bevy::prelude::*;
 use vmux_webview_app::{WebviewAppConfig, WebviewAppRegistry};
 
-pub struct TerminalWebviewPlugin;
+pub struct TerminalPlugin;
 
-impl Plugin for TerminalWebviewPlugin {
+impl Plugin for TerminalPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut()
             .resource_mut::<WebviewAppRegistry>()

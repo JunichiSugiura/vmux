@@ -150,7 +150,7 @@ fn sync_focus_ring_to_active_pane(
         return;
     }
 
-    let border_px = settings.layout.pane.outline.width.max(0.0);
+    let border_px = settings.layout.focus_ring.width.max(0.0);
     if border_px <= 0.0 {
         *visibility = Visibility::Hidden;
         return;
@@ -222,16 +222,16 @@ fn build_focus_ring_material(
     time_secs: f32,
     is_loading: bool,
 ) -> FocusRingMaterial {
-    let b = settings.layout.pane.outline.width.max(0.0);
+    let b = settings.layout.focus_ring.width.max(0.0);
     let w_o = w_i + 2.0 * b;
     let h_o = h_i + 2.0 * b;
     let m = w_i.min(h_i);
     let r_i = settings.layout.pane.radius.min(m * 0.5).max(0.0);
     let m_o = w_o.min(h_o);
     let r_o = (r_i + b).min(m_o * 0.5);
-    let c = &settings.layout.pane.outline.color;
+    let c = &settings.layout.focus_ring.color;
     let border_color = Color::srgb(c.r, c.g, c.b).to_linear().to_vec4();
-    let g = &settings.layout.pane.outline.gradient;
+    let g = &settings.layout.focus_ring.gradient;
     let accent = &g.accent;
     let border_accent = Color::srgb(accent.r, accent.g, accent.b)
         .to_linear()
@@ -239,8 +239,8 @@ fn build_focus_ring_material(
     let grad_on = if g.enabled { 1.0 } else { 0.0 };
     let speed = if is_loading { g.speed * 3.0 } else { g.speed };
     let gradient_params = Vec4::new(grad_on, speed, g.cycles.max(0.01), time_secs);
-    let spread = settings.layout.pane.outline.glow.spread.max(0.5);
-    let intensity = settings.layout.pane.outline.glow.intensity.max(0.0);
+    let spread = settings.layout.focus_ring.glow.spread.max(0.5);
+    let intensity = settings.layout.focus_ring.glow.intensity.max(0.0);
     let glow_on = if intensity > 1.0e-4 { 1.0 } else { 0.0 };
     FocusRingMaterial {
         pane_inner: Vec4::new(r_i, w_i, h_i, 0.0),

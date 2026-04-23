@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
+use unicode_width::UnicodeWidthChar;
 use vmux_terminal::event::*;
 use vmux_ui::hooks::{use_event_listener, use_theme};
 
@@ -320,10 +321,26 @@ fn render_span(
     let classes = span_classes(span);
     let style = span_inline_style(span);
 
-    // Check if cursor falls within this span
-    let span_end_col = span.col + span.text.chars().count() as u16;
+    // Check if cursor falls within this span.
+    // Use grid_cols (accounts for wide chars) with fallback to char count.
+    let span_end_col = if span.grid_cols > 0 {
+        span.col + span.grid_cols
+    } else {
+        span.col + span.text.chars().count() as u16
+    };
     if is_cursor_row && cursor_col >= span.col && cursor_col < span_end_col {
-        let offset = (cursor_col - span.col) as usize;
+        // Map grid column to char index, accounting for wide characters.
+        let target_grid_col = cursor_col - span.col;
+        let mut offset = 0usize;
+        let mut grid_col_acc: u16 = 0;
+        for (i, ch) in span.text.chars().enumerate() {
+            if grid_col_acc >= target_grid_col {
+                offset = i;
+                break;
+            }
+            grid_col_acc += ch.width().unwrap_or(1) as u16;
+            offset = i + 1;
+        }
         let chars: Vec<char> = span.text.chars().collect();
         let before: String = chars[..offset].iter().collect();
         let after: String = chars[offset + 1..].iter().collect();

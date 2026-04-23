@@ -329,12 +329,14 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
         let mut cur_bg: TermColor = TermColor::Default;
         let mut cur_flags: u16 = 0;
         let mut span_col_start: u16 = 0;
+        let mut span_grid_cols: u16 = 0;
 
         for col_idx in 0..num_cols {
             let cell = &row[Column(col_idx)];
 
-            // Skip wide char spacers
+            // Wide char spacers consume a grid column but have no character.
             if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+                span_grid_cols += 1;
                 continue;
             }
 
@@ -350,14 +352,17 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
                         bg: cur_bg,
                         flags: cur_flags,
                         col: span_col_start,
+                        grid_cols: span_grid_cols,
                     });
                     span_col_start = col_idx as u16;
+                    span_grid_cols = 0;
                 }
                 cur_fg = fg;
                 cur_bg = bg;
                 cur_flags = flags;
             }
             text.push(cell.c);
+            span_grid_cols += 1;
         }
         if !text.is_empty() {
             spans.push(TermSpan {
@@ -366,6 +371,7 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
                 bg: cur_bg,
                 flags: cur_flags,
                 col: span_col_start,
+                grid_cols: span_grid_cols,
             });
         }
         lines.push(TermLine { spans });

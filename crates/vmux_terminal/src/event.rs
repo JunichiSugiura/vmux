@@ -71,6 +71,10 @@ pub struct TermSpan {
     /// Starting column index of this span in the row (0-based).
     #[serde(default)]
     pub col: u16,
+    /// Number of grid columns this span covers (accounts for wide characters
+    /// taking 2 columns).  When 0 (legacy), falls back to `text.chars().count()`.
+    #[serde(default)]
+    pub grid_cols: u16,
 }
 
 pub const FLAG_BOLD: u16 = 1;

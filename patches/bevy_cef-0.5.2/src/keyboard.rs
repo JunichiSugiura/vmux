@@ -88,15 +88,15 @@ fn send_key_event(
     webviews_targeted: Query<Entity, (With<WebviewSource>, With<CefKeyboardTarget>)>,
     mut targeted_buf: Local<Vec<Entity>>,
     suppress: Res<CefSuppressKeyboardInput>,
+    // Persists across frames: tracks which non-character keys have been forwarded
+    // as Pressed. Cleared when the corresponding Released event arrives. This is
+    // immune to both same-frame and cross-frame duplicates from macOS/bevy_winit.
+    mut forwarded_presses: Local<Vec<KeyCode>>,
 ) {
     let modifiers = keyboard_modifiers(&input);
     targeted_buf.clear();
     targeted_buf.extend(webviews_targeted.iter());
     let use_targets = !targeted_buf.is_empty();
-    // Track non-character keys already sent as Pressed this batch to deduplicate.
-    // On macOS, bevy_winit can deliver two KeyboardInput(Pressed) messages for a
-    // single physical press of navigation/editing keys (arrows, Delete, etc.).
-    let mut non_char_pressed: Vec<KeyCode> = Vec::new();
     for event in er.read() {
         // Drain browser-process work before/after each key so IPC isn't still queued when the next
         // frame's Main pump runs (reduces randomly dropped characters under load).
@@ -104,28 +104,24 @@ fn send_key_event(
         if suppress.0 {
             continue;
         }
+        // Clear dedup state when the key is released so the next physical
+        // press is accepted.
+        if event.state == ButtonState::Released && is_non_character_key(event.key_code) {
+            forwarded_presses.retain(|k| *k != event.key_code);
+        }
         // Deduplicate non-character pressed keys.
         // On macOS, bevy_winit can deliver two Pressed messages for a single
-        // physical press of navigation/editing keys.  The duplicates may arrive
-        // in the same frame (caught by `non_char_pressed` vec) **or** across
-        // consecutive frames (caught by `ButtonInput::just_pressed`).
+        // physical press of navigation/editing keys (arrows, Delete, etc.).
+        // We track forwarded presses persistently and only clear on Release,
+        // catching duplicates regardless of whether they arrive in the same
+        // frame or across consecutive frames.
         if event.state == ButtonState::Pressed && !event.repeat {
             if is_non_character_key(event.key_code) {
-                // Same-frame dedup: skip if we already forwarded this key code
-                // in the current batch.
-                if non_char_pressed.contains(&event.key_code) {
+                if forwarded_presses.contains(&event.key_code) {
                     cef::do_message_loop_work();
                     continue;
                 }
-                non_char_pressed.push(event.key_code);
-                // Cross-frame dedup: `ButtonInput::just_pressed` is only true
-                // on the first frame a key transitions to pressed.  A stale
-                // duplicate arriving one frame later will have
-                // `just_pressed == false` because the key is already held.
-                if !input.just_pressed(event.key_code) {
-                    cef::do_message_loop_work();
-                    continue;
-                }
+                forwarded_presses.push(event.key_code);
             }
         }
         if event.key_code == KeyCode::Enter && is_ime_commiting.0 {

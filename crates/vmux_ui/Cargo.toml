@@ -21,7 +21,11 @@ path = "src/main.rs"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = "0.3"
-web-sys = { version = "0.3", features = ["Window"] }
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "Element", "HtmlElement", "Node",
+    "CssStyleDeclaration", "DomRect",
+    "EventTarget", "Event", "KeyboardEvent",
+] }
 dioxus = { workspace = true }
 time = { version = "0.3", default-features = false, features = [
     "wasm-bindgen",

@@ -8401,10 +8401,12 @@ dependencies = [
  "bevy_cef",
  "bevy_ecs",
  "dioxus",
+ "js-sys",
  "serde",
  "vmux_ui",
  "vmux_webview_app",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]
@@ -8516,11 +8518,13 @@ dependencies = [
  "bevy",
  "bevy_cef",
  "dioxus",
+ "js-sys",
  "serde",
  "unicode-width",
  "vmux_ui",
  "vmux_webview_app",
  "wasm-bindgen",
+ "web-sys",
 ]
 
 [[package]]

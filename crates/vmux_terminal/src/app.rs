@@ -1,11 +1,16 @@
 #![allow(non_snake_case)]
 
+use dioxus::html::input_data::MouseButton;
+use dioxus::html::Modifiers;
 use dioxus::prelude::*;
 use unicode_width::UnicodeWidthChar;
 use vmux_terminal::event::*;
+use vmux_ui::cef_bridge::try_cef_emit_keyed;
 use vmux_ui::hooks::{use_event_listener, use_theme};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
-// Tailwind safelist — these classes are generated dynamically via format!() and
+// Tailwind safelist -- these classes are generated dynamically via format!() and
 // must appear as literal strings for Tailwind's content scanner to detect them.
 #[rustfmt::skip]
 const _TW_SAFELIST: &[&str] = &[
@@ -19,6 +24,11 @@ const _TW_SAFELIST: &[&str] = &[
     "bg-ansi-12", "bg-ansi-13", "bg-ansi-14", "bg-ansi-15",
     "text-term-bg", "bg-term-fg",
 ];
+
+/// ID for the outermost terminal container div.
+const CONTAINER_ID: &str = "term-container";
+/// ID for the hidden measurement span used to compute character dimensions.
+const MEASURE_ID: &str = "term-measure";
 
 #[component]
 pub fn App() -> Element {
@@ -42,127 +52,14 @@ pub fn App() -> Element {
 
     let vp = viewport();
 
+    // Cell dimensions (char_width, char_height), updated by resize observer.
+    let cell_dims = use_signal(|| (0.0f64, 0.0f64));
+    // Last emitted mouse cell position for move-event throttling.
+    let mut last_mouse_cell = use_signal(|| (-1i32, -1i32));
 
-
-    // Install resize observer and mouse event handlers.
-    use_effect(|| {
-        document::eval(
-            r#"setTimeout(() => {
-  // Load Nerd Font programmatically (CSS @font-face may not resolve
-  // relative URLs correctly under the custom vmux:// scheme).
-  (async function() {
-    try {
-      var variants = [
-        ['JetBrainsMonoNerdFontMono-Regular.woff2', '400', 'normal'],
-        ['JetBrainsMonoNerdFontMono-Bold.woff2', '700', 'normal'],
-        ['JetBrainsMonoNerdFontMono-Italic.woff2', '400', 'italic'],
-        ['JetBrainsMonoNerdFontMono-BoldItalic.woff2', '700', 'italic'],
-      ];
-      for (var v of variants) {
-        var resp = await fetch('./assets/fonts/' + v[0]);
-        if (resp.ok) {
-          var buf = await resp.arrayBuffer();
-          var face = new FontFace('JetBrainsMono NF', buf, {weight: v[1], style: v[2]});
-          await face.load();
-          document.fonts.add(face);
-        }
-      }
-    } catch(e) { /* font loading is best-effort */ }
-  })();
-
-  var measure = document.createElement('span');
-  measure.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font:inherit';
-  measure.className = 'font-mono text-sm';
-  measure.textContent = 'X'.repeat(80);
-  var container = document.querySelector('.font-mono');
-  if (container) container.appendChild(measure);
-
-  // Shared state for mouse position calculation
-  window.__termCW = 0;
-  window.__termCH = 0;
-  window.__termButtons = 0;
-  window.__termLastCol = -1;
-  window.__termLastRow = -1;
-
-  function emitResize() {
-    var cw = measure.getBoundingClientRect().width / 80;
-    var ch = parseFloat(getComputedStyle(container).lineHeight) || measure.getBoundingClientRect().height;
-    var padEl = container.firstElementChild || container;
-    var cs = getComputedStyle(padEl);
-    var px = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-    var py = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    var vw = container.clientWidth - px;
-    var vh = container.clientHeight - py;
-    window.__termCW = cw;
-    window.__termCH = ch;
-    // Expose measured cell size as CSS custom properties for pixel-perfect
-    // cursor and selection overlay positioning.
-    container.style.setProperty('--cw', cw + 'px');
-    container.style.setProperty('--ch', ch + 'px');
-    if (cw > 0 && ch > 0 && window.cef && window.cef.emit) {
-      window.cef.emit({char_width: cw, char_height: ch, viewport_width: vw, viewport_height: vh});
-    }
-  }
-
-  function mousePos(e) {
-    var padEl = container.firstElementChild;
-    if (!padEl || window.__termCW <= 0 || window.__termCH <= 0) return null;
-    var cs = getComputedStyle(padEl);
-    var rect = padEl.getBoundingClientRect();
-    var x = e.clientX - rect.left - parseFloat(cs.paddingLeft);
-    var y = e.clientY - rect.top - parseFloat(cs.paddingTop);
-    return {
-      col: Math.max(0, Math.floor(x / window.__termCW)),
-      row: Math.max(0, Math.floor(y / window.__termCH))
-    };
-  }
-
-  function mouseMods(e) {
-    var m = 0;
-    if (e.ctrlKey) m |= 1;
-    if (e.altKey) m |= 2;
-    if (e.shiftKey) m |= 4;
-    if (e.metaKey) m |= 8;
-    return m;
-  }
-
-  container.addEventListener('mousedown', function(e) {
-    e.preventDefault(); // Suppress browser native text selection
-    var pos = mousePos(e);
-    if (!pos || !window.cef || !window.cef.emit) return;
-    window.__termButtons |= (1 << e.button);
-    window.cef.emit({button: e.button, col: pos.col, row: pos.row, modifiers: mouseMods(e), pressed: true, moving: false});
-  });
-
-  container.addEventListener('mouseup', function(e) {
-    var pos = mousePos(e);
-    if (!pos || !window.cef || !window.cef.emit) return;
-    window.__termButtons &= ~(1 << e.button);
-    window.cef.emit({button: e.button, col: pos.col, row: pos.row, modifiers: mouseMods(e), pressed: false, moving: false});
-  });
-
-  container.addEventListener('mousemove', function(e) {
-    var pos = mousePos(e);
-    if (!pos || !window.cef || !window.cef.emit) return;
-    // Only emit if cell position changed (throttle)
-    if (pos.col === window.__termLastCol && pos.row === window.__termLastRow) return;
-    window.__termLastCol = pos.col;
-    window.__termLastRow = pos.row;
-    var btn = 3;
-    if (window.__termButtons & 1) btn = 0;
-    else if (window.__termButtons & 4) btn = 2;
-    else if (window.__termButtons & 2) btn = 1;
-    window.cef.emit({button: btn, col: pos.col, row: pos.row, modifiers: mouseMods(e), pressed: true, moving: true});
-  });
-
-  container.addEventListener('contextmenu', function(e) { e.preventDefault(); });
-
-  emitResize();
-  if (window.ResizeObserver) {
-    new ResizeObserver(emitResize).observe(document.body);
-  }
-}, 100);"#,
-        );
+    // Set up character measurement span and ResizeObserver (runs once after mount).
+    use_effect(move || {
+        setup_measurement(cell_dims);
     });
 
     let theme_style = {
@@ -197,16 +94,52 @@ pub fn App() -> Element {
         }
     };
 
-    let padding = theme().map(|t| t.padding).unwrap_or(4.0);
+    let padding = theme().map(|t| t.padding).unwrap_or(4.0) as f64;
     let cursor_blink = theme().map(|t| t.cursor_blink).unwrap_or(true);
-    let cursor_style = theme().map(|t| t.cursor_style.clone()).unwrap_or_else(|| "block".into());
+    let cursor_style = theme()
+        .map(|t| t.cursor_style.clone())
+        .unwrap_or_else(|| "block".into());
 
     rsx! {
         div {
+            id: CONTAINER_ID,
             class: "relative h-full w-full overflow-hidden bg-term-bg text-term-fg font-mono text-sm leading-tight select-none",
             style: "{theme_style}",
 
-            div { style: "padding:{padding}px;",
+            onmousedown: move |e: Event<MouseData>| {
+                e.prevent_default();
+                let dims = cell_dims();
+                if let Some((col, row)) = mouse_to_cell(&e, padding, dims) {
+                    emit_mouse(trigger_button_id(&e), col, row, modifier_bits(&e), true, false);
+                }
+            },
+
+            onmouseup: move |e: Event<MouseData>| {
+                let dims = cell_dims();
+                if let Some((col, row)) = mouse_to_cell(&e, padding, dims) {
+                    emit_mouse(trigger_button_id(&e), col, row, modifier_bits(&e), false, false);
+                }
+            },
+
+            onmousemove: move |e: Event<MouseData>| {
+                let dims = cell_dims();
+                if let Some((col, row)) = mouse_to_cell(&e, padding, dims) {
+                    let last = last_mouse_cell();
+                    if col as i32 == last.0 && row as i32 == last.1 {
+                        return;
+                    }
+                    last_mouse_cell.set((col as i32, row as i32));
+                    let btn = held_button_id(&e);
+                    emit_mouse(btn, col, row, modifier_bits(&e), true, true);
+                }
+            },
+
+            oncontextmenu: move |e: Event<MouseData>| {
+                e.prevent_default();
+            },
+
+            div {
+                style: "padding:{padding}px;",
                 for (row_idx , line) in vp.lines.iter().enumerate() {
                     {
                         // Hash span attributes so Dioxus detects row changes
@@ -251,6 +184,213 @@ pub fn App() -> Element {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Measurement + ResizeObserver
+// ---------------------------------------------------------------------------
+
+/// Create a hidden measurement span, measure character dimensions, set CSS
+/// custom properties, emit a resize event to Bevy, and install a
+/// ResizeObserver to repeat on layout changes.
+fn setup_measurement(cell_dims: Signal<(f64, f64)>) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(container) = document.get_element_by_id(CONTAINER_ID) else {
+        return;
+    };
+
+    // Create hidden measurement span (80 monospace characters).
+    let measure: web_sys::Element = document.create_element("span").unwrap();
+    measure
+        .set_attribute(
+            "style",
+            "position:absolute;visibility:hidden;white-space:pre;font:inherit",
+        )
+        .unwrap();
+    measure.set_attribute("id", MEASURE_ID).unwrap();
+    let measure_node: &web_sys::Node = measure.as_ref();
+    measure_node.set_text_content(Some(&"X".repeat(80)));
+    container.append_child(&measure).unwrap();
+
+    // Run initial measurement.
+    do_measure(cell_dims);
+
+    // Install ResizeObserver on container + measure span to catch both
+    // viewport resizes and font-load-triggered reflows.
+    let callback = Closure::wrap(Box::new(move |_entries: JsValue| {
+        do_measure(cell_dims);
+    }) as Box<dyn FnMut(JsValue)>);
+
+    if let Ok(observer) =
+        web_sys::ResizeObserver::new(callback.as_ref().unchecked_ref())
+    {
+        observer.observe(&container);
+        observer.observe(&measure);
+        // Keep observer alive for the lifetime of the page.
+        std::mem::forget(observer);
+    }
+    callback.forget();
+}
+
+/// Measure character dimensions from the hidden span, update CSS custom
+/// properties on the container, update the Dioxus signal, and emit a
+/// TermResizeEvent to the Bevy host.
+fn do_measure(mut cell_dims: Signal<(f64, f64)>) {
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(container) = document.get_element_by_id(CONTAINER_ID) else {
+        return;
+    };
+    let Some(measure) = document.get_element_by_id(MEASURE_ID) else {
+        return;
+    };
+
+    let rect = measure.get_bounding_client_rect();
+    let cw = rect.width() / 80.0;
+
+    // Prefer computed line-height (px value); fall back to measured span height.
+    let ch = window
+        .get_computed_style(&container)
+        .ok()
+        .flatten()
+        .and_then(|cs| {
+            cs.get_property_value("line-height")
+                .ok()
+                .and_then(|s| s.trim_end_matches("px").parse::<f64>().ok())
+        })
+        .unwrap_or(rect.height());
+
+    if cw <= 0.0 || ch <= 0.0 {
+        return;
+    }
+
+    cell_dims.set((cw, ch));
+
+    // Set CSS custom properties for cursor/selection overlay positioning.
+    let html: &web_sys::HtmlElement = container.unchecked_ref();
+    let _ = html.style().set_property("--cw", &format!("{cw}px"));
+    let _ = html.style().set_property("--ch", &format!("{ch}px"));
+
+    // Compute viewport dimensions (container size minus inner padding).
+    let (pad_x, pad_y) = container
+        .first_element_child()
+        .and_then(|inner| window.get_computed_style(&inner).ok().flatten())
+        .map(|cs| {
+            let px = parse_px(&cs, "padding-left") + parse_px(&cs, "padding-right");
+            let py = parse_px(&cs, "padding-top") + parse_px(&cs, "padding-bottom");
+            (px, py)
+        })
+        .unwrap_or((0.0, 0.0));
+
+    let vw = container.client_width() as f64 - pad_x;
+    let vh = container.client_height() as f64 - pad_y;
+
+    try_cef_emit_keyed(&[
+        ("char_width", JsValue::from_f64(cw)),
+        ("char_height", JsValue::from_f64(ch)),
+        ("viewport_width", JsValue::from_f64(vw)),
+        ("viewport_height", JsValue::from_f64(vh)),
+    ]);
+}
+
+fn parse_px(cs: &web_sys::CssStyleDeclaration, prop: &str) -> f64 {
+    cs.get_property_value(prop)
+        .ok()
+        .and_then(|s| s.trim_end_matches("px").parse::<f64>().ok())
+        .unwrap_or(0.0)
+}
+
+// ---------------------------------------------------------------------------
+// Mouse helpers
+// ---------------------------------------------------------------------------
+
+/// Convert mouse client coordinates to terminal grid (col, row).
+fn mouse_to_cell(
+    e: &Event<MouseData>,
+    padding: f64,
+    (cw, ch): (f64, f64),
+) -> Option<(u16, u16)> {
+    if cw <= 0.0 || ch <= 0.0 {
+        return None;
+    }
+    let container = web_sys::window()?
+        .document()?
+        .get_element_by_id(CONTAINER_ID)?;
+    let rect = container.get_bounding_client_rect();
+    let client = e.client_coordinates();
+    let x = client.x - rect.left() - padding;
+    let y = client.y - rect.top() - padding;
+    let col = (x / cw).floor().max(0.0) as u16;
+    let row = (y / ch).floor().max(0.0) as u16;
+    Some((col, row))
+}
+
+/// Map Dioxus trigger_button to terminal protocol button number.
+fn trigger_button_id(e: &Event<MouseData>) -> u8 {
+    match e.trigger_button() {
+        Some(MouseButton::Primary) => 0,
+        Some(MouseButton::Auxiliary) => 1,
+        Some(MouseButton::Secondary) => 2,
+        _ => 0,
+    }
+}
+
+/// Determine which button is held during a mousemove (for drag events).
+fn held_button_id(e: &Event<MouseData>) -> u8 {
+    let held = e.held_buttons();
+    if held.contains(MouseButton::Primary) {
+        0
+    } else if held.contains(MouseButton::Auxiliary) {
+        1
+    } else if held.contains(MouseButton::Secondary) {
+        2
+    } else {
+        3
+    }
+}
+
+/// Convert Dioxus modifier flags to our MOD_* bitmask.
+fn modifier_bits(e: &Event<MouseData>) -> u8 {
+    let mods = e.modifiers();
+    let mut m = 0u8;
+    if mods.contains(Modifiers::CONTROL) {
+        m |= MOD_CTRL;
+    }
+    if mods.contains(Modifiers::ALT) {
+        m |= MOD_ALT;
+    }
+    if mods.contains(Modifiers::SHIFT) {
+        m |= MOD_SHIFT;
+    }
+    if mods.contains(Modifiers::META) {
+        m |= MOD_SUPER;
+    }
+    m
+}
+
+/// Emit a TermMouseEvent to the Bevy host via the CEF bridge.
+fn emit_mouse(button: u8, col: u16, row: u16, modifiers: u8, pressed: bool, moving: bool) {
+    try_cef_emit_keyed(&[
+        ("button", JsValue::from_f64(button as f64)),
+        ("col", JsValue::from_f64(col as f64)),
+        ("row", JsValue::from_f64(row as f64)),
+        ("modifiers", JsValue::from_f64(modifiers as f64)),
+        ("pressed", JsValue::from_bool(pressed)),
+        ("moving", JsValue::from_bool(moving)),
+    ]);
+}
+
+// ---------------------------------------------------------------------------
+// Span rendering
+// ---------------------------------------------------------------------------
+
 fn span_classes(span: &TermSpan) -> String {
     let mut classes = Vec::new();
 
@@ -280,11 +420,21 @@ fn span_classes(span: &TermSpan) -> String {
         TermColor::Rgb(..) => {}
     }
 
-    if span.flags & FLAG_BOLD != 0 { classes.push("font-bold".into()); }
-    if span.flags & FLAG_ITALIC != 0 { classes.push("italic".into()); }
-    if span.flags & FLAG_UNDERLINE != 0 { classes.push("underline".into()); }
-    if span.flags & FLAG_STRIKETHROUGH != 0 { classes.push("line-through".into()); }
-    if span.flags & FLAG_DIM != 0 { classes.push("opacity-50".into()); }
+    if span.flags & FLAG_BOLD != 0 {
+        classes.push("font-bold".into());
+    }
+    if span.flags & FLAG_ITALIC != 0 {
+        classes.push("italic".into());
+    }
+    if span.flags & FLAG_UNDERLINE != 0 {
+        classes.push("underline".into());
+    }
+    if span.flags & FLAG_STRIKETHROUGH != 0 {
+        classes.push("line-through".into());
+    }
+    if span.flags & FLAG_DIM != 0 {
+        classes.push("opacity-50".into());
+    }
 
     classes.join(" ")
 }
@@ -417,7 +567,7 @@ fn row_selection_cols(
         // Last line of multi-line selection
         Some((0, sel.end_col as usize + 1))
     } else {
-        // Middle line — fully selected
+        // Middle line -- fully selected
         Some((0, total_cols as usize))
     }
 }
@@ -426,13 +576,11 @@ fn row_selection_cols(
 /// selection changes even when the text content hasn't changed.
 fn selection_row_hash(selection: &Option<TermSelectionRange>, row_idx: usize) -> u64 {
     match row_selection_cols(selection, row_idx, u16::MAX) {
-        Some((start, end)) => {
-            (start as u64)
-                .wrapping_mul(997)
-                .wrapping_add(end as u64)
-                .wrapping_mul(991)
-                .wrapping_add(1) // marker that selection exists
-        }
+        Some((start, end)) => (start as u64)
+            .wrapping_mul(997)
+            .wrapping_add(end as u64)
+            .wrapping_mul(991)
+            .wrapping_add(1),
         None => 0,
     }
 }

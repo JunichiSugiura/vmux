@@ -6,6 +6,8 @@ use vmux_command_bar::event::{
     COMMAND_BAR_OPEN_EVENT,
 };
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener, use_theme};
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 
 #[derive(Clone, PartialEq)]
 enum ResultItem {
@@ -110,38 +112,10 @@ pub fn App() -> Element {
         selected.set(0);
         state.set(data);
         is_open.set(true);
-        // Focus input and install raw JS keydown listener for Ctrl bindings.
-        // Dioxus e.modifiers().ctrl() is unreliable in CEF OSR, so we use
-        // event.ctrlKey directly from the DOM KeyboardEvent in capture phase.
-        document::eval(
-            r#"setTimeout(() => {
-  var el = document.getElementById('command-bar-input');
-  if (!el) return;
-  el.focus();
-  el.select();
-  if (el._ctrlBound) return;
-  el._ctrlBound = true;
-  el.addEventListener('keydown', function(e) {
-    if (!e.ctrlKey) return;
-    var c = e.code;
-    var actions = {KeyN:'down',KeyJ:'down',KeyP:'up',KeyK:'up',KeyA:'home',KeyE:'end',KeyF:'fwd',KeyB:'back',KeyD:'del',KeyH:'bksp',KeyW:'delw',KeyU:'delbeg'};
-    var a = actions[c];
-    if (!a) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (a==='down') { el.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})); return; }
-    if (a==='up') { el.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true})); return; }
-    if (a==='home') { el.setSelectionRange(0,0); return; }
-    if (a==='end') { el.setSelectionRange(el.value.length,el.value.length); return; }
-    if (a==='fwd') { var p=Math.min(el.selectionStart+1,el.value.length); el.setSelectionRange(p,p); return; }
-    if (a==='back') { var p=Math.max(el.selectionStart-1,0); el.setSelectionRange(p,p); return; }
-    if (a==='del') { var s=el.selectionStart,v=el.value; el.value=v.slice(0,s)+v.slice(s+1); el.setSelectionRange(s,s); el.dispatchEvent(new Event('input',{bubbles:true})); return; }
-    if (a==='bksp') { var s=el.selectionStart; if(s>0){var v=el.value;el.value=v.slice(0,s-1)+v.slice(s);el.setSelectionRange(s-1,s-1);el.dispatchEvent(new Event('input',{bubbles:true}));} return; }
-    if (a==='delw') { var s=el.selectionStart,v=el.value,i=s-1; while(i>0&&v[i-1]===' ')i--; while(i>0&&v[i-1]!==' ')i--; el.value=v.slice(0,i)+v.slice(s); el.setSelectionRange(i,i); el.dispatchEvent(new Event('input',{bubbles:true})); return; }
-    if (a==='delbeg') { var s=el.selectionStart; el.value=el.value.slice(s); el.setSelectionRange(0,0); el.dispatchEvent(new Event('input',{bubbles:true})); return; }
-  }, true);
-}, 0);"#,
-        );
+        // Focus input and install Ctrl keybindings via web_sys.
+        // Dioxus e.modifiers().ctrl() is unreliable in CEF OSR, so we
+        // listen directly on the DOM in capture phase.
+        focus_and_install_ctrl_bindings();
     });
 
     let CommandBarOpenEvent {
@@ -153,12 +127,17 @@ pub fn App() -> Element {
     let results = filter_results(&q, &tabs, &commands);
     let sel = selected().min(results.len().saturating_sub(1));
 
-    // Auto-scroll selected item into view when selection changes
+    // Auto-scroll selected item into view when selection changes.
     use_effect(move || {
         let s = selected();
-        document::eval(&format!(
-            "document.getElementById('command-bar-item-{s}')?.scrollIntoView({{block:'nearest'}})"
-        ));
+        if let Some(el) = web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id(&format!("command-bar-item-{s}")))
+        {
+            let opts = web_sys::ScrollIntoViewOptions::new();
+            opts.set_block(web_sys::ScrollLogicalPosition::Nearest);
+            el.scroll_into_view_with_scroll_into_view_options(&opts);
+        }
     });
 
     let mut execute = move |item: &ResultItem| {
@@ -264,4 +243,171 @@ pub fn App() -> Element {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Ctrl keybindings helper
+// ---------------------------------------------------------------------------
+
+/// Focus the command-bar input and install emacs-style Ctrl keybindings
+/// via a capture-phase keydown listener (web_sys).
+fn focus_and_install_ctrl_bindings() {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(el) = document.get_element_by_id("command-bar-input") else {
+        return;
+    };
+    let input: web_sys::HtmlInputElement = el.unchecked_into();
+    input.focus().ok();
+    input.select();
+
+    // Guard against double-binding.
+    if js_sys::Reflect::get(&input, &JsValue::from_str("_ctrlBound"))
+        .map(|v| v.is_truthy())
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let _ = js_sys::Reflect::set(&input, &JsValue::from_str("_ctrlBound"), &JsValue::TRUE);
+
+    let input2 = input.clone();
+    let closure = Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
+        if !e.ctrl_key() {
+            return;
+        }
+        let code = e.code();
+        let action = match code.as_str() {
+            "KeyN" | "KeyJ" => "down",
+            "KeyP" | "KeyK" => "up",
+            "KeyA" => "home",
+            "KeyE" => "end",
+            "KeyF" => "fwd",
+            "KeyB" => "back",
+            "KeyD" => "del",
+            "KeyH" => "bksp",
+            "KeyW" => "delw",
+            "KeyU" => "delbeg",
+            _ => return,
+        };
+        e.prevent_default();
+        e.stop_immediate_propagation();
+
+        match action {
+            "down" => {
+                let _ = input2.dispatch_event(
+                    &web_sys::KeyboardEvent::new_with_keyboard_event_init_dict(
+                        "keydown",
+                        web_sys::KeyboardEventInit::new().key("ArrowDown").bubbles(true),
+                    )
+                    .unwrap(),
+                );
+            }
+            "up" => {
+                let _ = input2.dispatch_event(
+                    &web_sys::KeyboardEvent::new_with_keyboard_event_init_dict(
+                        "keydown",
+                        web_sys::KeyboardEventInit::new().key("ArrowUp").bubbles(true),
+                    )
+                    .unwrap(),
+                );
+            }
+            "home" => {
+                let _ = input2.set_selection_range(0, 0);
+            }
+            "end" => {
+                let len = input2.value().len() as u32;
+                let _ = input2.set_selection_range(len, len);
+            }
+            "fwd" => {
+                let p = (input2.selection_start().unwrap_or(Some(0)).unwrap_or(0) + 1)
+                    .min(input2.value().len() as u32);
+                let _ = input2.set_selection_range(p, p);
+            }
+            "back" => {
+                let p = input2
+                    .selection_start()
+                    .unwrap_or(Some(0))
+                    .unwrap_or(0)
+                    .saturating_sub(1);
+                let _ = input2.set_selection_range(p, p);
+            }
+            "del" => {
+                let s = input2.selection_start().unwrap_or(Some(0)).unwrap_or(0) as usize;
+                let v = input2.value();
+                let new_val = format!("{}{}", &v[..s], &v[(s + 1).min(v.len())..]);
+                input2.set_value(&new_val);
+                let _ = input2.set_selection_range(s as u32, s as u32);
+                let _ = input2.dispatch_event(
+                    &web_sys::Event::new_with_event_init_dict(
+                        "input",
+                        web_sys::EventInit::new().bubbles(true),
+                    )
+                    .unwrap(),
+                );
+            }
+            "bksp" => {
+                let s = input2.selection_start().unwrap_or(Some(0)).unwrap_or(0) as usize;
+                if s > 0 {
+                    let v = input2.value();
+                    let new_val = format!("{}{}", &v[..s - 1], &v[s..]);
+                    input2.set_value(&new_val);
+                    let _ = input2.set_selection_range((s - 1) as u32, (s - 1) as u32);
+                    let _ = input2.dispatch_event(
+                        &web_sys::Event::new_with_event_init_dict(
+                            "input",
+                            web_sys::EventInit::new().bubbles(true),
+                        )
+                        .unwrap(),
+                    );
+                }
+            }
+            "delw" => {
+                let s = input2.selection_start().unwrap_or(Some(0)).unwrap_or(0) as usize;
+                let v = input2.value();
+                let bytes = v.as_bytes();
+                let mut i = s.saturating_sub(1);
+                while i > 0 && bytes[i - 1] == b' ' {
+                    i -= 1;
+                }
+                while i > 0 && bytes[i - 1] != b' ' {
+                    i -= 1;
+                }
+                let new_val = format!("{}{}", &v[..i], &v[s..]);
+                input2.set_value(&new_val);
+                let _ = input2.set_selection_range(i as u32, i as u32);
+                let _ = input2.dispatch_event(
+                    &web_sys::Event::new_with_event_init_dict(
+                        "input",
+                        web_sys::EventInit::new().bubbles(true),
+                    )
+                    .unwrap(),
+                );
+            }
+            "delbeg" => {
+                let s = input2.selection_start().unwrap_or(Some(0)).unwrap_or(0) as usize;
+                let v = input2.value();
+                input2.set_value(&v[s..]);
+                let _ = input2.set_selection_range(0, 0);
+                let _ = input2.dispatch_event(
+                    &web_sys::Event::new_with_event_init_dict(
+                        "input",
+                        web_sys::EventInit::new().bubbles(true),
+                    )
+                    .unwrap(),
+                );
+            }
+            _ => {}
+        }
+    }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+
+    let target: &web_sys::EventTarget = input.as_ref();
+    let mut opts = web_sys::AddEventListenerOptions::new();
+    opts.capture(true);
+    let _ = target.add_event_listener_with_callback_and_add_event_listener_options(
+        "keydown",
+        closure.as_ref().unchecked_ref(),
+        &opts,
+    );
+    closure.forget();
 }

@@ -4,8 +4,8 @@ use crate::components::sheet::{
     Sheet, SheetContent, SheetDescription, SheetHeader, SheetSide, SheetTitle,
 };
 use crate::components::tooltip::{Tooltip, TooltipContent, TooltipTrigger};
-use dioxus::core::use_drop;
 use dioxus::prelude::*;
+use wasm_bindgen::JsCast;
 use dioxus_primitives::dioxus_attributes::attributes;
 use dioxus_primitives::icon;
 use dioxus_primitives::merge_attributes;
@@ -131,35 +131,33 @@ pub fn use_is_mobile() -> Signal<bool> {
     let mut is_mobile = use_signal(|| false);
 
     use_effect(move || {
-        spawn(async move {
-            let js_code = format!(
-                r#"
-                function checkMobile() {{
-                    return window.innerWidth < {MOBILE_BREAKPOINT};
-                }}
-                function handleResize() {{
-                    dioxus.send(checkMobile());
-                }}
-                window.__sidebarResizeHandler = handleResize;
-                window.addEventListener('resize', window.__sidebarResizeHandler);
-                dioxus.send(checkMobile());
-                "#
+        let check = || -> bool {
+            web_sys::window()
+                .and_then(|w| w.inner_width().ok())
+                .and_then(|v| v.as_f64())
+                .map(|w| (w as u32) < MOBILE_BREAKPOINT)
+                .unwrap_or(false)
+        };
+
+        is_mobile.set(check());
+
+        let closure = wasm_bindgen::closure::Closure::wrap(Box::new(move |_: web_sys::Event| {
+            is_mobile.set(
+                web_sys::window()
+                    .and_then(|w| w.inner_width().ok())
+                    .and_then(|v| v.as_f64())
+                    .map(|w| (w as u32) < MOBILE_BREAKPOINT)
+                    .unwrap_or(false),
             );
-            let mut eval = document::eval(&js_code);
+        }) as Box<dyn FnMut(web_sys::Event)>);
 
-            while let Ok(result) = eval.recv::<bool>().await {
-                is_mobile.set(result);
-            }
-        });
-    });
-
-    use_drop(|| {
-        _ = document::eval(
-            r#"
-            window.removeEventListener('resize', window.__sidebarResizeHandler);
-            delete window.__sidebarResizeHandler;
-            "#,
-        );
+        if let Some(win) = web_sys::window() {
+            let _ = win.add_event_listener_with_callback(
+                "resize",
+                closure.as_ref().unchecked_ref(),
+            );
+        }
+        closure.forget();
     });
 
     is_mobile
@@ -199,36 +197,22 @@ pub fn SidebarProvider(
     use_context_provider(|| ctx);
 
     use_effect(move || {
-        spawn(async move {
-            let js_code = format!(
-                r#"
-                function sidebarKeyHandler(event) {{
-                    if (event.key === '{SIDEBAR_KEYBOARD_SHORTCUT}' && (event.metaKey || event.ctrlKey)) {{
-                        event.preventDefault();
-                        dioxus.send(true);
-                    }}
-                }}
-                window.__sidebarKeyHandler = sidebarKeyHandler;
-                window.addEventListener('keydown', window.__sidebarKeyHandler);
-                "#
-            );
-            let mut eval = document::eval(&js_code);
-
-            loop {
-                if eval.recv::<bool>().await.is_ok() {
+        let closure = wasm_bindgen::closure::Closure::wrap(Box::new(
+            move |e: web_sys::KeyboardEvent| {
+                if e.key() == SIDEBAR_KEYBOARD_SHORTCUT && (e.meta_key() || e.ctrl_key()) {
+                    e.prevent_default();
                     ctx.toggle();
                 }
-            }
-        });
-    });
+            },
+        ) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
 
-    use_drop(|| {
-        _ = document::eval(
-            r#"
-            window.removeEventListener('keydown', window.__sidebarKeyHandler);
-            delete window.__sidebarKeyHandler;
-            "#,
-        );
+        if let Some(win) = web_sys::window() {
+            let _ = win.add_event_listener_with_callback(
+                "keydown",
+                closure.as_ref().unchecked_ref(),
+            );
+        }
+        closure.forget();
     });
 
     let sidebar_style = format!(

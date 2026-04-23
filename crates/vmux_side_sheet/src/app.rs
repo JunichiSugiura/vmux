@@ -64,7 +64,11 @@ fn PaneSection(pane: PaneNode, index: usize) -> Element {
     let pane_id = pane.id;
 
     rsx! {
-        div { class: "glass mb-2 flex flex-col rounded-lg p-1.5",
+        div { class: if pane.is_active {
+                "glass mb-2 flex flex-col rounded-lg p-1.5 ring-2 ring-ring"
+            } else {
+                "glass mb-2 flex flex-col rounded-lg p-1.5"
+            },
             div {
                 class: if pane.is_active {
                     "mb-0.5 rounded-md px-2 py-1 text-ui font-semibold text-foreground"

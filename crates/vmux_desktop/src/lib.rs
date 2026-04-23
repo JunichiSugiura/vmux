@@ -16,6 +16,7 @@ use bevy::asset::io::web::WebAssetPlugin;
 use bevy::prelude::*;
 use bevy::window::{CompositeAlphaMode, PrimaryWindow, Window as NativeWindow, WindowPlugin};
 use bevy::winit::{WinitSettings, WinitWindows};
+use std::time::Duration;
 
 use {
     browser::BrowserPlugin, command::CommandPlugin, keybinding::KeyBindingPlugin,
@@ -46,7 +47,15 @@ impl Plugin for VmuxPlugin {
             ..default()
         };
 
-        app.insert_resource(WinitSettings::desktop_app())
+        // CEF's `on_schedule_message_pump_work` can request delayed work (e.g.
+        // 100ms from now).  The wake throttler fires the WakeUp immediately, so
+        // by the time Bevy runs the pump the work isn't ready yet.  A short
+        // reactive timeout guarantees we re-poll promptly instead of stalling
+        // for the default 5-second desktop_app() timeout.
+        app.insert_resource(WinitSettings {
+            focused_mode: bevy::winit::UpdateMode::reactive(Duration::from_millis(50)),
+            unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(Duration::from_secs(1)),
+        })
         .add_plugins((
             DefaultPlugins
                 .set(WebAssetPlugin {

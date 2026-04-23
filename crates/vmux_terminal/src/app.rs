@@ -17,6 +17,9 @@ const _TW_SAFELIST: &[&str] = &[
     "bg-ansi-8",  "bg-ansi-9",  "bg-ansi-10", "bg-ansi-11",
     "bg-ansi-12", "bg-ansi-13", "bg-ansi-14", "bg-ansi-15",
     "text-term-bg", "bg-term-fg",
+    // Compat: classes used by the scaffold WASM binary still in dist/wasm/.
+    // Remove once the WASM is rebuilt with `dx build`.
+    "opacity-0", "w-0", "h-0", "bg-background", "p-1",
 ];
 
 #[component]

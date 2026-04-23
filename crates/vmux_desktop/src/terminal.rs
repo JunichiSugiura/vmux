@@ -491,7 +491,7 @@ fn is_non_character_key(key: KeyCode) -> bool {
 /// Handle keyboard input directly from Bevy, bypassing CEF round-trip.
 fn handle_terminal_keyboard(
     mut er: MessageReader<KeyboardInput>,
-    q: Query<&PtyHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    q: Query<(&PtyHandle, &TerminalState), (With<Terminal>, With<CefKeyboardTarget>)>,
     input: Res<ButtonInput<KeyCode>>,
     chord_state: Res<crate::keybinding::ChordState>,
 ) {
@@ -508,6 +508,7 @@ fn handle_terminal_keyboard(
     }
     let ctrl = input.pressed(KeyCode::ControlLeft) || input.pressed(KeyCode::ControlRight);
     let alt = input.pressed(KeyCode::AltLeft) || input.pressed(KeyCode::AltRight);
+    let super_key = input.pressed(KeyCode::SuperLeft) || input.pressed(KeyCode::SuperRight);
 
     let mut seen_keys: Vec<KeyCode> = Vec::new();
     for event in er.read() {
@@ -529,16 +530,101 @@ fn handle_terminal_keyboard(
                 continue;
             }
         }
+
+        // Handle Cmd/Super key combinations (clipboard shortcuts).
+        // Don't forward these to the PTY — they're OS-level commands.
+        if super_key {
+            match event.key_code {
+                KeyCode::KeyV => {
+                    // Paste: read system clipboard and write to PTY.
+                    // Use pbpaste to avoid objc2/NSPasteboard conflicts with CEF.
+                    if let Ok(output) = std::process::Command::new("pbpaste").output() {
+                        if output.status.success() {
+                            let text = String::from_utf8_lossy(&output.stdout);
+                            if !text.is_empty() {
+                                for (pty, state) in &q {
+                                    if let Ok(mut writer) = pty.writer.lock() {
+                                        let bp = state.term.mode().contains(TermMode::BRACKETED_PASTE);
+                                        if bp {
+                                            let _ = writer.write_all(b"\x1b[200~");
+                                        }
+                                        let _ = writer.write_all(text.as_bytes());
+                                        if bp {
+                                            let _ = writer.write_all(b"\x1b[201~");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                KeyCode::KeyC => {
+                    // Copy: serialize visible terminal text to clipboard.
+                    // Use pbcopy to avoid objc2/NSPasteboard conflicts with CEF.
+                    for (_pty, state) in &q {
+                        let text = visible_text(&state.term);
+                        if !text.is_empty() {
+                            if let Ok(mut child) = std::process::Command::new("pbcopy")
+                                .stdin(std::process::Stdio::piped())
+                                .spawn()
+                            {
+                                if let Some(mut stdin) = child.stdin.take() {
+                                    let _ = stdin.write_all(text.as_bytes());
+                                }
+                                let _ = child.wait();
+                            }
+                        }
+                    }
+                    continue;
+                }
+                _ => {
+                    // Skip all other Cmd+key combos — don't send to PTY
+                    continue;
+                }
+            }
+        }
+
         let bytes = logical_key_to_bytes(&event.logical_key, ctrl, alt);
         if bytes.is_empty() {
             continue;
         }
-        for pty in &q {
+        for (pty, _state) in &q {
             if let Ok(mut writer) = pty.writer.lock() {
                 let _ = writer.write_all(&bytes);
             }
         }
     }
+}
+
+/// Extract visible text from the terminal grid, trimming trailing whitespace per line.
+fn visible_text<T: TermEventListener>(term: &Term<T>) -> String {
+    let grid = term.grid();
+    let num_cols = grid.columns();
+    let num_lines = grid.screen_lines();
+    let offset = grid.display_offset() as i32;
+    let mut result = String::new();
+
+    for row_idx in 0..num_lines {
+        let row = &grid[Line(row_idx as i32 - offset)];
+        let mut line = String::with_capacity(num_cols);
+        for col_idx in 0..num_cols {
+            let cell = &row[Column(col_idx)];
+            if cell.flags.contains(CellFlags::WIDE_CHAR_SPACER) {
+                continue;
+            }
+            line.push(cell.c);
+        }
+        let trimmed = line.trim_end();
+        result.push_str(trimmed);
+        if row_idx < num_lines - 1 {
+            result.push('\n');
+        }
+    }
+
+    // Trim trailing empty lines
+    result.truncate(result.trim_end_matches('\n').len());
+    result
 }
 
 fn logical_key_to_bytes(key: &Key, ctrl: bool, alt: bool) -> Vec<u8> {

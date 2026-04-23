@@ -36,6 +36,7 @@ vmux_macro = { path = "../vmux_macro" }
 vmux_ui = { path = "../vmux_ui", default-features = false }
 vmux_terminal = { path = "../vmux_terminal" }
 vmux_webview_app = { path = "../vmux_webview_app" }
+
 alacritty_terminal = { workspace = true }
 portable-pty = { workspace = true }
 notify = { workspace = true }

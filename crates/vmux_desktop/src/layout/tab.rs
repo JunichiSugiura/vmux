@@ -162,14 +162,18 @@ fn handle_tab_commands(
                         new_tab_ctx.needs_open = true;
                         continue;
                     }
+                    let r = settings.layout.pane.radius;
                     let tab = commands
                         .spawn((
                             tab_bundle(),
                             LastActivatedAt::now(),
                             ChildOf(pane),
-                            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.85)),
                         ))
                         .id();
+                    commands.entity(tab).insert(BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.6)));
+                    commands.entity(tab).entry::<Node>().and_modify(move |mut node| {
+                        node.border_radius = BorderRadius::all(Val::Px(r));
+                    });
                     new_tab_ctx.tab = Some(tab);
                     new_tab_ctx.previous_tab = active_tab;
                     new_tab_ctx.needs_open = true;

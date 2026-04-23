@@ -27,8 +27,17 @@ impl Plugin for MessageLoopPlugin {
         let args = Args::new();
         let (tx, rx) = std::sync::mpsc::channel();
 
-        let mut cef_app =
-            BrowserProcessAppBuilder::build(tx, self.config.clone(), self.extensions.clone());
+        let wake_proxy = app
+            .world()
+            .get_resource::<bevy::winit::EventLoopProxyWrapper>()
+            .map(|wrapper| (**wrapper).clone());
+
+        let mut cef_app = BrowserProcessAppBuilder::build(
+            tx,
+            self.config.clone(),
+            self.extensions.clone(),
+            wake_proxy,
+        );
 
         // On macOS and when a separate render process binary is available,
         // execute_process is called here. For the browser process it returns -1

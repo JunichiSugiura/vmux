@@ -328,6 +328,7 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
         let mut cur_fg: TermColor = TermColor::Default;
         let mut cur_bg: TermColor = TermColor::Default;
         let mut cur_flags: u16 = 0;
+        let mut span_col_start: u16 = 0;
 
         for col_idx in 0..num_cols {
             let cell = &row[Column(col_idx)];
@@ -348,7 +349,9 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
                         fg: cur_fg,
                         bg: cur_bg,
                         flags: cur_flags,
+                        col: span_col_start,
                     });
+                    span_col_start = col_idx as u16;
                 }
                 cur_fg = fg;
                 cur_bg = bg;
@@ -362,6 +365,7 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
                 fg: cur_fg,
                 bg: cur_bg,
                 flags: cur_flags,
+                col: span_col_start,
             });
         }
         lines.push(TermLine { spans });

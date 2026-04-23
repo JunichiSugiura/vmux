@@ -78,9 +78,11 @@
 @keyframes blink {
   0%,
   100% {
-    opacity: 1;
+    background: var(--term-cursor);
+    color: var(--term-bg);
   }
   50% {
-    opacity: 0;
+    background: transparent;
+    color: inherit;
   }
 }

@@ -68,6 +68,9 @@ pub struct TermSpan {
     pub fg: TermColor,
     pub bg: TermColor,
     pub flags: u16,
+    /// Starting column index of this span in the row (0-based).
+    #[serde(default)]
+    pub col: u16,
 }
 
 pub const FLAG_BOLD: u16 = 1;

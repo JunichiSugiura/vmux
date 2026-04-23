@@ -222,18 +222,16 @@ pub fn App() -> Element {
                                 })
                         });
                         let sel_range = row_selection_cols(&vp.selection, row_idx, vp.cols);
+                        {
+                        let is_cursor_row = row_idx == vp.cursor.row as usize && vp.cursor.visible;
+                        let cursor_col = vp.cursor.col as u16;
                         rsx! {
                     div {
                         key: "{row_idx}-{row_hash}",
-                        class: "relative flex whitespace-pre",
+                        class: "relative whitespace-pre",
                         style: "height: 1.2em;",
                         for (span_idx , span) in line.spans.iter().enumerate() {
-                            span {
-                                key: "{span_idx}",
-                                class: "{span_classes(span)}",
-                                style: "{span_inline_style(span)}",
-                                "{span.text}"
-                            }
+                            {render_span(span, span_idx, is_cursor_row, cursor_col, &vp.cursor.ch, &cursor_style, cursor_blink)}
                         }
                         // Selection highlight overlay
                         if let Some((sel_start, sel_end)) = sel_range {
@@ -242,25 +240,8 @@ pub fn App() -> Element {
                                 style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});background:rgba(255,255,255,0.25);",
                             }
                         }
-                        if row_idx == vp.cursor.row as usize && vp.cursor.visible {
-                            {
-                                let blink_css = if cursor_blink { "animation:blink 1s step-end infinite;" } else { "" };
-                                let cursor_cls = match cursor_style.as_str() {
-                                    "underline" => "absolute border-b-2 border-term-cursor",
-                                    "bar" => "absolute border-l-2 border-term-cursor",
-                                    _ => "absolute bg-term-cursor",
-                                };
-                                let color_css = if cursor_style == "block" { "color:var(--term-bg);" } else { "" };
-                                rsx! {
-                                    span {
-                                        class: "{cursor_cls}",
-                                        style: "left:calc(var(--cw, 1ch) * {vp.cursor.col});width:var(--cw, 1ch);text-align:center;{color_css}{blink_css}",
-                                        "{vp.cursor.ch}"
-                                    }
-                                }
-                            }
-                        }
                     }
+                        }
                         }
                     }
                 }
@@ -324,6 +305,74 @@ fn span_inline_style(span: &TermSpan) -> String {
     }
 
     parts.join(";")
+}
+
+/// Render a span, splitting it at the cursor position if the cursor falls within.
+fn render_span(
+    span: &TermSpan,
+    span_idx: usize,
+    is_cursor_row: bool,
+    cursor_col: u16,
+    cursor_ch: &str,
+    cursor_style: &str,
+    cursor_blink: bool,
+) -> Element {
+    let classes = span_classes(span);
+    let style = span_inline_style(span);
+
+    // Check if cursor falls within this span
+    let span_end_col = span.col + span.text.chars().count() as u16;
+    if is_cursor_row && cursor_col >= span.col && cursor_col < span_end_col {
+        let offset = (cursor_col - span.col) as usize;
+        let chars: Vec<char> = span.text.chars().collect();
+        let before: String = chars[..offset].iter().collect();
+        let after: String = chars[offset + 1..].iter().collect();
+
+        let blink_css = if cursor_blink {
+            "animation:blink 1s step-end infinite;"
+        } else {
+            ""
+        };
+        let (cursor_cls, color_css) = match cursor_style {
+            "underline" => ("border-b-2 border-term-cursor", ""),
+            "bar" => ("border-l-2 border-term-cursor", ""),
+            _ => ("bg-term-cursor", "color:var(--term-bg);"),
+        };
+
+        rsx! {
+            if !before.is_empty() {
+                span {
+                    key: "{span_idx}-pre",
+                    class: "{classes}",
+                    style: "{style}",
+                    "{before}"
+                }
+            }
+            span {
+                key: "{span_idx}-cur",
+                class: "{cursor_cls}",
+                style: "{color_css}{blink_css}",
+                "{cursor_ch}"
+            }
+            if !after.is_empty() {
+                span {
+                    key: "{span_idx}-post",
+                    class: "{classes}",
+                    style: "{style}",
+                    "{after}"
+                }
+            }
+        }
+    } else {
+        rsx! {
+            span {
+                key: "{span_idx}",
+                class: "{classes}",
+                style: "{style}",
+                "{span.text}"
+            }
+        }
+    }
 }
 
 /// Compute the selected column range for a given row, if any.

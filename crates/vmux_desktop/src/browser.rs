@@ -425,7 +425,28 @@ fn sync_osr_webview_focus(
         last_ready_set.clone_from(&ready);
     }
     for &e in ready.iter() {
-        browsers.set_osr_not_hidden(&e);
+        let Ok(parent) = child_of_q.get(e).map(|co| co.get()) else {
+            browsers.set_osr_not_hidden(&e);
+            continue;
+        };
+        let is_tab = tab_ts.get(parent).is_ok();
+        if !is_tab {
+            browsers.set_osr_not_hidden(&e);
+            continue;
+        }
+        let Ok(pane) = child_of_q.get(parent).map(|co| co.get()) else {
+            browsers.set_osr_not_hidden(&e);
+            continue;
+        };
+        if !leaf_panes.contains(pane) {
+            browsers.set_osr_not_hidden(&e);
+            continue;
+        }
+        if active_tab_in_pane(pane, &pane_children_q, &tab_ts) == Some(parent) {
+            browsers.set_osr_not_hidden(&e);
+        } else {
+            browsers.set_osr_hidden(&e);
+        }
     }
 }
 

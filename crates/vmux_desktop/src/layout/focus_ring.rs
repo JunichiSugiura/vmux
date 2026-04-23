@@ -16,6 +16,7 @@ use bevy::{
     render::render_resource::AsBindGroup,
     shader::ShaderRef,
     ui::UiGlobalTransform,
+    window::PrimaryWindow,
 };
 use vmux_history::LastActivatedAt;
 
@@ -32,7 +33,10 @@ impl Plugin for FocusRingPlugin {
                     .after(load_settings)
                     .after(crate::scene::setup),
             )
-            .add_systems(Update, tick_focus_ring_gradient_time)
+            .add_systems(
+                Update,
+                tick_focus_ring_gradient_time.run_if(primary_window_focused),
+            )
             .add_systems(
                 PostUpdate,
                 sync_focus_ring_to_active_pane.after(bevy::ui::UiSystems::Layout),
@@ -182,6 +186,12 @@ fn sync_focus_ring_to_active_pane(
     if let Some(m) = ring_materials.get_mut(&mat_h.0) {
         *m = build_focus_ring_material(w_i, h_i, &settings, time.elapsed_secs(), is_loading);
     }
+}
+
+fn primary_window_focused(
+    windows: Query<&Window, With<PrimaryWindow>>,
+) -> bool {
+    windows.single().map(|w| w.focused).unwrap_or(false)
 }
 
 fn tick_focus_ring_gradient_time(

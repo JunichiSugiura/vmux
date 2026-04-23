@@ -228,6 +228,13 @@ impl Browsers {
         }
     }
 
+    #[inline]
+    pub fn set_osr_hidden(&self, webview: &Entity) {
+        if let Some(b) = self.browsers.get(webview) {
+            b.host.was_hidden(1);
+        }
+    }
+
 
 
     /// Align CEF focus with the tiled pane that has keyboard target / `Active` in the host app.

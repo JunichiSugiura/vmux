@@ -5,6 +5,7 @@ pub struct CommandBarOpenEvent {
     pub url: String,
     pub tabs: Vec<CommandBarTab>,
     pub commands: Vec<CommandBarCommandEntry>,
+    pub new_tab: bool,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]

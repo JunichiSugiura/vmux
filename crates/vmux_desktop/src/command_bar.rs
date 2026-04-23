@@ -1,6 +1,6 @@
 use crate::{
     browser::Browser,
-    command::{AppCommand, BrowserCommand, ReadAppCommands, TabCommand},
+    command::{AppCommand, BrowserCommand, ReadAppCommands, TerminalCommand},
     layout::{
         pane::{Pane, PaneSplit},
         space::Space,
@@ -239,7 +239,7 @@ fn on_command_bar_action(
 
             // vmux://terminal/ requires a full Terminal entity with PTY
             if url.starts_with("vmux://terminal") {
-                writer.write(AppCommand::Tab(TabCommand::NewTerminal));
+                writer.write(AppCommand::Terminal(TerminalCommand::New));
             } else {
                 let (_, _, active_tab) =
                     focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);

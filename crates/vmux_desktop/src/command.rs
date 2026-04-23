@@ -39,6 +39,9 @@ pub enum AppCommand {
     #[menu(label = "Tab")]
     Tab(TabCommand),
 
+    #[menu(label = "Terminal")]
+    Terminal(TerminalCommand),
+
     #[menu(label = "Browser")]
     Browser(BrowserCommand),
 }
@@ -86,9 +89,28 @@ pub enum TabCommand {
     #[menu(id = "tab_move_to_pane", label = "Move Tab to Pane\t<leader> !")]
     #[shortcut(chord = "Ctrl+g, !")]
     MoveToPane,
-    #[menu(id = "tab_new_terminal", label = "New Terminal Tab\t<leader> `")]
+}
+
+#[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TerminalCommand {
+    #[default]
+    #[menu(id = "terminal_new", label = "New Terminal\t<leader> `")]
     #[shortcut(chord = "Ctrl+g, `")]
-    NewTerminal,
+    New,
+    #[menu(id = "terminal_close", label = "Close Terminal")]
+    Close,
+    #[menu(id = "terminal_next", label = "Next Terminal")]
+    Next,
+    #[menu(id = "terminal_prev", label = "Previous Terminal")]
+    Previous,
+    #[menu(id = "terminal_clear", label = "Clear Terminal", accel = "super+k")]
+    Clear,
+    #[menu(id = "terminal_reset", label = "Reset Terminal")]
+    Reset,
+    #[menu(id = "terminal_split_v", label = "Split Terminal Vertically")]
+    SplitV,
+    #[menu(id = "terminal_split_h", label = "Split Terminal Horizontally")]
+    SplitH,
 }
 
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]

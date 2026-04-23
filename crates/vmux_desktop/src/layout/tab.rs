@@ -1,6 +1,6 @@
 use crate::{
     browser::Browser,
-    command::{AppCommand, ReadAppCommands, TabCommand},
+    command::{AppCommand, ReadAppCommands, TabCommand, TerminalCommand},
     layout::pane::{first_leaf_descendant, first_tab_in_pane, Pane, PaneSplit},
     layout::space::Space,
     settings::AppSettings,
@@ -127,8 +127,10 @@ fn handle_tab_commands(
     mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
 ) {
     for cmd in reader.read() {
-        let AppCommand::Tab(tab_cmd) = *cmd else {
-            continue;
+        let (tab_cmd, is_terminal) = match *cmd {
+            AppCommand::Tab(t) => (t, false),
+            AppCommand::Terminal(TerminalCommand::New) => (TabCommand::New, true),
+            _ => continue,
         };
 
         let (_, active_pane, active_tab) = focused_tab(
@@ -140,32 +142,29 @@ fn handle_tab_commands(
                 let Some(pane) = active_pane else {
                     continue;
                 };
-                let startup_url = settings.browser.startup_url.as_str();
-
-                let tab = commands
-                    .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
-                    .id();
-                commands.spawn((
-                    Browser::new(&mut meshes, &mut webview_mt, startup_url),
-                    ChildOf(tab),
-                ));
-            }
-            TabCommand::NewTerminal => {
-                let Some(pane) = active_pane else {
-                    continue;
-                };
-                let tab = commands
-                    .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
-                    .id();
-                commands.entity(tab).insert(vmux_header::PageMetadata {
-                    url: TERMINAL_WEBVIEW_URL.to_string(),
-                    title: "Terminal (Session: -)".to_string(),
-                    ..default()
-                });
-                commands.spawn((
-                    Terminal::new(&mut meshes, &mut webview_mt, &settings),
-                    ChildOf(tab),
-                ));
+                if is_terminal {
+                    let tab = commands
+                        .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
+                        .id();
+                    commands.entity(tab).insert(vmux_header::PageMetadata {
+                        url: TERMINAL_WEBVIEW_URL.to_string(),
+                        title: "Terminal (Session: -)".to_string(),
+                        ..default()
+                    });
+                    commands.spawn((
+                        Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                        ChildOf(tab),
+                    ));
+                } else {
+                    let startup_url = settings.browser.startup_url.as_str();
+                    let tab = commands
+                        .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
+                        .id();
+                    commands.spawn((
+                        Browser::new(&mut meshes, &mut webview_mt, startup_url),
+                        ChildOf(tab),
+                    ));
+                }
             }
             TabCommand::Close => {
                 let Some(pane) = active_pane else {
@@ -188,12 +187,10 @@ fn handle_tab_commands(
                     let parent = pane_co.get();
 
                     if !split_dir_q.contains(parent) {
-                        // Last pane, last tab — just remove it
                         commands.entity(active).despawn();
                         continue;
                     }
 
-                    // Other panes exist — close tab and pane, collapse split
                     commands.entity(active).despawn();
 
                     let Ok(siblings) = pane_children.get(parent) else {

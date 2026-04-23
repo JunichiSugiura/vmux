@@ -105,9 +105,16 @@ fn send_key_event(
             continue;
         }
         // Clear dedup state when the key is released so the next physical
-        // press is accepted.
+        // press is accepted.  We also skip forwarding KEYUP for non-character
+        // keys: on macOS, CEF processes the RAWKEYDOWN *and* the subsequent
+        // do_message_loop_work() / KEYUP cycle in a way that fires the editing
+        // action twice (e.g. deleteBackward: runs on both RAWKEYDOWN dispatch
+        // and the KEYUP pump).  Suppressing KEYUP for these keys is safe —
+        // browsers don't trigger default editing actions on keyup.
         if event.state == ButtonState::Released && is_non_character_key(event.key_code) {
             forwarded_presses.retain(|k| *k != event.key_code);
+            cef::do_message_loop_work();
+            continue;
         }
         // Deduplicate non-character pressed keys.
         // On macOS, bevy_winit can deliver two Pressed messages for a single

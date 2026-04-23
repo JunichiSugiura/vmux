@@ -115,6 +115,29 @@ pub fn create_cef_key_events(
     input: &ButtonInput<KeyCode>,
     key_event: &KeyboardInput,
 ) -> Vec<cef::KeyEvent> {
+    // macOS: translate emacs Ctrl+letter bindings to navigation/editing keys.
+    // CEF OSR bypasses NSTextInputClient's interpretKeyEvents: pipeline, so
+    // Chromium never maps Ctrl+A → Home, Ctrl+E → End, etc. We translate them
+    // here so they work in browser <input> fields (and all webviews).
+    // Shift is preserved so Ctrl+Shift+A → Shift+Home (select to beginning).
+    #[cfg(target_os = "macos")]
+    if key_event.state == ButtonState::Pressed && control_modifier_down(modifiers) {
+        if let Some((nav_vk, nav_key_code)) = emacs_nav_key(key_event.key_code) {
+            let stripped = modifiers & !(cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32);
+            return vec![cef::KeyEvent::from(cef_key_event_t {
+                size: core::mem::size_of::<cef_key_event_t>(),
+                type_: cef_key_event_type_t::KEYEVENT_RAWKEYDOWN,
+                modifiers: stripped,
+                windows_key_code: nav_vk,
+                native_key_code: to_macos_key_code(&nav_key_code) as _,
+                character: 0,
+                unmodified_character: 0,
+                is_system_key: false as _,
+                focus_on_editable_field: false as _,
+            })];
+        }
+    }
+
     let native_key_code = to_native_key_code(&key_event.key_code) as _;
     let vk_code = keycode_to_windows_vk(key_event.key_code);
 
@@ -170,6 +193,23 @@ pub fn create_cef_key_events(
             is_system_key: false as _,
             focus_on_editable_field: false as _,
         })]
+    }
+}
+
+/// Maps emacs Ctrl+letter bindings to their equivalent navigation/editing key.
+/// Returns `(windows_vk_code, replacement_KeyCode)`.
+#[cfg(target_os = "macos")]
+fn emacs_nav_key(key: KeyCode) -> Option<(i32, KeyCode)> {
+    match key {
+        KeyCode::KeyA => Some((0x24, KeyCode::Home)),       // beginning of line
+        KeyCode::KeyE => Some((0x23, KeyCode::End)),        // end of line
+        KeyCode::KeyF => Some((0x27, KeyCode::ArrowRight)), // forward char
+        KeyCode::KeyB => Some((0x25, KeyCode::ArrowLeft)),  // backward char
+        KeyCode::KeyN => Some((0x28, KeyCode::ArrowDown)),  // next line
+        KeyCode::KeyP => Some((0x26, KeyCode::ArrowUp)),    // previous line
+        KeyCode::KeyD => Some((0x2E, KeyCode::Delete)),     // delete forward
+        KeyCode::KeyH => Some((0x08, KeyCode::Backspace)),  // delete backward
+        _ => None,
     }
 }
 
@@ -747,6 +787,82 @@ mod tests {
         let char_ev = &events[1];
         assert_eq!(char_ev.type_, KeyEventType::CHAR);
         assert_eq!(char_ev.character, u16::from(b'L'));
+    }
+
+    /// macOS Ctrl+A should be translated to Home RAWKEYDOWN (emacs binding).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_a_translated_to_home_on_macos() {
+        let mut modifiers = 0u32;
+        modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32;
+        let input = ButtonInput::default();
+        let ev = kb(
+            KeyCode::KeyA,
+            Key::Character("a".into()),
+            ButtonState::Pressed,
+            Some("a"),
+            false,
+        );
+        let events = create_cef_key_events(modifiers, &input, &ev);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].type_, KeyEventType::RAWKEYDOWN);
+        assert_eq!(events[0].windows_key_code, 0x24, "should be VK_HOME");
+        // Ctrl modifier should be stripped
+        assert_eq!(
+            events[0].modifiers & (cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32),
+            0,
+            "Ctrl should be stripped from emacs nav replacement"
+        );
+    }
+
+    /// macOS Ctrl+E should be translated to End RAWKEYDOWN.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_e_translated_to_end_on_macos() {
+        let mut modifiers = 0u32;
+        modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32;
+        let input = ButtonInput::default();
+        let ev = kb(
+            KeyCode::KeyE,
+            Key::Character("e".into()),
+            ButtonState::Pressed,
+            Some("e"),
+            false,
+        );
+        let events = create_cef_key_events(modifiers, &input, &ev);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].type_, KeyEventType::RAWKEYDOWN);
+        assert_eq!(events[0].windows_key_code, 0x23, "should be VK_END");
+    }
+
+    /// macOS Ctrl+Shift+A should become Shift+Home (select to beginning).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_shift_a_becomes_shift_home() {
+        let mut modifiers = 0u32;
+        modifiers |= cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32;
+        modifiers |= cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0 as u32;
+        let input = ButtonInput::default();
+        let ev = kb(
+            KeyCode::KeyA,
+            Key::Character("A".into()),
+            ButtonState::Pressed,
+            Some("A"),
+            false,
+        );
+        let events = create_cef_key_events(modifiers, &input, &ev);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].windows_key_code, 0x24, "should be VK_HOME");
+        assert_ne!(
+            events[0].modifiers & (cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0 as u32),
+            0,
+            "Shift should be preserved"
+        );
+        assert_eq!(
+            events[0].modifiers & (cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0 as u32),
+            0,
+            "Ctrl should be stripped"
+        );
     }
 
     /// macOS ⌘C / ⌘V / ⌘X: must not emit CHAR alongside COMMAND_DOWN or Chromium mishandles shortcuts.

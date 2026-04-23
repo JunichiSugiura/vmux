@@ -163,6 +163,7 @@ fn handle_tab_commands(
                         continue;
                     }
                     let r = settings.layout.pane.radius;
+                    let ring_w = settings.layout.focus_ring.width;
                     let tab = commands
                         .spawn((
                             tab_bundle(),
@@ -173,6 +174,11 @@ fn handle_tab_commands(
                     commands.entity(tab).insert(BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.6)));
                     commands.entity(tab).entry::<Node>().and_modify(move |mut node| {
                         node.border_radius = BorderRadius::all(Val::Px(r));
+                        // Inset so the background doesn't overlap the focus ring
+                        node.left = Val::Px(ring_w);
+                        node.right = Val::Px(ring_w);
+                        node.top = Val::Px(ring_w);
+                        node.bottom = Val::Px(ring_w);
                     });
                     new_tab_ctx.tab = Some(tab);
                     new_tab_ctx.previous_tab = active_tab;

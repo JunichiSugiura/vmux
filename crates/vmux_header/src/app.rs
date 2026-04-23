@@ -119,12 +119,15 @@ pub fn App() -> Element {
                                     path { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" }
                                 }
                             }
-                            span { class: "min-w-0 truncate text-sm text-foreground", "{tab.url}" }
+                            if tab.url.is_empty() {
+                                span { class: "min-w-0 truncate text-sm text-muted-foreground", "New tab" }
+                            } else {
+                                span { class: "min-w-0 truncate text-sm text-foreground", "{tab.url}" }
+                            }
                         }
                     } else {
                         div {
-                            class: "glass flex min-w-0 flex-1 items-center rounded-full px-3 py-1.5 shadow-sm",
-                            span { class: "text-sm text-muted-foreground", "No page open" }
+                            class: "flex min-w-0 flex-1 items-center rounded-full px-3 py-1.5",
                         }
                     }
                 }

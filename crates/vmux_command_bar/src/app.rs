@@ -37,8 +37,8 @@ fn filter_results(
     let q = query.trim();
     if q.is_empty() {
         let mut items: Vec<ResultItem> = Vec::new();
-        // In new-tab mode, Terminal is always the first result
         if new_tab {
+            items.push(ResultItem::Navigate { url: String::new() });
             items.push(ResultItem::Terminal);
         }
         items.extend(tabs.iter().map(|t| ResultItem::Tab {
@@ -61,11 +61,14 @@ fn filter_results(
 
     let mut items = Vec::new();
 
-    if !commands_only {
-        // In new-tab mode, show Terminal if it matches the query
-        if new_tab && "terminal".contains(&search_lower) {
+    if !commands_only && new_tab {
+        items.push(ResultItem::Navigate { url: search.to_string() });
+        if "terminal".contains(&search_lower) {
             items.push(ResultItem::Terminal);
         }
+    }
+
+    if !commands_only {
         for t in tabs {
             if t.title.to_lowercase().contains(&search_lower)
                 || t.url.to_lowercase().contains(&search_lower)
@@ -90,7 +93,7 @@ fn filter_results(
         }
     }
 
-    if !commands_only && !search.is_empty() {
+    if !commands_only && !search.is_empty() && !new_tab {
         items.push(ResultItem::Navigate {
             url: search.to_string(),
         });
@@ -172,7 +175,9 @@ pub fn App() -> Element {
                 emit_action("command", id);
             }
             ResultItem::Navigate { url } => {
-                emit_action("navigate", url);
+                if !url.is_empty() {
+                    emit_action("navigate", url);
+                }
             }
         }
     };
@@ -248,11 +253,10 @@ pub fn App() -> Element {
                                 },
                                 match item {
                                     ResultItem::Terminal => rsx! {
-                                        div { class: "flex min-w-0 flex-col",
+                                        div { class: "flex items-center gap-2",
+                                            span { class: "shrink-0 text-base text-muted-foreground", ">_" }
                                             span { class: "text-base text-foreground", "Terminal" }
-                                            span { class: "text-sm text-muted-foreground", "Open a new terminal session" }
                                         }
-                                        span { class: "ml-2 shrink-0 text-sm text-muted-foreground", "\u{2318}T" }
                                     },
                                     ResultItem::Tab { title, url, .. } => rsx! {
                                         div { class: "flex min-w-0 flex-col",
@@ -266,8 +270,17 @@ pub fn App() -> Element {
                                         span { class: "ml-2 shrink-0 rounded bg-muted px-1.5 py-0.5 text-sm text-muted-foreground", "{shortcut}" }
                                     },
                                     ResultItem::Navigate { url } => rsx! {
-                                        span { class: "min-w-0 break-all text-base text-foreground", "Navigate to {url}" }
-                                        span { class: "ml-2 shrink-0 text-sm text-muted-foreground", "\u{21b5}" }
+                                        div { class: "flex items-center gap-2",
+                                            span { class: "shrink-0 text-base text-muted-foreground", "\u{1F50D}" }
+                                            if url.is_empty() {
+                                                span { class: "text-base text-foreground", "Search" }
+                                            } else {
+                                                span { class: "min-w-0 break-all text-base text-foreground", "Search \"{url}\"" }
+                                            }
+                                        }
+                                        if !url.is_empty() {
+                                            span { class: "ml-2 shrink-0 text-sm text-muted-foreground", "\u{21b5}" }
+                                        }
                                     },
                                 }
                             }

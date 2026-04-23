@@ -23,11 +23,26 @@ use vmux_history::LastActivatedAt;
 #[derive(Component)]
 struct PendingCommandBarReveal(u8);
 
+/// Tracks an empty tab spawned by Cmd+T that is waiting for the user
+/// to choose content via the command bar.
+#[derive(Resource, Default)]
+pub(crate) struct NewTabContext {
+    /// The empty tab entity waiting for a Browser or Terminal child.
+    pub tab: Option<Entity>,
+    /// The tab that was active before the empty tab was created.
+    /// Used to restore keyboard focus on dismiss.
+    pub previous_tab: Option<Entity>,
+    /// When true, `handle_open_command_bar` should open the command bar
+    /// in new-tab mode on the next frame.
+    pub needs_open: bool,
+}
+
 pub(crate) struct CommandBarInputPlugin;
 
 impl Plugin for CommandBarInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(JsEmitEventPlugin::<CommandBarActionEvent>::default())
+        app.init_resource::<NewTabContext>()
+            .add_plugins(JsEmitEventPlugin::<CommandBarActionEvent>::default())
             .add_observer(on_command_bar_action)
             .add_systems(Update, handle_open_command_bar.in_set(ReadAppCommands))
             .add_systems(PostUpdate, reveal_command_bar.after(UiSystems::Layout));

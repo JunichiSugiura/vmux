@@ -193,7 +193,8 @@ pub fn App() -> Element {
             div {
                 class: "flex w-full max-w-xl flex-col rounded-xl border border-white/20 bg-white/10 shadow-2xl shadow-black/40 ring-1 ring-white/10 backdrop-blur-2xl backdrop-saturate-150",
                 onclick: move |e| { e.stop_propagation(); },
-                div { class: "p-2",
+                div { class: "flex items-center gap-2 p-2",
+                    span { class: "select-none pl-2 font-mono text-base text-muted-foreground", ">_" }
                     input {
                         id: "command-bar-input",
                         r#type: "text",

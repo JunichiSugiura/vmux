@@ -77,6 +77,38 @@ pub(crate) fn move_to_index(
     world.entity_mut(new_parent).insert_child(clamped, child);
 }
 
+/// If `split` has exactly one child, replace `split` with its child in the
+/// grandparent's `Children` and despawn `split`. No-op otherwise.
+pub(crate) fn collapse_if_single_child(world: &mut World, split: Entity) {
+    let children = match world.get::<Children>(split) {
+        Some(c) => c.iter().collect::<Vec<_>>(),
+        None => return,
+    };
+
+    if children.len() != 1 {
+        return;
+    }
+    let only_child = children[0];
+
+    let grandparent = world.get::<ChildOf>(split).map(|p| p.parent());
+
+    if let Some(gp) = grandparent {
+        let gp_index = world
+            .get::<Children>(gp)
+            .and_then(|kids| kids.iter().position(|e| e == split));
+        if let Some(idx) = gp_index {
+            move_to_index(world, only_child, gp, idx);
+        } else {
+            world.entity_mut(only_child).remove::<ChildOf>();
+            world.entity_mut(only_child).insert(ChildOf(gp));
+        }
+    } else {
+        world.entity_mut(only_child).remove::<ChildOf>();
+    }
+
+    world.entity_mut(split).despawn();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +169,57 @@ mod tests {
         move_to_index(&mut world, kids[0], parent, 2);
         let children = world.get::<Children>(parent).unwrap();
         assert_eq!(&**children, &[kids[1], kids[2], kids[0]]);
+    }
+
+    use crate::layout::pane::{PaneSplit, PaneSplitDirection};
+
+    fn spawn_split(world: &mut World, dir: PaneSplitDirection, parent: Entity) -> Entity {
+        world.spawn((PaneSplit { direction: dir }, ChildOf(parent))).id()
+    }
+
+    #[test]
+    fn collapse_replaces_single_child_split() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let split = spawn_split(&mut world, PaneSplitDirection::Row, root);
+        let only_child = world.spawn(ChildOf(split)).id();
+
+        collapse_if_single_child(&mut world, split);
+
+        assert!(world.get_entity(split).is_err());
+        let root_kids = world.get::<Children>(root).unwrap();
+        assert_eq!(&**root_kids, &[only_child]);
+    }
+
+    #[test]
+    fn collapse_is_noop_when_two_children() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let split = spawn_split(&mut world, PaneSplitDirection::Row, root);
+        let a = world.spawn(ChildOf(split)).id();
+        let b = world.spawn(ChildOf(split)).id();
+
+        collapse_if_single_child(&mut world, split);
+
+        assert!(world.get_entity(split).is_ok());
+        let split_kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**split_kids, &[a, b]);
+    }
+
+    #[test]
+    fn collapse_cascades_through_two_levels() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let outer = spawn_split(&mut world, PaneSplitDirection::Row, root);
+        let inner = spawn_split(&mut world, PaneSplitDirection::Column, outer);
+        let leaf = world.spawn(ChildOf(inner)).id();
+
+        collapse_if_single_child(&mut world, inner);
+        collapse_if_single_child(&mut world, outer);
+
+        assert!(world.get_entity(outer).is_err());
+        assert!(world.get_entity(inner).is_err());
+        let root_kids = world.get::<Children>(root).unwrap();
+        assert_eq!(&**root_kids, &[leaf]);
     }
 }

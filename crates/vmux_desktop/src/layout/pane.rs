@@ -66,7 +66,7 @@ pub(crate) struct PaneSplit {
     pub direction: PaneSplitDirection,
 }
 
-#[derive(Reflect, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Reflect, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(crate) enum PaneSplitDirection {
     #[default]
     Row,

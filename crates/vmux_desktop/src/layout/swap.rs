@@ -109,6 +109,43 @@ pub(crate) fn collapse_if_single_child(world: &mut World, split: Entity) {
     world.entity_mut(split).despawn();
 }
 
+/// Replace `target` in its grandparent with a new `PaneSplit` of `direction`
+/// containing `[dragged, target]` if `dragged_first`, else `[target, dragged]`.
+/// Returns the new split entity.
+pub(crate) fn wrap_in_split(
+    world: &mut World,
+    target: Entity,
+    direction: crate::layout::pane::PaneSplitDirection,
+    dragged: Entity,
+    dragged_first: bool,
+) -> Entity {
+    use crate::layout::pane::PaneSplit;
+
+    let grandparent = world.get::<ChildOf>(target).map(|p| p.parent());
+    let target_idx = grandparent
+        .and_then(|gp| world.get::<Children>(gp).and_then(|c| c.iter().position(|e| e == target)));
+
+    let split = world.spawn(PaneSplit { direction }).id();
+
+    world.entity_mut(target).remove::<ChildOf>();
+    world.entity_mut(dragged).remove::<ChildOf>();
+    world.entity_mut(target).insert(ChildOf(split));
+    world.entity_mut(dragged).insert(ChildOf(split));
+
+    if dragged_first {
+        move_to_index(world, dragged, split, 0);
+    } else {
+        move_to_index(world, target, split, 0);
+    }
+
+    if let (Some(gp), Some(idx)) = (grandparent, target_idx) {
+        world.entity_mut(split).insert(ChildOf(gp));
+        move_to_index(world, split, gp, idx);
+    }
+
+    split
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +258,54 @@ mod tests {
         assert!(world.get_entity(inner).is_err());
         let root_kids = world.get::<Children>(root).unwrap();
         assert_eq!(&**root_kids, &[leaf]);
+    }
+
+    #[test]
+    fn wrap_replaces_target_with_split_containing_both() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let target = world.spawn(ChildOf(root)).id();
+        let dragged = world.spawn_empty().id();
+
+        let split = wrap_in_split(
+            &mut world,
+            target,
+            PaneSplitDirection::Column,
+            dragged,
+            true,
+        );
+
+        let root_kids = world.get::<Children>(root).unwrap();
+        assert_eq!(&**root_kids, &[split]);
+
+        let dir = world.get::<PaneSplit>(split).unwrap().direction;
+        assert_eq!(dir, PaneSplitDirection::Column);
+
+        let split_kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**split_kids, &[dragged, target]);
+    }
+
+    #[test]
+    fn wrap_preserves_target_position_in_grandparent() {
+        let mut world = World::new();
+        let root = world.spawn_empty().id();
+        let a = world.spawn(ChildOf(root)).id();
+        let target = world.spawn(ChildOf(root)).id();
+        let c = world.spawn(ChildOf(root)).id();
+        let dragged = world.spawn_empty().id();
+
+        let split = wrap_in_split(
+            &mut world,
+            target,
+            PaneSplitDirection::Row,
+            dragged,
+            false,
+        );
+
+        let root_kids = world.get::<Children>(root).unwrap();
+        assert_eq!(&**root_kids, &[a, split, c]);
+
+        let split_kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**split_kids, &[target, dragged]);
     }
 }

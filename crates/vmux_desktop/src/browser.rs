@@ -163,6 +163,7 @@ impl Browser {
 }
 
 fn sync_keyboard_target(
+    free_cam: Res<crate::scene::FreeCameraActive>,
     spaces: Query<(Entity, &LastActivatedAt), With<Space>>,
     all_children: Query<&Children>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
@@ -176,8 +177,7 @@ fn sync_keyboard_target(
     content_q: Query<(Entity, Has<CefKeyboardTarget>), With<Browser>>,
     mut commands: Commands,
 ) {
-    // Don't reassign keyboard target while command bar is open
-    if crate::command_bar::is_command_bar_open(&modal_q) {
+    if crate::command_bar::is_command_bar_open(&modal_q) || free_cam.0 {
         return;
     }
     let (_, _, active_tab_opt) = focused_tab(
@@ -505,7 +505,7 @@ fn push_tabs_host_emit(
     let mut can_go_back = false;
     let mut can_go_forward = false;
     if active_tab_opt.is_none() {
-        warn!("[tabs-debug] no active tab, will emit empty TabsHostEvent");
+
     }
     if let Some(active_tab_entity) = active_tab_opt {
         for (meta, child_of, nav_state) in &browser_q {
@@ -612,7 +612,6 @@ fn push_pane_tree_emit(
                         }
                     }
                 }
-                // Empty tab (no Browser/Terminal child) — show placeholder
                 if !found_browser {
                     tabs.push(TabNode {
                         title: "New tab".to_string(),

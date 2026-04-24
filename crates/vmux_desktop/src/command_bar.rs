@@ -32,11 +32,8 @@ struct PendingCommandBarReveal(u8);
 pub(crate) struct NewTabContext {
     /// The empty tab entity waiting for a Browser or Terminal child.
     pub tab: Option<Entity>,
-    /// The tab that was active before the empty tab was created.
-    /// Used to restore keyboard focus on dismiss.
     pub previous_tab: Option<Entity>,
-    /// When true, `handle_open_command_bar` should open the command bar
-    /// in new-tab mode on the next frame.
+
     pub needs_open: bool,
 }
 
@@ -286,60 +283,100 @@ fn on_command_bar_action(
     // Track whether we handle keyboard restore ourselves
     let mut custom_keyboard_restore = false;
 
+
+
     match evt.action.as_str() {
         "navigate" => {
-            let url = if evt.value.contains("://") {
-                evt.value.clone()
-            } else if evt.value.contains('.') && !evt.value.contains(' ') {
-                format!("https://{}", evt.value)
+            // Detect filesystem paths — open terminal with cwd instead of browser
+            let expanded = if evt.value.starts_with('~') {
+                std::env::var("HOME").ok()
+                    .map(|h| std::path::PathBuf::from(h).join(evt.value[1..].trim_start_matches('/')))
+                    .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
+            } else if evt.value.starts_with('/') {
+                std::path::PathBuf::from(&evt.value)
             } else {
-                format!("https://www.google.com/search?q={}", evt.value)
+                std::env::var("HOME").ok()
+                    .map(|h| std::path::PathBuf::from(h).join(&evt.value))
+                    .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
             };
+            let is_path = expanded.exists();
 
-            if let Some(tab_e) = empty_tab {
-                // New tab mode: attach content to the empty tab
-                if url.starts_with("vmux://terminal") {
+            if is_path {
+                let dir = if expanded.is_dir() {
+                    &expanded
+                } else {
+                    expanded.parent().unwrap_or(&expanded)
+                };
+                if let Some(tab_e) = empty_tab {
                     commands.entity(tab_e).insert(PageMetadata {
                         url: TERMINAL_WEBVIEW_URL.to_string(),
-                        title: "Terminal (Session: -)".to_string(),
+                        title: format!("Terminal ({})", dir.display()),
                         ..default()
                     });
                     let term_e = commands
                         .spawn((
-                            Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                            Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, Some(dir)),
                             ChildOf(tab_e),
                         ))
                         .id();
                     commands.entity(term_e).insert(CefKeyboardTarget);
-                } else {
-                    let browser_e = commands
-                        .spawn((
-                            Browser::new(&mut meshes, &mut webview_mt, &url),
-                            ChildOf(tab_e),
-                        ))
-                        .id();
-                    commands.entity(browser_e).insert(CefKeyboardTarget);
+                    new_tab_ctx.tab = None;
+                    new_tab_ctx.previous_tab = None;
+                    custom_keyboard_restore = true;
                 }
-                commands.entity(tab_e).remove::<BackgroundColor>();
-                new_tab_ctx.tab = None;
-                new_tab_ctx.previous_tab = None;
-                custom_keyboard_restore = true;
             } else {
-                // Normal mode: navigate or spawn terminal in current tab
-                if url.starts_with("vmux://terminal") {
-                    writer.write(AppCommand::Terminal(TerminalCommand::New));
+                let url = if evt.value.contains("://") {
+                    evt.value.clone()
+                } else if evt.value.contains('.') && !evt.value.contains(' ') {
+                    format!("https://{}", evt.value)
                 } else {
-                    let (_, _, active_tab) =
-                        focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
-                    if let Some(tab) = active_tab {
-                        for browser_e in &content_browsers {
-                            let is_child = child_of_q
-                                .get(browser_e)
-                                .ok()
-                                .map(|co| co.get() == tab)
-                                .unwrap_or(false);
-                            if is_child {
-                                commands.entity(browser_e).insert(WebviewSource::new(&url));
+                    format!("https://www.google.com/search?q={}", evt.value)
+                };
+
+                if let Some(tab_e) = empty_tab {
+                    // New tab mode: attach content to the empty tab
+                    if url.starts_with("vmux://terminal") {
+                        commands.entity(tab_e).insert(PageMetadata {
+                            url: TERMINAL_WEBVIEW_URL.to_string(),
+                            title: "Terminal (Session: -)".to_string(),
+                            ..default()
+                        });
+                        let term_e = commands
+                            .spawn((
+                                Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                                ChildOf(tab_e),
+                            ))
+                            .id();
+                        commands.entity(term_e).insert(CefKeyboardTarget);
+                    } else {
+                        let browser_e = commands
+                            .spawn((
+                                Browser::new(&mut meshes, &mut webview_mt, &url),
+                                ChildOf(tab_e),
+                            ))
+                            .id();
+                        commands.entity(browser_e).insert(CefKeyboardTarget);
+                    }
+                    new_tab_ctx.tab = None;
+                    new_tab_ctx.previous_tab = None;
+                    custom_keyboard_restore = true;
+                } else {
+                    // Normal mode: navigate or spawn terminal in current tab
+                    if url.starts_with("vmux://terminal") {
+                        writer.write(AppCommand::Terminal(TerminalCommand::New));
+                    } else {
+                        let (_, _, active_tab) =
+                            focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+                        if let Some(tab) = active_tab {
+                            for browser_e in &content_browsers {
+                                let is_child = child_of_q
+                                    .get(browser_e)
+                                    .ok()
+                                    .map(|co| co.get() == tab)
+                                    .unwrap_or(false);
+                                if is_child {
+                                    commands.entity(browser_e).insert(WebviewSource::new(&url));
+                                }
                             }
                         }
                     }
@@ -347,7 +384,22 @@ fn on_command_bar_action(
             }
         }
         "terminal" => {
-            // New action: spawn terminal in the empty tab
+            let cwd = if evt.value.is_empty() {
+                None
+            } else {
+                let expanded = if evt.value.starts_with("~/") {
+                    std::env::var("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(&evt.value[2..]))
+                        .unwrap_or_else(|_| std::path::PathBuf::from(&evt.value))
+                } else if evt.value.starts_with('/') {
+                    std::path::PathBuf::from(&evt.value)
+                } else {
+                    std::env::var("HOME")
+                        .map(|h| std::path::PathBuf::from(h).join(&evt.value))
+                        .unwrap_or_else(|_| std::path::PathBuf::from(&evt.value))
+                };
+                Some(expanded)
+            };
             if let Some(tab_e) = empty_tab {
                 commands.entity(tab_e).insert(PageMetadata {
                     url: TERMINAL_WEBVIEW_URL.to_string(),
@@ -356,18 +408,40 @@ fn on_command_bar_action(
                 });
                 let term_e = commands
                     .spawn((
-                        Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                        Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, cwd.as_deref()),
                         ChildOf(tab_e),
                     ))
                     .id();
                 commands.entity(term_e).insert(CefKeyboardTarget);
-                commands.entity(tab_e).remove::<BackgroundColor>();
                 new_tab_ctx.tab = None;
                 new_tab_ctx.previous_tab = None;
                 custom_keyboard_restore = true;
             } else {
-                // Fallback: create a new terminal tab via existing flow
-                writer.write(AppCommand::Terminal(TerminalCommand::New));
+                let (_, active_pane_opt, _) =
+                    focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+                if let Some(pane_e) = active_pane_opt {
+                    let tab_e = commands
+                        .spawn((
+                            crate::layout::tab::tab_bundle(),
+                            LastActivatedAt::now(),
+                            ChildOf(pane_e),
+                        ))
+                        .id();
+                    commands.entity(tab_e).insert(PageMetadata {
+                        url: TERMINAL_WEBVIEW_URL.to_string(),
+                        title: "Terminal (Session: -)".to_string(),
+                        ..default()
+                    });
+                    let term_e = commands
+                        .spawn((
+                            Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, cwd.as_deref()),
+                            ChildOf(tab_e),
+                        ))
+                        .id();
+                    commands.entity(term_e).insert(CefKeyboardTarget);
+                } else {
+                    writer.write(AppCommand::Terminal(TerminalCommand::New));
+                }
             }
         }
         "command" => {

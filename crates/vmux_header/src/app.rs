@@ -73,7 +73,7 @@ pub fn App() -> Element {
                             path { d: "M12 5l7 7-7 7" }
                         }
                     }
-                    NavButton { label: "Reload", command: "reload",
+                    NavButton { label: "Reload", command: "reload", disabled: active_row.as_ref().map_or(true, |t| t.url.is_empty()),
                         span {
                             key: "{reload_key}",
                             class: if reload_key() > 0 { "inline-flex animate-spin-once" } else { "inline-flex" },

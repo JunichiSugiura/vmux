@@ -135,7 +135,7 @@ fn setup(
             mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
             material: MeshMaterial3d(materials.add(GlassMaterial {
                 base: StandardMaterial {
-                    base_color: Color::srgba(0.5, 0.5, 0.52, 0.15),
+                    base_color: Color::srgba(1.0, 1.0, 1.0, 0.08),
                     alpha_mode: AlphaMode::Blend,
                     cull_mode: None,
                     perceptual_roughness: 0.23,
@@ -375,6 +375,43 @@ fn spawn_default_session(
     ));
 }
 
+fn spawn_glass_child(
+    commands: &mut Commands,
+    plane: Handle<Mesh>,
+    materials: &mut ResMut<Assets<GlassMaterial>>,
+    r: f32,
+    parent: Entity,
+) {
+    commands.spawn((
+        Glass,
+        Mesh3d(plane),
+        MeshMaterial3d(materials.add(GlassMaterial {
+            base: StandardMaterial {
+                base_color: Color::srgba(1.0, 1.0, 1.0, 0.08),
+                alpha_mode: AlphaMode::Blend,
+                cull_mode: None,
+                perceptual_roughness: 0.1,
+                metallic: 0.05,
+                specular_transmission: 0.6,
+                diffuse_transmission: 0.4,
+                thickness: 0.02,
+                ior: 1.5,
+                ..default()
+            },
+            extension: GlassCorners {
+                clip: Vec4::new(r, 1.0, 1.0, PIXELS_PER_METER),
+                ..default()
+            },
+        })),
+        Transform {
+            translation: Vec3::new(0.0, 0.0, -0.002),
+            ..default()
+        },
+        GlobalTransform::default(),
+        ChildOf(parent),
+    ));
+}
+
 /// Spawns a glass mesh child behind each overlay panel (Header, SideSheet Left, Modal).
 fn spawn_glass_panes(
     header_q: Query<Entity, With<Header>>,
@@ -388,47 +425,18 @@ fn spawn_glass_panes(
     let r = settings.layout.pane.radius;
     let plane = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
 
-    let mut spawn_glass = |parent: Entity| {
-        commands.spawn((
-            Glass,
-            Mesh3d(plane.clone()),
-            MeshMaterial3d(materials.add(GlassMaterial {
-                base: StandardMaterial {
-                    base_color: Color::srgba(0.5, 0.5, 0.52, 0.15),
-                    alpha_mode: AlphaMode::Blend,
-                    cull_mode: None,
-                    perceptual_roughness: 0.1,
-                    metallic: 0.05,
-                    specular_transmission: 0.6,
-                    diffuse_transmission: 0.4,
-                    thickness: 0.02,
-                    ior: 1.5,
-                    ..default()
-                },
-                extension: GlassCorners {
-                    clip: Vec4::new(r, 1.0, 1.0, PIXELS_PER_METER),
-                    ..default()
-                },
-            })),
-            Transform {
-                translation: Vec3::new(0.0, 0.0, -0.002),
-                ..default()
-            },
-            GlobalTransform::default(),
-            ChildOf(parent),
-        ));
-    };
-
     for entity in &header_q {
-        spawn_glass(entity);
+        spawn_glass_child(&mut commands, plane.clone(), &mut materials, r, entity);
     }
     for (entity, pos) in &side_sheet_q {
         if *pos == SideSheetPosition::Left {
-            spawn_glass(entity);
+            spawn_glass_child(&mut commands, plane.clone(), &mut materials, r, entity);
         }
     }
-    // No glass pane for modal — command bar uses a simple dimmed backdrop.
+    // Modal and panes use CSS-based glass, not 3D meshes.
 }
+
+
 
 /// Keeps each Glass's GlassCorners clip in sync with its parent panel's computed size.
 fn sync_glass_pane_clip(

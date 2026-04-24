@@ -116,6 +116,15 @@ impl Terminal {
         webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
         settings: &AppSettings,
     ) -> impl Bundle {
+        Self::new_with_cwd(meshes, webview_mt, settings, None)
+    }
+
+    pub(crate) fn new_with_cwd(
+        meshes: &mut ResMut<Assets<Mesh>>,
+        webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
+        settings: &AppSettings,
+        cwd: Option<&std::path::Path>,
+    ) -> impl Bundle {
         let cols = 80u16;
         let rows = 24u16;
 
@@ -139,6 +148,10 @@ impl Terminal {
         let mut cmd = CommandBuilder::new(&shell);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        let initial_cwd = cwd.map(|d| d.to_path_buf());
+        if let Some(ref dir) = initial_cwd {
+            cmd.cwd(dir);
+        }
 
         let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
         let pid = child.process_id().unwrap_or(0);
@@ -152,6 +165,16 @@ impl Terminal {
                 .expect("failed to take PTY writer"),
         ));
         drop(pair.slave);
+
+        // If a cwd was requested, also send a `cd` command to the shell.
+        // Some shells (e.g. nushell) ignore the PTY's initial cwd.
+        if let Some(ref dir) = initial_cwd {
+            let cd_cmd = format!("cd {}\n", dir.display());
+            if let Ok(mut w) = writer.lock() {
+                let _ = w.write_all(cd_cmd.as_bytes());
+                let _ = w.flush();
+            }
+        }
 
         // Spawn background reader thread
         let (tx, rx) = mpsc::channel();

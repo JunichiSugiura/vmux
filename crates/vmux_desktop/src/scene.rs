@@ -12,6 +12,7 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
+use bevy_cef::prelude::CefKeyboardTarget;
 
 
 
@@ -25,6 +26,9 @@ fn camera_margin_px(_settings: &AppSettings) -> f32 {
 #[derive(Component)]
 pub(crate) struct MainCamera;
 
+#[derive(Resource, Default)]
+pub(crate) struct FreeCameraActive(pub bool);
+
 #[derive(Component)]
 struct SceneSunlight;
 
@@ -36,6 +40,7 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(FreeCameraPlugin)
+            .init_resource::<FreeCameraActive>()
             .insert_resource(ClearColor(Color::BLACK))
             .add_systems(Startup, setup.after(load_settings))
             .add_systems(
@@ -46,7 +51,10 @@ impl Plugin for ScenePlugin {
             )
             .add_systems(
                 Update,
-                (on_toggle_free_camera.in_set(ReadAppCommands),),
+                (
+                    on_toggle_free_camera.in_set(ReadAppCommands),
+                    suppress_free_camera_when_pane_active,
+                ),
             )
             .add_systems(
                 PostUpdate,
@@ -116,6 +124,8 @@ fn on_toggle_free_camera(
     projection: Single<&Projection, With<MainCamera>>,
     camera: Single<Entity, With<MainCamera>>,
     sunlight_q: Query<Entity, With<SceneSunlight>>,
+    kb_targets: Query<Entity, With<CefKeyboardTarget>>,
+    mut free_cam_active: ResMut<FreeCameraActive>,
     mut commands: Commands,
 ) {
     for cmd in reader.read() {
@@ -123,7 +133,11 @@ fn on_toggle_free_camera(
             continue;
         };
         state.enabled = !state.enabled;
+        free_cam_active.0 = state.enabled;
         if state.enabled {
+            for e in &kb_targets {
+                commands.entity(e).remove::<CefKeyboardTarget>();
+            }
             commands.entity(*camera).insert(Bloom::NATURAL);
             commands.spawn((
                 SceneSunlight,
@@ -152,6 +166,44 @@ fn on_toggle_free_camera(
             **transform = frame_main_camera_transform(&window, aspect, camera_margin_px(&settings));
         }
     }
+}
+
+fn suppress_free_camera_when_pane_active(
+    free_cam: Res<FreeCameraActive>,
+    kb_targets: Query<(), With<CefKeyboardTarget>>,
+    mut state: Single<&mut FreeCameraState, With<MainCamera>>,
+    mut suppress: ResMut<bevy_cef::prelude::CefSuppressKeyboardInput>,
+    mut was_active: Local<bool>,
+    camera: Single<Entity, With<MainCamera>>,
+    mut transform: Single<&mut Transform, With<MainCamera>>,
+    projection: Single<&Projection, With<MainCamera>>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    settings: Res<AppSettings>,
+    sunlight_q: Query<Entity, With<SceneSunlight>>,
+    mut commands: Commands,
+) {
+    if !free_cam.0 {
+        if *was_active {
+            state.enabled = false;
+            suppress.0 = false;
+            *was_active = false;
+            commands.entity(*camera).remove::<Bloom>();
+            for e in &sunlight_q {
+                commands.entity(e).despawn();
+            }
+            let aspect = match &*projection {
+                Projection::Perspective(p) => p.aspect_ratio,
+                _ => window.aspect(),
+            };
+            **transform =
+                frame_main_camera_transform(&window, aspect, camera_margin_px(&settings));
+        }
+        return;
+    }
+    *was_active = true;
+    let no_target = kb_targets.is_empty();
+    state.enabled = no_target;
+    suppress.0 = no_target;
 }
 
 pub(crate) fn frame_main_camera_transform(

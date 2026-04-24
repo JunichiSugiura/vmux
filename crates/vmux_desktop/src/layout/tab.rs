@@ -162,8 +162,6 @@ fn handle_tab_commands(
                         new_tab_ctx.needs_open = true;
                         continue;
                     }
-                    let r = settings.layout.pane.radius;
-                    let ring_w = settings.layout.focus_ring.width;
                     let tab = commands
                         .spawn((
                             tab_bundle(),
@@ -171,15 +169,6 @@ fn handle_tab_commands(
                             ChildOf(pane),
                         ))
                         .id();
-                    commands.entity(tab).insert(BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.6)));
-                    commands.entity(tab).entry::<Node>().and_modify(move |mut node| {
-                        node.border_radius = BorderRadius::all(Val::Px(r));
-                        // Inset so the background doesn't overlap the focus ring
-                        node.left = Val::Px(ring_w);
-                        node.right = Val::Px(ring_w);
-                        node.top = Val::Px(ring_w);
-                        node.bottom = Val::Px(ring_w);
-                    });
                     new_tab_ctx.tab = Some(tab);
                     new_tab_ctx.previous_tab = active_tab;
                     new_tab_ctx.needs_open = true;
@@ -272,26 +261,37 @@ fn handle_tab_commands(
                 commands.entity(next).insert(LastActivatedAt::now());
             }
             TabCommand::Next | TabCommand::Previous => {
-                let Some(pane) = active_pane else {
+                let Some(space) = active_among(spaces.iter()) else {
                     continue;
                 };
-                let Ok(children) = pane_children.get(pane) else {
-                    continue;
-                };
-                let tabs: Vec<Entity> = children
-                    .iter()
-                    .filter(|&e| tab_q.contains(e))
-                    .collect();
-                if tabs.len() < 2 {
+                // Build flat list of (pane_entity, tab_entity) across all panes
+                let mut space_panes = Vec::new();
+                collect_leaf_panes(space, &all_children, &leaf_panes, &mut space_panes);
+                let mut flat: Vec<(Entity, Entity)> = Vec::new();
+                for &pane_e in &space_panes {
+                    if let Ok(children) = pane_children.get(pane_e) {
+                        for child in children.iter() {
+                            if tab_q.contains(child) {
+                                flat.push((pane_e, child));
+                            }
+                        }
+                    }
+                }
+                if flat.len() < 2 {
                     continue;
                 }
-                let Some(current) = tabs.iter().position(|&e| Some(e) == active_tab) else {
+                let Some(current) = flat.iter().position(|&(_, t)| Some(t) == active_tab) else {
                     continue;
                 };
                 let delta: i32 = if tab_cmd == TabCommand::Next { 1 } else { -1 };
-                let n = tabs.len() as i32;
+                let n = flat.len() as i32;
                 let idx = (current as i32 + delta).rem_euclid(n) as usize;
-                commands.entity(tabs[idx]).insert(LastActivatedAt::now());
+                let (target_pane, target_tab) = flat[idx];
+                commands.entity(target_tab).insert(LastActivatedAt::now());
+                // If crossing to a different pane, activate it
+                if active_pane != Some(target_pane) {
+                    commands.entity(target_pane).insert(LastActivatedAt::now());
+                }
             }
             TabCommand::SelectIndex1
             | TabCommand::SelectIndex2

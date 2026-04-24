@@ -12,7 +12,7 @@ use wasm_bindgen::JsCast;
 
 #[derive(Clone, PartialEq)]
 enum ResultItem {
-    Terminal,
+    Terminal { path: String },
     Tab {
         title: String,
         url: String,
@@ -29,6 +29,17 @@ enum ResultItem {
     },
 }
 
+fn looks_like_path(s: &str) -> bool {
+    s.starts_with('/')
+        || s.starts_with("~/")
+        || s.starts_with("./")
+        || s.starts_with("../")
+        || s.contains('/')
+            && !s.contains(' ')
+            && !s.starts_with("http://")
+            && !s.starts_with("https://")
+}
+
 fn filter_results(
     query: &str,
     tabs: &[CommandBarTab],
@@ -38,8 +49,9 @@ fn filter_results(
     let q = query.trim();
     if q.is_empty() {
         let mut items: Vec<ResultItem> = Vec::new();
+        items.push(ResultItem::Navigate { url: String::new() });
         if new_tab {
-            items.push(ResultItem::Terminal);
+            items.push(ResultItem::Terminal { path: String::new() });
         }
         items.extend(tabs.iter().map(|t| ResultItem::Tab {
             title: t.title.clone(),
@@ -61,9 +73,18 @@ fn filter_results(
 
     let mut items = Vec::new();
 
-    // Terminal action goes first when query matches
-    if !commands_only && new_tab && "terminal".contains(&search_lower) {
-        items.push(ResultItem::Terminal);
+    let is_path = looks_like_path(search);
+
+    if !commands_only && is_path {
+        items.push(ResultItem::Terminal {
+            path: search.to_string(),
+        });
+    }
+
+    if !commands_only && !is_path && new_tab && "terminal".contains(&search_lower) {
+        items.push(ResultItem::Terminal {
+            path: String::new(),
+        });
     }
 
     if !commands_only {
@@ -162,8 +183,8 @@ pub fn App() -> Element {
     let mut execute = move |item: &ResultItem| {
         is_open.set(false);
         match item {
-            ResultItem::Terminal => {
-                emit_action("terminal", "");
+            ResultItem::Terminal { path } => {
+                emit_action("terminal", path);
             }
             ResultItem::Tab {
                 pane_id, tab_index, ..
@@ -194,12 +215,35 @@ pub fn App() -> Element {
                 onclick: move |e| { e.stop_propagation(); },
                 // Inner glow overlay
                 div { class: "pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-white/20 to-transparent" }
-                div { class: "flex items-center gap-2 p-2",
-                    span { class: "select-none pl-2 font-mono text-base text-muted-foreground", ">_" }
-                    input {
-                        id: "command-bar-input",
-                        r#type: "text",
-                        class: "w-full rounded-lg bg-white/5 px-3 py-2.5 text-base text-foreground outline-none placeholder:text-muted-foreground",
+                div { class: "p-2",
+                    div { class: "flex items-center gap-2 rounded-lg bg-white/5 px-3",
+                        {
+                            let trimmed = q.trim();
+                            let icon_class = "h-4 w-4 shrink-0 text-muted-foreground";
+                            if trimmed.starts_with('>') {
+                                rsx! { span { class: "select-none font-mono text-base text-muted-foreground", ">_" } }
+                            } else if trimmed.starts_with('/') || trimmed.starts_with('~') {
+                                rsx! { Icon { class: icon_class,
+                                    path { d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" }
+                                    path { d: "M14 2v4a2 2 0 0 0 2 2h4" }
+                                } }
+                            } else if trimmed.contains("://") || (trimmed.contains('.') && !trimmed.contains(' ')) {
+                                rsx! { Icon { class: icon_class,
+                                    path { d: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z" }
+                                    path { d: "M2 12h20" }
+                                    path { d: "M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10Z" }
+                                } }
+                            } else {
+                                rsx! { Icon { class: icon_class,
+                                    circle { cx: "11", cy: "11", r: "8" }
+                                    path { d: "m21 21-4.3-4.3" }
+                                } }
+                            }
+                        }
+                        input {
+                            id: "command-bar-input",
+                            r#type: "text",
+                            class: "w-full py-2.5 text-base text-foreground bg-transparent outline-none placeholder:text-muted-foreground",
                         placeholder: if is_new_tab {
                             "Search or type a URL, or select Terminal..."
                         } else {
@@ -213,10 +257,6 @@ pub fn App() -> Element {
                         },
                         onkeydown: move |e| {
                             let ctrl = e.modifiers().contains(Modifiers::CONTROL);
-                            // CEF translates Ctrl+N → ArrowDown at the native
-                            // level, so an ArrowDown arrives with Ctrl still
-                            // held. Only accept bare arrows (no Ctrl) to avoid
-                            // double-firing alongside the Ctrl+N match below.
                             let go_down = (e.key() == Key::ArrowDown && !ctrl)
                                 || (ctrl && matches!(e.code(), Code::KeyN | Code::KeyJ));
                             let go_up = (e.key() == Key::ArrowUp && !ctrl)
@@ -241,6 +281,7 @@ pub fn App() -> Element {
                             }
                         },
                     }
+                    }
                 }
                 if !results.is_empty() {
                     div { class: "max-h-80 overflow-y-auto border-t border-border p-1",
@@ -258,10 +299,15 @@ pub fn App() -> Element {
                                     move |_| { execute(&item); }
                                 },
                                 match item {
-                                    ResultItem::Terminal => rsx! {
+                                    ResultItem::Terminal { path } => rsx! {
                                         div { class: "flex items-center gap-2",
                                             span { class: "shrink-0 text-base text-muted-foreground", ">_" }
-                                            span { class: "text-base text-foreground", "Terminal" }
+                                            if path.is_empty() {
+                                                span { class: "text-base text-foreground", "Terminal" }
+                                            } else {
+                                                span { class: "text-base text-foreground", "Open in Terminal" }
+                                                span { class: "ml-1 text-sm text-muted-foreground", "{path}" }
+                                            }
                                         }
                                     },
                                     ResultItem::Tab { title, url, .. } => rsx! {
@@ -304,15 +350,6 @@ pub fn App() -> Element {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Ctrl shortcuts helper
-// ---------------------------------------------------------------------------
-
-/// Focus the command-bar input and install emacs-style Ctrl shortcuts
-/// (cursor movement, deletion) via a capture-phase keydown listener (web_sys).
-///
-/// Ctrl+N/P/J/K (up/down navigation) are handled in the Dioxus `onkeydown`
-/// handler so they can update selection signals directly.
 fn focus_and_install_ctrl_bindings() {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return;
@@ -348,10 +385,6 @@ fn focus_and_install_ctrl_bindings() {
             "KeyH" => "bksp",
             "KeyW" => "delw",
             "KeyU" => "delbeg",
-            // Suppress Ctrl+N/P/J/K default so CEF doesn't translate
-            // them into synthetic ArrowDown/ArrowUp that double-fire.
-            // Only preventDefault (no stopImmediatePropagation) so the
-            // Dioxus onkeydown handler still receives the event.
             "KeyN" | "KeyJ" | "KeyP" | "KeyK" => {
                 e.prevent_default();
                 return;

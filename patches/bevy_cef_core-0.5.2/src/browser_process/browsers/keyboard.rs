@@ -138,6 +138,24 @@ pub fn create_cef_key_events(
         }
     }
 
+    #[cfg(target_os = "macos")]
+    if key_event.state == ButtonState::Pressed && command_modifier_down(modifiers) {
+        if let Some((nav_vk, nav_key_code)) = cmd_arrow_nav_key(key_event.key_code) {
+            let stripped = modifiers & !(cef_event_flags_t::EVENTFLAG_COMMAND_DOWN.0 as u32);
+            return vec![cef::KeyEvent::from(cef_key_event_t {
+                size: core::mem::size_of::<cef_key_event_t>(),
+                type_: cef_key_event_type_t::KEYEVENT_RAWKEYDOWN,
+                modifiers: stripped,
+                windows_key_code: nav_vk,
+                native_key_code: to_macos_key_code(&nav_key_code) as _,
+                character: 0,
+                unmodified_character: 0,
+                is_system_key: false as _,
+                focus_on_editable_field: false as _,
+            })];
+        }
+    }
+
     let native_key_code = to_native_key_code(&key_event.key_code) as _;
     let vk_code = keycode_to_windows_vk(key_event.key_code);
 
@@ -209,6 +227,17 @@ fn emacs_nav_key(key: KeyCode) -> Option<(i32, KeyCode)> {
         KeyCode::KeyP => Some((0x26, KeyCode::ArrowUp)),    // previous line
         KeyCode::KeyD => Some((0x2E, KeyCode::Delete)),     // delete forward
         KeyCode::KeyH => Some((0x08, KeyCode::Backspace)),  // delete backward
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn cmd_arrow_nav_key(key: KeyCode) -> Option<(i32, KeyCode)> {
+    match key {
+        KeyCode::ArrowLeft => Some((0x24, KeyCode::Home)),
+        KeyCode::ArrowRight => Some((0x23, KeyCode::End)),
+        KeyCode::ArrowUp => Some((0x24, KeyCode::Home)),
+        KeyCode::ArrowDown => Some((0x23, KeyCode::End)),
         _ => None,
     }
 }

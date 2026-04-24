@@ -12,6 +12,7 @@ use bevy::{
     ui::{FlexDirection, UiGlobalTransform},
     window::PrimaryWindow,
 };
+use bevy_cef::prelude::CefKeyboardTarget;
 use std::time::Instant;
 use bevy_cef::prelude::*;
 use moonshine_save::prelude::*;
@@ -40,6 +41,7 @@ impl Plugin for PanePlugin {
             .add_systems(Update, on_pane_select.in_set(ReadAppCommands))
             .add_systems(Update, handle_pane_commands.in_set(ReadAppCommands))
             .add_systems(Update, poll_cursor_pane_focus)
+            .add_systems(Update, click_pane_in_free_camera)
             .add_systems(Update, pane_gap_drag_resize)
             .add_systems(PostUpdate, warp_cursor_to_active_pane);
     }
@@ -503,6 +505,7 @@ fn on_pane_select(
 }
 
 fn poll_cursor_pane_focus(
+    free_cam: Res<crate::scene::FreeCameraActive>,
     windows: Query<&Window, With<PrimaryWindow>>,
     leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
     pane_ts: Query<(Entity, &LastActivatedAt), With<Pane>>,
@@ -511,6 +514,9 @@ fn poll_cursor_pane_focus(
     keys: Res<ButtonInput<KeyCode>>,
     active_drags: Query<(), With<PaneDrag>>,
 ) {
+    if free_cam.0 {
+        return;
+    }
     if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) {
         return;
     }
@@ -572,6 +578,56 @@ fn poll_cursor_pane_focus(
     commands.entity(target).insert(LastActivatedAt::now());
     intent.target = None;
     intent.last_activation = Some(Instant::now());
+}
+
+fn click_pane_in_free_camera(
+    mut free_cam: ResMut<crate::scene::FreeCameraActive>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
+    kb_targets: Query<Entity, With<CefKeyboardTarget>>,
+    mut commands: Commands,
+    mut press_pos: Local<Option<Vec2>>,
+) {
+    if !free_cam.0 {
+        *press_pos = None;
+        return;
+    }
+    let Ok(window) = windows.single() else { return };
+    let Some(cursor_pos) = window.physical_cursor_position() else { return };
+    let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
+
+    if mouse.just_pressed(MouseButton::Left) {
+        *press_pos = Some(cursor);
+        return;
+    }
+
+    if !mouse.just_released(MouseButton::Left) {
+        return;
+    }
+    let Some(start) = press_pos.take() else { return };
+    const CLICK_THRESHOLD: f32 = 5.0;
+    if start.distance(cursor) > CLICK_THRESHOLD {
+        return;
+    }
+
+    for (entity, node, ui_gt) in &leaf_panes {
+        let center = ui_gt.transform_point2(Vec2::ZERO);
+        let half = node.size * 0.5;
+        if cursor.x >= center.x - half.x
+            && cursor.x <= center.x + half.x
+            && cursor.y >= center.y - half.y
+            && cursor.y <= center.y + half.y
+        {
+            commands.entity(entity).insert(LastActivatedAt::now());
+            free_cam.0 = false;
+            return;
+        }
+    }
+
+    for e in &kb_targets {
+        commands.entity(e).remove::<CefKeyboardTarget>();
+    }
 }
 
 fn warp_cursor_to_active_pane(

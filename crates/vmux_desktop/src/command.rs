@@ -80,8 +80,7 @@ pub enum TabCommand {
     #[menu(id = "tab_duplicate", label = "Duplicate Tab\t<leader> d")]
     #[shortcut(chord = "Ctrl+g, d")]
     Duplicate,
-    #[menu(id = "tab_pin", label = "Pin Tab\t<leader> p")]
-    #[shortcut(chord = "Ctrl+g, p")]
+    #[menu(id = "tab_pin", label = "Pin Tab")]
     Pin,
     #[menu(id = "tab_mute", label = "Mute Tab\t<leader> m")]
     #[shortcut(chord = "Ctrl+g, m")]
@@ -147,14 +146,14 @@ pub enum BrowserCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PaneCommand {
     #[default]
-    #[menu(id = "split_v", label = "Split Vertically\t<leader> v")]
-    #[shortcut(chord = "Ctrl+g, v")]
+    #[menu(id = "split_v", label = "Split Vertically\t<leader> %")]
+    #[shortcut(chord = "Ctrl+g, %")]
     SplitV,
-    #[menu(id = "split_h", label = "Split Horizontally\t<leader> -")]
-    #[shortcut(chord = "Ctrl+g, -")]
+    #[menu(id = "split_h", label = "Split Horizontally\t<leader> \"")]
+    #[shortcut(chord = "Ctrl+g, \"")]
     SplitH,
-    #[menu(id = "toggle_pane", label = "Toggle Pane\t<leader> t")]
-    #[shortcut(chord = "Ctrl+g, t")]
+    #[menu(id = "toggle_pane", label = "Next Pane\t<leader> o")]
+    #[shortcut(chord = "Ctrl+g, o")]
     Toggle,
     #[menu(id = "close_pane", label = "Close Pane\t<leader> x")]
     #[shortcut(chord = "Ctrl+g, x")]
@@ -212,9 +211,11 @@ pub enum SpaceCommand {
     #[menu(id = "close_space", label = "Close Space\t<leader> &")]
     #[shortcut(chord = "Ctrl+g, &")]
     Close,
-    #[menu(id = "next_space", label = "Next Space", accel = "ctrl+tab")]
+    #[menu(id = "next_space", label = "Next Space\t<leader> n")]
+    #[shortcut(chord = "Ctrl+g, n")]
     Next,
-    #[menu(id = "prev_space", label = "Previous Space", accel = "ctrl+shift+tab")]
+    #[menu(id = "prev_space", label = "Previous Space\t<leader> p")]
+    #[shortcut(chord = "Ctrl+g, p")]
     Previous,
     #[menu(id = "rename_space", label = "Rename Space\t<leader> ,")]
     #[shortcut(chord = "Ctrl+g, Comma")]

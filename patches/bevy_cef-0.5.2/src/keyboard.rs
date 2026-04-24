@@ -88,9 +88,6 @@ fn send_key_event(
     webviews_targeted: Query<Entity, (With<WebviewSource>, With<CefKeyboardTarget>)>,
     mut targeted_buf: Local<Vec<Entity>>,
     suppress: Res<CefSuppressKeyboardInput>,
-    // Persists across frames: tracks which non-character keys have been forwarded
-    // as Pressed. Cleared when the corresponding Released event arrives. This is
-    // immune to both same-frame and cross-frame duplicates from macOS/bevy_winit.
     mut forwarded_presses: Local<Vec<KeyCode>>,
 ) {
     let modifiers = keyboard_modifiers(&input);
@@ -98,42 +95,28 @@ fn send_key_event(
     targeted_buf.extend(webviews_targeted.iter());
     let use_targets = !targeted_buf.is_empty();
     for event in er.read() {
-        // Drain browser-process work before/after each key so IPC isn't still queued when the next
-        // frame's Main pump runs (reduces randomly dropped characters under load).
         cef::do_message_loop_work();
         if suppress.0 {
             continue;
         }
-        // Clear dedup state when the key is released so the next physical
-        // press is accepted.  We also skip forwarding KEYUP for non-character
-        // keys: on macOS, CEF processes the RAWKEYDOWN *and* the subsequent
-        // do_message_loop_work() / KEYUP cycle in a way that fires the editing
-        // action twice (e.g. deleteBackward: runs on both RAWKEYDOWN dispatch
-        // and the KEYUP pump).  Suppressing KEYUP for these keys is safe —
-        // browsers don't trigger default editing actions on keyup.
-        if event.state == ButtonState::Released && is_non_character_key(event.key_code) {
+        if event.state == ButtonState::Released {
+            let was_tracked = forwarded_presses.contains(&event.key_code);
             forwarded_presses.retain(|k| *k != event.key_code);
-            cef::do_message_loop_work();
-            continue;
-        }
-        // Deduplicate non-character pressed keys.
-        // On macOS, bevy_winit can deliver two Pressed messages for a single
-        // physical press of navigation/editing keys (arrows, Delete, etc.).
-        // We track forwarded presses persistently and only clear on Release,
-        // catching duplicates regardless of whether they arrive in the same
-        // frame or across consecutive frames.
-        if event.state == ButtonState::Pressed && !event.repeat {
-            if is_non_character_key(event.key_code) {
-                if forwarded_presses.contains(&event.key_code) {
-                    cef::do_message_loop_work();
-                    continue;
-                }
-                forwarded_presses.push(event.key_code);
+            if is_non_character_key(event.key_code) || was_tracked {
+                cef::do_message_loop_work();
+                continue;
             }
         }
+        let needs_dedup = is_non_character_key(event.key_code)
+            || is_emacs_nav_key(event.key_code, &input);
+        if event.state == ButtonState::Pressed && !event.repeat && needs_dedup {
+            if forwarded_presses.contains(&event.key_code) {
+                cef::do_message_loop_work();
+                continue;
+            }
+            forwarded_presses.push(event.key_code);
+        }
         if event.key_code == KeyCode::Enter && is_ime_commiting.0 {
-            // If the IME is committing, we don't want to send the Enter key event.
-            // This is to prevent sending the Enter key event when the IME is committing.
             is_ime_commiting.0 = false;
             cef::do_message_loop_work();
             continue;
@@ -186,10 +169,6 @@ fn send_key_event(
     }
 }
 
-/// Returns true for key codes that do not produce character input (navigation,
-/// modifiers, function keys, etc.).  Mirrors `is_not_character_key_code` in
-/// `bevy_cef_core` but kept local to avoid coupling the dedup logic to the
-/// core crate's internal classification.
 fn is_non_character_key(key: KeyCode) -> bool {
     matches!(
         key,
@@ -231,6 +210,27 @@ fn is_non_character_key(key: KeyCode) -> bool {
             | KeyCode::SuperLeft
             | KeyCode::SuperRight
     )
+}
+
+#[cfg(target_os = "macos")]
+fn is_emacs_nav_key(key: KeyCode, input: &ButtonInput<KeyCode>) -> bool {
+    let ctrl = input.pressed(KeyCode::ControlLeft) || input.pressed(KeyCode::ControlRight);
+    ctrl && matches!(
+        key,
+        KeyCode::KeyA
+            | KeyCode::KeyE
+            | KeyCode::KeyF
+            | KeyCode::KeyB
+            | KeyCode::KeyN
+            | KeyCode::KeyP
+            | KeyCode::KeyD
+            | KeyCode::KeyH
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_emacs_nav_key(_key: KeyCode, _input: &ButtonInput<KeyCode>) -> bool {
+    false
 }
 
 fn ime_event(

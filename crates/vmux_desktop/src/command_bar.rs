@@ -1,6 +1,6 @@
 use crate::{
     browser::Browser,
-    command::{AppCommand, BrowserCommand, ReadAppCommands, TerminalCommand},
+    command::{AppCommand, BrowserCommand, ReadAppCommands, TabCommand, TerminalCommand},
     layout::{
         pane::{Pane, PaneSplit},
         space::Space,
@@ -102,6 +102,7 @@ fn handle_open_command_bar(
     // Determine whether to open: either via FocusAddressBar command or NewTabContext
     let mut should_open = false;
     let mut should_toggle = false;
+    let mut should_dismiss = false;
     let mut url_override: Option<String> = None;
 
     for cmd in reader.read() {
@@ -121,7 +122,61 @@ fn handle_open_command_bar(
                 should_toggle = true;
                 url_override = Some(">".to_string());
             }
+            AppCommand::Tab(TabCommand::New) | AppCommand::Tab(TabCommand::Close) => {
+                should_dismiss = true;
+            }
             _ => {}
+        }
+    }
+
+    // Dismiss command bar when Cmd+T or Cmd+W fires while open
+    if should_dismiss {
+        let is_open = modal_q
+            .single()
+            .map(|(_, n, _)| n.display != Display::None)
+            .unwrap_or(false);
+        if is_open {
+            let Ok((modal_e, mut modal_node, mut modal_vis)) = modal_q.single_mut() else {
+                return;
+            };
+            modal_node.display = Display::None;
+            *modal_vis = Visibility::Hidden;
+            commands
+                .entity(modal_e)
+                .remove::<CefKeyboardTarget>()
+                .remove::<CefPointerTarget>()
+                .remove::<PendingCommandBarReveal>();
+            // Discard empty tab created by a previous Cmd+T
+            if let Some(tab_e) = new_tab_ctx.tab.take() {
+                commands.entity(tab_e).despawn();
+                if let Some(prev) = new_tab_ctx.previous_tab.take() {
+                    if let Ok(children) = all_children.get(prev) {
+                        for child in children.iter() {
+                            if content_browsers.contains(child) {
+                                commands.entity(child).insert(CefKeyboardTarget);
+                            }
+                        }
+                    }
+                }
+            } else {
+                let (_, _, active_tab) = focused_tab(
+                    &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+                );
+                if let Some(tab) = active_tab {
+                    for browser_e in &content_browsers {
+                        let is_child = child_of_q
+                            .get(browser_e)
+                            .ok()
+                            .map(|co| co.get() == tab)
+                            .unwrap_or(false);
+                        if is_child {
+                            commands.entity(browser_e).insert(CefKeyboardTarget);
+                        }
+                    }
+                }
+            }
+            new_tab_ctx.needs_open = false;
+            return;
         }
     }
 

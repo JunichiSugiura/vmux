@@ -3,6 +3,7 @@ use crate::{
     command_bar::NewTabContext,
     layout::pane::{first_leaf_descendant, first_tab_in_pane, Pane, PaneSplit},
     layout::space::Space,
+    layout::swap::{find_kind_index, resolve_prev, resolve_next, swap_siblings},
     settings::AppSettings,
     terminal::Terminal,
 };
@@ -337,6 +338,25 @@ fn handle_tab_commands(
             | TabCommand::Pin
             | TabCommand::Mute
             | TabCommand::MoveToPane => {}
+            TabCommand::SwapPrev | TabCommand::SwapNext => {
+                let Some(pane) = active_pane else { continue };
+                let Some(tab) = active_tab else { continue };
+                let Ok(children) = pane_children.get(pane) else { continue };
+                let kind_positions: Vec<usize> = children.iter()
+                    .enumerate()
+                    .filter(|(_, e)| tab_q.contains(*e))
+                    .map(|(i, _)| i)
+                    .collect();
+                let Some(active_idx) = find_kind_index(tab, children, &kind_positions) else { continue };
+                let pair = if tab_cmd == TabCommand::SwapPrev {
+                    resolve_prev(active_idx)
+                } else {
+                    resolve_next(active_idx, kind_positions.len())
+                };
+                if let Some((a, b)) = pair {
+                    swap_siblings(&mut commands, pane, children, &kind_positions, a, b);
+                }
+            }
         }
     }
 }

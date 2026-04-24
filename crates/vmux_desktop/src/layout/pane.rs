@@ -1,6 +1,7 @@
 use crate::{
     command::{AppCommand, PaneCommand, ReadAppCommands},
     command_bar::NewTabContext,
+    layout::swap::{find_kind_index, resolve_prev, resolve_next, swap_siblings},
     layout::space::Space,
     layout::tab::{Tab, tab_bundle, active_among, active_pane_in_space, active_tab_in_pane,
                   focused_tab},
@@ -319,8 +320,26 @@ fn handle_pane_commands(
             PaneCommand::SelectRight => {}
             PaneCommand::SelectUp => {}
             PaneCommand::SelectDown => {}
-            PaneCommand::SwapPrev => {}
-            PaneCommand::SwapNext => {}
+            PaneCommand::SwapPrev | PaneCommand::SwapNext => {
+                let Ok(co) = child_of_q.get(active) else { continue };
+                let parent = co.get();
+                if !split_dir_q.contains(parent) { continue; }
+                let Ok(children) = all_children.get(parent) else { continue };
+                let kind_positions: Vec<usize> = children.iter()
+                    .enumerate()
+                    .filter(|(_, e)| leaf_panes.contains(*e) || split_dir_q.contains(*e))
+                    .map(|(i, _)| i)
+                    .collect();
+                let Some(active_idx) = find_kind_index(active, children, &kind_positions) else { continue };
+                let pair = if pane_cmd == PaneCommand::SwapPrev {
+                    resolve_prev(active_idx)
+                } else {
+                    resolve_next(active_idx, kind_positions.len())
+                };
+                if let Some((a, b)) = pair {
+                    swap_siblings(&mut commands, parent, children, &kind_positions, a, b);
+                }
+            }
             PaneCommand::RotateForward => {}
             PaneCommand::RotateBackward => {}
             PaneCommand::EqualizeSize => {

@@ -88,6 +88,12 @@ pub enum TabCommand {
     #[menu(id = "tab_move_to_pane", label = "Move Tab to Pane\t<leader> !")]
     #[shortcut(chord = "Ctrl+g, !")]
     MoveToPane,
+    #[menu(id = "tab_swap_prev", label = "Move Tab Left\t<leader> <")]
+    #[shortcut(chord = "Ctrl+g, <")]
+    SwapPrev,
+    #[menu(id = "tab_swap_next", label = "Move Tab Right\t<leader> >")]
+    #[shortcut(chord = "Ctrl+g, >")]
+    SwapNext,
 }
 
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -226,6 +232,10 @@ pub enum SpaceCommand {
     #[menu(id = "rename_space", label = "Rename Space\t<leader> ,")]
     #[shortcut(chord = "Ctrl+g, Comma")]
     Rename,
+    #[menu(id = "swap_space_prev", label = "Move Space Left")]
+    SwapPrev,
+    #[menu(id = "swap_space_next", label = "Move Space Right")]
+    SwapNext,
 }
 
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -590,6 +590,7 @@ fn click_pane_in_player_mode(
         &mut bevy::camera_controller::free_camera::FreeCameraState,
         With<crate::scene::MainCamera>,
     >,
+    mut suppress: ResMut<bevy_cef::prelude::CefSuppressKeyboardInput>,
 ) {
     if *mode != crate::scene::InteractionMode::Player {
         *press_motion = None;
@@ -648,6 +649,7 @@ fn click_pane_in_player_mode(
                 // Double-click: exit player mode with animation
                 *last_click = None;
                 camera_state.enabled = false;
+                suppress.0 = false;
                 commands.insert_resource(crate::scene::ModeTransition::new(
                     crate::scene::TransitionDirection::ExitPlayer,
                 ));

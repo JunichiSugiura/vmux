@@ -7,6 +7,7 @@ mod keyboard;
 mod loading_state;
 mod mute;
 mod navigation;
+mod popup_state;
 mod system_param;
 mod webview;
 mod zoom;
@@ -17,6 +18,7 @@ use crate::keyboard::KeyboardPlugin;
 use crate::chrome_state::WebviewChromeStatePlugin;
 use crate::loading_state::WebviewLoadingStatePlugin;
 use crate::mute::AudioMutePlugin;
+use crate::popup_state::WebviewPopupPlugin;
 use crate::prelude::{IpcPlugin, NavigationPlugin, WebviewPlugin};
 use crate::zoom::ZoomPlugin;
 use bevy::prelude::*;
@@ -29,12 +31,12 @@ use bevy_remote::RemotePlugin;
 pub mod prelude {
     pub use crate::{
         CefPlugin, RunOnMainThread, chrome_state::*, common::*, keyboard::CefKeyboardInputSet,
-        loading_state::*, navigation::*, webview::prelude::*,
+        loading_state::*, navigation::*, popup_state::*, webview::prelude::*,
     };
     pub use bevy_cef_core::prelude::{
         Browsers, CefDiskProfileRoot, CefEmbeddedHost, CefEmbeddedHosts, CefEmbeddedPageConfig,
         CefExtensions, CommandLineConfig, WebviewChromeStateEvent, WebviewLoadingStateEvent,
-        compile_time_cef_embedded_scheme, resolved_cef_embedded_page_config,
+        WebviewPopupEvent, compile_time_cef_embedded_scheme, resolved_cef_embedded_page_config,
     };
 }
 
@@ -84,6 +86,7 @@ impl Plugin for CefPlugin {
             SystemCursorIconPlugin,
             WebviewLoadingStatePlugin,
             WebviewChromeStatePlugin,
+            WebviewPopupPlugin,
             NavigationPlugin,
             ZoomPlugin,
             AudioMutePlugin,

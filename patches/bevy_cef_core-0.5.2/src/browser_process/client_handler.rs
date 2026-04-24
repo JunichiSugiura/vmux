@@ -6,7 +6,8 @@ use crate::prelude::IntoString;
 use cef::rc::{Rc, RcImpl};
 use cef::{
     Browser, Client, ContextMenuHandler, DisplayHandler, Frame, ImplClient, ImplProcessMessage,
-    ListValue, LoadHandler, ProcessId, ProcessMessage, RenderHandler, WrapClient, sys,
+    LifeSpanHandler, ListValue, LoadHandler, ProcessId, ProcessMessage, RenderHandler,
+    RequestHandler, WrapClient, sys,
 };
 use std::os::raw::c_int;
 
@@ -29,6 +30,8 @@ pub struct ClientHandlerBuilder {
     message_handlers: Vec<std::rc::Rc<dyn ProcessMessageHandler>>,
     display_handler: Option<DisplayHandler>,
     load_handler: Option<LoadHandler>,
+    life_span_handler: Option<LifeSpanHandler>,
+    request_handler: Option<RequestHandler>,
 }
 
 impl ClientHandlerBuilder {
@@ -40,6 +43,8 @@ impl ClientHandlerBuilder {
             message_handlers: Vec::new(),
             display_handler: None,
             load_handler: None,
+            life_span_handler: None,
+            request_handler: None,
         }
     }
 
@@ -50,6 +55,16 @@ impl ClientHandlerBuilder {
 
     pub fn with_load_handler(mut self, load_handler: LoadHandler) -> Self {
         self.load_handler = Some(load_handler);
+        self
+    }
+
+    pub fn with_life_span_handler(mut self, life_span_handler: LifeSpanHandler) -> Self {
+        self.life_span_handler = Some(life_span_handler);
+        self
+    }
+
+    pub fn with_request_handler(mut self, request_handler: RequestHandler) -> Self {
+        self.request_handler = Some(request_handler);
         self
     }
 
@@ -93,6 +108,8 @@ impl Clone for ClientHandlerBuilder {
             message_handlers: self.message_handlers.clone(),
             display_handler: self.display_handler.clone(),
             load_handler: self.load_handler.clone(),
+            life_span_handler: self.life_span_handler.clone(),
+            request_handler: self.request_handler.clone(),
         }
     }
 }
@@ -108,6 +125,14 @@ impl ImplClient for ClientHandlerBuilder {
 
     fn load_handler(&self) -> Option<LoadHandler> {
         self.load_handler.clone()
+    }
+
+    fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+        self.life_span_handler.clone()
+    }
+
+    fn request_handler(&self) -> Option<RequestHandler> {
+        self.request_handler.clone()
     }
 
     fn on_process_message_received(

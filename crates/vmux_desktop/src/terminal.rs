@@ -1,6 +1,6 @@
 use crate::{
     browser::Browser,
-    command::{AppCommand, TabCommand},
+    command::{AppCommand, TabCommand, WriteAppCommands},
     layout::window::WEBVIEW_MESH_DEPTH_BIAS,
     settings::AppSettings,
 };
@@ -102,7 +102,15 @@ impl Plugin for TerminalInputPlugin {
                 )
                     .after(InputSystems),
             )
-            .add_systems(Update, (poll_pty_output, sync_terminal_viewport, sync_terminal_theme).chain())
+            .add_systems(
+                Update,
+                (
+                    poll_pty_output.in_set(WriteAppCommands),
+                    sync_terminal_viewport,
+                    sync_terminal_theme,
+                )
+                    .chain(),
+            )
             .add_observer(on_term_ready)
             .add_observer(on_term_resize)
             .add_observer(on_term_mouse)

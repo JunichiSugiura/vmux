@@ -28,9 +28,13 @@ use crate::browser_process::browsers::devtool_render_handler::DevToolRenderHandl
 use crate::browser_process::display_handler::{
     DisplayHandlerBuilder, SystemCursorIconSenderInner, WebviewChromeStateSenderInner,
 };
+use crate::browser_process::life_span_handler::{
+    LifeSpanHandlerBuilder, WebviewPopupSenderInner,
+};
 use crate::browser_process::load_handler::{
     WebviewLoadHandlerBuilder, WebviewLoadingStateSenderInner,
 };
+use crate::browser_process::request_handler::RequestHandlerBuilder;
 use crate::browser_process::renderer_handler::SharedDeviceScaleFactor;
 pub use keyboard::*;
 
@@ -89,6 +93,7 @@ impl Browsers {
         system_cursor_icon_sender: SystemCursorIconSenderInner,
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
         webview_chrome_state_sender: WebviewChromeStateSenderInner,
+        webview_popup_sender: WebviewPopupSenderInner,
         initialize_scripts: &[String],
         _window_handle: Option<RawWindowHandle>,
         disk_profile_root: Option<&str>,
@@ -106,6 +111,7 @@ impl Browsers {
             system_cursor_icon_sender,
             webview_loading_state_sender,
             webview_chrome_state_sender,
+            webview_popup_sender,
         );
 
         // `RequestContext::register_scheme_handler_factory` is not always enough: some navigations
@@ -706,6 +712,7 @@ impl Browsers {
         system_cursor_icon_sender: SystemCursorIconSenderInner,
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
         webview_chrome_state_sender: WebviewChromeStateSenderInner,
+        webview_popup_sender: WebviewPopupSenderInner,
     ) -> Client {
         ClientHandlerBuilder::new(RenderHandlerBuilder::build(
             webview,
@@ -721,6 +728,14 @@ impl Browsers {
         .with_load_handler(WebviewLoadHandlerBuilder::build(
             webview,
             webview_loading_state_sender,
+        ))
+        .with_life_span_handler(LifeSpanHandlerBuilder::build(
+            webview,
+            webview_popup_sender.clone(),
+        ))
+        .with_request_handler(RequestHandlerBuilder::build(
+            webview,
+            webview_popup_sender,
         ))
         .with_message_handler(JsEmitEventHandler::new(webview, ipc_event_sender))
         .with_message_handler(BrpHandler::new(brp_sender))

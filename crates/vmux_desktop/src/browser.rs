@@ -68,6 +68,7 @@ impl Plugin for BrowserPlugin {
             (
                 handle_browser_commands.in_set(ReadAppCommands),
                 drain_loading_state,
+                spawn_popup_tabs,
             ),
         )
         .add_systems(
@@ -469,6 +470,43 @@ fn drain_loading_state(
             can_go_back: ev.can_go_back,
             can_go_forward: ev.can_go_forward,
         });
+    }
+}
+
+fn spawn_popup_tabs(
+    popup_rx: Res<WebviewPopupReceiver>,
+    child_of_q: Query<&ChildOf>,
+    tab_q: Query<(), With<Tab>>,
+    leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
+) {
+    while let Ok(ev) = popup_rx.0.try_recv() {
+        if ev.target_url.is_empty() {
+            continue;
+        }
+        let Ok(tab_co) = child_of_q.get(ev.webview) else {
+            continue;
+        };
+        let tab = tab_co.get();
+        if !tab_q.contains(tab) {
+            continue;
+        }
+        let Ok(pane_co) = child_of_q.get(tab) else {
+            continue;
+        };
+        let pane = pane_co.get();
+        if !leaf_panes.contains(pane) {
+            continue;
+        }
+        let new_tab = commands
+            .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
+            .id();
+        commands.spawn((
+            Browser::new(&mut meshes, &mut webview_mt, &ev.target_url),
+            ChildOf(new_tab),
+        ));
     }
 }
 

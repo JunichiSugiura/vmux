@@ -113,6 +113,10 @@ fn handle_open_command_bar(
                 should_toggle = true;
                 url_override = Some(String::new());
             }
+            AppCommand::Browser(BrowserCommand::OpenPathBar) => {
+                should_toggle = true;
+                url_override = Some("/".to_string());
+            }
             AppCommand::Browser(BrowserCommand::OpenCommands) => {
                 should_toggle = true;
                 url_override = Some(">".to_string());

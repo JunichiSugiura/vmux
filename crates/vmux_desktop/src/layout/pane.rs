@@ -41,7 +41,7 @@ impl Plugin for PanePlugin {
             .add_systems(Update, on_pane_select.in_set(ReadAppCommands))
             .add_systems(Update, handle_pane_commands.in_set(ReadAppCommands))
             .add_systems(Update, poll_cursor_pane_focus)
-            .add_systems(Update, click_pane_in_free_camera)
+            .add_systems(Update, click_pane_in_player_mode)
             .add_systems(Update, pane_gap_drag_resize)
             .add_systems(PostUpdate, warp_cursor_to_active_pane);
     }
@@ -500,7 +500,7 @@ fn on_pane_select(
 }
 
 fn poll_cursor_pane_focus(
-    free_cam: Res<crate::scene::FreeCameraActive>,
+    mode: Res<crate::scene::InteractionMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
     leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
     pane_ts: Query<(Entity, &LastActivatedAt), With<Pane>>,
@@ -509,7 +509,7 @@ fn poll_cursor_pane_focus(
     keys: Res<ButtonInput<KeyCode>>,
     active_drags: Query<(), With<PaneDrag>>,
 ) {
-    if free_cam.0 {
+    if *mode != crate::scene::InteractionMode::User {
         return;
     }
     if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) {
@@ -575,8 +575,8 @@ fn poll_cursor_pane_focus(
     intent.last_activation = Some(Instant::now());
 }
 
-fn click_pane_in_free_camera(
-    mut free_cam: ResMut<crate::scene::FreeCameraActive>,
+fn click_pane_in_player_mode(
+    mut mode: ResMut<crate::scene::InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
@@ -585,7 +585,7 @@ fn click_pane_in_free_camera(
     accumulated_motion: Res<AccumulatedMouseMotion>,
     mut press_motion: Local<Option<f32>>,
 ) {
-    if !free_cam.0 {
+    if *mode != crate::scene::InteractionMode::Player {
         *press_motion = None;
         return;
     }
@@ -620,7 +620,7 @@ fn click_pane_in_free_camera(
             && cursor.y <= center.y + half.y
         {
             commands.entity(entity).insert(LastActivatedAt::now());
-            free_cam.0 = false;
+            *mode = crate::scene::InteractionMode::User;
             return;
         }
     }

@@ -119,7 +119,7 @@ For commands with chord bindings but no `accel`, the chord is embedded in the me
 | Variant | menu id | label | accel | Menu Display | bind | Handler |
 |---------|---------|-------|-------|--------------|------|---------|
 | Reset | reset_camera | Reset Camera | | Reset Camera | | ✅ |
-| ToggleFreeCamera | toggle_free_camera | Toggle Free Camera | | Toggle Free Camera | | ✅ |
+| TogglePlayerMode | toggle_player_mode | Toggle Player Mode | | Toggle Player Mode | | ✅ |
 
 ## Summary
 

@@ -129,6 +129,8 @@ pub enum BrowserCommand {
     FocusAddressBar,
     #[menu(id = "browser_open_command_bar", label = "Command Bar", accel = "super+k")]
     OpenCommandBar,
+    #[menu(id = "browser_open_path_bar", label = "Path Navigator", accel = "super+/")]
+    OpenPathBar,
     #[menu(id = "browser_open_commands", label = "Commands", accel = "super+shift+.")]
     OpenCommands,
     #[menu(id = "browser_find", label = "Find", accel = "super+f")]
@@ -243,9 +245,9 @@ pub enum SideSheetCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SceneCommand {
     #[default]
-    #[menu(id = "toggle_free_camera", label = "Toggle Camera Mode")]
+    #[menu(id = "toggle_player_mode", label = "Toggle Player Mode")]
     #[shortcut(chord = "Ctrl+g, Enter")]
-    ToggleFreeCamera,
+    TogglePlayerMode,
 }
 
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]

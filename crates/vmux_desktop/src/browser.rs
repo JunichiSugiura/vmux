@@ -163,7 +163,7 @@ impl Browser {
 }
 
 fn sync_keyboard_target(
-    free_cam: Res<crate::scene::FreeCameraActive>,
+    mode: Res<crate::scene::InteractionMode>,
     spaces: Query<(Entity, &LastActivatedAt), With<Space>>,
     all_children: Query<&Children>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
@@ -177,7 +177,7 @@ fn sync_keyboard_target(
     content_q: Query<(Entity, Has<CefKeyboardTarget>), With<Browser>>,
     mut commands: Commands,
 ) {
-    if crate::command_bar::is_command_bar_open(&modal_q) || free_cam.0 {
+    if crate::command_bar::is_command_bar_open(&modal_q) || *mode != crate::scene::InteractionMode::User {
         return;
     }
     let (_, _, active_tab_opt) = focused_tab(
@@ -699,6 +699,7 @@ fn handle_browser_commands(
             BrowserCommand::Stop => {}
             BrowserCommand::FocusAddressBar
             | BrowserCommand::OpenCommandBar
+            | BrowserCommand::OpenPathBar
             | BrowserCommand::OpenCommands => {}
             BrowserCommand::Find => {}
             BrowserCommand::ZoomIn => {

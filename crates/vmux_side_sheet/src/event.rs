@@ -35,3 +35,58 @@ pub struct SideSheetCommandEvent {
     #[serde(default)]
     pub tab_index: usize,
 }
+
+pub const SIDE_SHEET_DRAG_EVENT: &str = "side-sheet-drag";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SplitDirection {
+    Row,
+    Column,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum LayoutNode {
+    Split {
+        id: u64,
+        direction: SplitDirection,
+        children: Vec<LayoutNode>,
+        flex_weights: Vec<f32>,
+    },
+    Pane {
+        id: u64,
+        is_active: bool,
+        tabs: Vec<TabNode>,
+    },
+}
+
+#[cfg_attr(
+    not(target_arch = "wasm32"),
+    derive(bevy_ecs::message::Message)
+)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
+pub enum SideSheetDragCommand {
+    MoveTab {
+        from_pane: u64,
+        from_index: usize,
+        to_pane: u64,
+        to_index: usize,
+    },
+    SwapPane {
+        pane: u64,
+        target: u64,
+    },
+    SplitPane {
+        dragged: u64,
+        target: u64,
+        edge: Edge,
+    },
+}

@@ -44,3 +44,69 @@ pub(crate) fn resolve_prev(active_idx: usize) -> Option<(usize, usize)> {
 pub(crate) fn resolve_next(active_idx: usize, len: usize) -> Option<(usize, usize)> {
     (active_idx + 1 < len).then(|| (active_idx, active_idx + 1))
 }
+
+pub(crate) fn move_to_index(
+    world: &mut bevy::prelude::World,
+    child: bevy::prelude::Entity,
+    new_parent: bevy::prelude::Entity,
+    index: usize,
+) {
+    let already_child = world
+        .get::<ChildOf>(child)
+        .is_some_and(|c| c.parent() == new_parent);
+    let current_len = world
+        .get::<Children>(new_parent)
+        .map(|c| c.len())
+        .unwrap_or(0);
+    let clamped = if already_child {
+        index.min(current_len.saturating_sub(1))
+    } else {
+        index.min(current_len)
+    };
+    world.entity_mut(new_parent).insert_child(clamped, child);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spawn_parent_with_children(world: &mut World, n: usize) -> (Entity, Vec<Entity>) {
+        let parent = world.spawn_empty().id();
+        let kids: Vec<Entity> = (0..n)
+            .map(|_| world.spawn(ChildOf(parent)).id())
+            .collect();
+        (parent, kids)
+    }
+
+    #[test]
+    fn move_to_index_reorders_within_same_parent() {
+        let mut world = World::new();
+        let (parent, kids) = spawn_parent_with_children(&mut world, 3);
+        move_to_index(&mut world, kids[2], parent, 0);
+        let children = world.get::<Children>(parent).unwrap();
+        assert_eq!(&**children, &[kids[2], kids[0], kids[1]]);
+    }
+
+    #[test]
+    fn move_to_index_reparents_across_parents() {
+        let mut world = World::new();
+        let (p1, a) = spawn_parent_with_children(&mut world, 2);
+        let (p2, b) = spawn_parent_with_children(&mut world, 1);
+        move_to_index(&mut world, a[0], p2, 0);
+
+        let p1_kids = world.get::<Children>(p1).unwrap();
+        assert_eq!(&**p1_kids, &[a[1]]);
+
+        let p2_kids = world.get::<Children>(p2).unwrap();
+        assert_eq!(&**p2_kids, &[a[0], b[0]]);
+    }
+
+    #[test]
+    fn move_to_index_clamps_out_of_range() {
+        let mut world = World::new();
+        let (parent, kids) = spawn_parent_with_children(&mut world, 2);
+        move_to_index(&mut world, kids[0], parent, 999);
+        let children = world.get::<Children>(parent).unwrap();
+        assert_eq!(&**children, &[kids[1], kids[0]]);
+    }
+}

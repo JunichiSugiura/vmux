@@ -21,8 +21,8 @@ echo "==> cargo build -p vmux_desktop --release"
 cargo build -p vmux_desktop --release
 
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
-cp -f "$ROOT/target/release/vmux_desktop" "$APP_BUNDLE/Contents/MacOS/vmux_desktop"
-chmod +x "$APP_BUNDLE/Contents/MacOS/vmux_desktop"
+cp -f "$ROOT/target/release/Vmux" "$APP_BUNDLE/Contents/MacOS/Vmux"
+chmod +x "$APP_BUNDLE/Contents/MacOS/Vmux"
 cp -f "$PLIST_SRC" "$APP_BUNDLE/Contents/Info.plist"
 
 if ! command -v bevy_cef_bundle_app >/dev/null 2>&1; then

@@ -32,7 +32,7 @@ echo "==> Signing $APP_BUNDLE"
 
 # Sign the CEF framework and helper binaries first (inside-out signing)
 # Find all Mach-O binaries and .dylib files in Frameworks
-find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm /111 \) | while read -r binary; do
+find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm +111 \) | while read -r binary; do
     # Skip non-Mach-O files
     file "$binary" | grep -q "Mach-O" || continue
     echo "  Signing: ${binary#$APP_BUNDLE/}"

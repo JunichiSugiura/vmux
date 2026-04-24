@@ -226,9 +226,11 @@ pub(crate) fn rebuild_session_views(
     }
 
     // -- Tab: add absolute-fill node + spawn Browser child --
+    let mut despawned = std::collections::HashSet::new();
     for (entity, meta) in &tabs_need_view {
         // Discard empty tabs (no URL, no content) that were saved mid-session
         if meta.url.is_empty() {
+            despawned.insert(entity);
             commands.entity(entity).despawn();
             continue;
         }
@@ -286,6 +288,9 @@ pub(crate) fn rebuild_session_views(
         }
         let Ok(children) = all_children.get(parent) else { continue };
         for child in children.iter() {
+            if despawned.contains(&child) {
+                continue;
+            }
             if let Ok(co) = child_of_q.get(child) {
                 commands.entity(child).insert(ChildOf(co.get()));
             }

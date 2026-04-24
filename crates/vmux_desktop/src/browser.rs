@@ -177,8 +177,20 @@ fn sync_keyboard_target(
     content_q: Query<(Entity, Has<CefKeyboardTarget>), With<Browser>>,
     mut commands: Commands,
 ) {
-    if crate::command_bar::is_command_bar_open(&modal_q) || *mode != crate::scene::InteractionMode::User {
+    if crate::command_bar::is_command_bar_open(&modal_q) {
         return;
+    }
+
+    // In Player mode, only sync when a pane has been clicked (Focused sub-state).
+    // In Roaming (no CefKeyboardTarget on any pane browser), skip sync to prevent
+    // re-assigning the target to the previously active pane.
+    if *mode == crate::scene::InteractionMode::Player {
+        let has_pane_target = content_q.iter().any(|(e, has_kb)| {
+            has_kb && !status_q.contains(e) && !side_sheet_q.contains(e)
+        });
+        if !has_pane_target {
+            return;
+        }
     }
     let (_, _, active_tab_opt) = focused_tab(
         &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,

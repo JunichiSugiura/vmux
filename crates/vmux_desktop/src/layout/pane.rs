@@ -576,7 +576,7 @@ fn poll_cursor_pane_focus(
 }
 
 fn click_pane_in_player_mode(
-    mut mode: ResMut<crate::scene::InteractionMode>,
+    mode: Res<crate::scene::InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
@@ -584,11 +584,25 @@ fn click_pane_in_player_mode(
     mut commands: Commands,
     accumulated_motion: Res<AccumulatedMouseMotion>,
     mut press_motion: Local<Option<f32>>,
+    mut last_click: Local<Option<(Entity, Instant)>>,
+    transition: Option<Res<crate::scene::ModeTransition>>,
+    mut camera_state: Single<
+        &mut bevy::camera_controller::free_camera::FreeCameraState,
+        With<crate::scene::MainCamera>,
+    >,
 ) {
     if *mode != crate::scene::InteractionMode::Player {
         *press_motion = None;
+        *last_click = None;
         return;
     }
+
+    // Don't handle clicks during transition
+    if transition.is_some() {
+        *press_motion = None;
+        return;
+    }
+
     let Ok(window) = windows.single() else { return };
     let Some(cursor_pos) = window.physical_cursor_position() else { return };
     let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
@@ -611,6 +625,8 @@ fn click_pane_in_player_mode(
         return;
     }
 
+    // Hit-test panes
+    let mut hit_pane: Option<Entity> = None;
     for (entity, node, ui_gt) in &leaf_panes {
         let center = ui_gt.transform_point2(Vec2::ZERO);
         let half = node.size * 0.5;
@@ -619,14 +635,38 @@ fn click_pane_in_player_mode(
             && cursor.y >= center.y - half.y
             && cursor.y <= center.y + half.y
         {
-            commands.entity(entity).insert(LastActivatedAt::now());
-            *mode = crate::scene::InteractionMode::User;
-            return;
+            hit_pane = Some(entity);
+            break;
         }
     }
 
-    for e in &kb_targets {
-        commands.entity(e).remove::<CefKeyboardTarget>();
+    if let Some(pane) = hit_pane {
+        // Check for double-click
+        const DOUBLE_CLICK_MS: u128 = 400;
+        if let Some((prev_entity, prev_time)) = *last_click {
+            if prev_entity == pane && prev_time.elapsed().as_millis() < DOUBLE_CLICK_MS {
+                // Double-click: exit player mode with animation
+                *last_click = None;
+                camera_state.enabled = false;
+                commands.insert_resource(crate::scene::ModeTransition::new(
+                    crate::scene::TransitionDirection::ExitPlayer,
+                ));
+                return;
+            }
+        }
+
+        // Single click: activate pane for keyboard input
+        *last_click = Some((pane, Instant::now()));
+        commands.entity(pane).insert(LastActivatedAt::now());
+        // sync_keyboard_target in browser.rs will assign CefKeyboardTarget
+        // to the active pane's browser, and suppress_free_camera_when_pane_active
+        // will disable FreeCameraState when it detects the target.
+    } else {
+        // Clicked empty space: remove all keyboard targets (return to roaming)
+        *last_click = None;
+        for e in &kb_targets {
+            commands.entity(e).remove::<CefKeyboardTarget>();
+        }
     }
 }
 

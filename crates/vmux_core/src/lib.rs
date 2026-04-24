@@ -3,6 +3,19 @@ use bevy::prelude::*;
 #[cfg(not(target_arch = "wasm32"))]
 use moonshine_save::prelude::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub struct CorePlugin;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Plugin for CorePlugin {
+    fn build(&self, app: &mut App) {
+        app.register_type::<PageMetadata>()
+            .register_type::<CreatedAt>()
+            .register_type::<LastActivatedAt>()
+            .register_type::<Visit>();
+    }
+}
+
 // ── Time helpers ─────────────────────────────────────────────────────
 
 #[cfg(not(target_arch = "wasm32"))]

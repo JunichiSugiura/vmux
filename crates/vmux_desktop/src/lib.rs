@@ -56,6 +56,7 @@ impl Plugin for VmuxPlugin {
             focused_mode: bevy::winit::UpdateMode::reactive(Duration::from_millis(50)),
             unfocused_mode: bevy::winit::UpdateMode::reactive_low_power(Duration::from_secs(1)),
         })
+        .add_plugins(vmux_core::CorePlugin)
         .add_plugins((
             DefaultPlugins
                 .set(WebAssetPlugin {

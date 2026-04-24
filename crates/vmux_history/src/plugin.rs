@@ -10,9 +10,6 @@ pub struct HistoryPlugin;
 
 impl Plugin for HistoryPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<CreatedAt>()
-            .register_type::<LastActivatedAt>()
-            .register_type::<Visit>();
         app.world_mut()
             .resource_mut::<WebviewAppRegistry>()
             .register(

@@ -18,6 +18,11 @@ if [ ! -d "$APP_BUNDLE" ]; then
     exit 1
 fi
 
+VMUX_ICNS=""
+if [ -f "$ROOT/packaging/macos/Vmux.icns" ]; then
+    VMUX_ICNS="$ROOT/packaging/macos/Vmux.icns"
+fi
+
 echo "==> Creating DMG: $DMG_NAME"
 
 # Use create-dmg if available (prettier result), otherwise fall back to hdiutil
@@ -25,14 +30,9 @@ if command -v create-dmg >/dev/null 2>&1; then
     # Remove existing DMG (create-dmg fails if it exists)
     rm -f "$DMG_PATH"
 
-    ICON_ARGS=()
-    if [ -f "$ROOT/packaging/macos/Vmux.icns" ]; then
-        ICON_ARGS=(--volicon "$ROOT/packaging/macos/Vmux.icns")
-    fi
-
     create-dmg \
         --volname "Vmux" \
-        "${ICON_ARGS[@]}" \
+        ${VMUX_ICNS:+--volicon "$VMUX_ICNS"} \
         --window-pos 200 120 \
         --window-size 600 400 \
         --icon-size 100 \

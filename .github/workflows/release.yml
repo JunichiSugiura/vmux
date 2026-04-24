@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building version: $VERSION"
+
+      - name: Verify Cargo.toml version matches tag
+        run: |
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$CARGO_VERSION" != "$VERSION" ]; then
+            echo "Error: Cargo.toml version ($CARGO_VERSION) does not match tag ($VERSION)" >&2
+            exit 1
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
+
+      - name: Install CEF framework
+        run: |
+          cargo install export-cef-dir@145.6.1+145.0.28 --force
+          export-cef-dir --force "$HOME/.local/share"
+
+      - name: Install bevy_cef tools
+        run: |
+          cargo install bevy_cef_render_process
+          cargo install bevy_cef_bundle_app
+
+      - name: Patch Info.plist version
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" \
+            packaging/macos/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" \
+            packaging/macos/Info.plist
+
+      - name: Build and bundle app
+        run: ./scripts/bundle-macos.sh
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "" build.keychain
+          security list-keychains -d user -s build.keychain
+          rm cert.p12
+
+      - name: Sign and notarize
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./scripts/sign-and-notarize.sh
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          VERSION="$VERSION" ./scripts/create-dmg.sh
+
+      - name: Create binary tarball for auto-updater
+        run: |
+          cd build/Vmux.app/Contents/MacOS
+          tar czf "../../../../vmux_desktop-v${VERSION}-aarch64-apple-darwin.tar.gz" vmux_desktop
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Vmux v${VERSION}" \
+            --generate-notes \
+            "build/Vmux-${VERSION}-mac.dmg" \
+            "build/vmux_desktop-v${VERSION}-aarch64-apple-darwin.tar.gz"
+
+      - name: Update Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          DMG_SHA=$(shasum -a 256 "build/Vmux-${VERSION}-mac.dmg" | awk '{print $1}')
+
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/JunichiSugiura/homebrew-vmux.git" /tmp/homebrew-vmux
+
+          cat > /tmp/homebrew-vmux/Casks/vmux.rb << EOF
+          cask "vmux" do
+            version "${VERSION}"
+            sha256 "${DMG_SHA}"
+
+            url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+            name "Vmux"
+            desc "Tiling browser with pane multiplexing"
+            homepage "https://github.com/JunichiSugiura/vmux"
+
+            app "Vmux.app"
+          end
+          EOF
+
+          cd /tmp/homebrew-vmux
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/vmux.rb
+          git diff --cached --quiet || git commit -m "Update vmux to ${VERSION}"
+          git diff --quiet origin/main || git push

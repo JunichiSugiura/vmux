@@ -12,7 +12,9 @@ impl Plugin for CorePlugin {
         app.register_type::<PageMetadata>()
             .register_type::<CreatedAt>()
             .register_type::<LastActivatedAt>()
-            .register_type::<Visit>();
+            .register_type::<Visit>()
+            .register_type::<Children>()
+            .register_type::<ChildOf>();
     }
 }
 

@@ -64,6 +64,7 @@ fn mark_dirty_on_change(
     removed_panes: RemovedComponents<Pane>,
     changed_meta: Query<(), (Changed<PageMetadata>, With<Tab>)>,
     changed_size: Query<(), Changed<PaneSize>>,
+    changed_children: Query<(), Changed<Children>>,
 ) {
     if !added_tabs.is_empty()
         || !added_panes.is_empty()
@@ -72,6 +73,7 @@ fn mark_dirty_on_change(
         || removed_panes.len() > 0
         || !changed_meta.is_empty()
         || !changed_size.is_empty()
+        || !changed_children.is_empty()
     {
         auto_save.dirty = true;
         auto_save.debounce.reset();
@@ -110,6 +112,7 @@ fn do_save(commands: &mut Commands) {
     save.components = SceneFilter::deny_all()
         .allow::<Save>()
         .allow::<ChildOf>()
+        .allow::<Children>()
         .allow::<Tab>()
         .allow::<Space>()
         .allow::<Pane>()

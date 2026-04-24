@@ -32,7 +32,7 @@ Enroll in the Apple Developer Program ($99/yr). Required artifacts:
 Update the placeholder bundle ID and add missing metadata.
 
 **`packaging/macos/Info.plist`:**
-- `CFBundleIdentifier`: `com.yourorg.vmux` -> real reverse-domain ID (e.g. `dev.vmux.app`)
+- `CFBundleIdentifier`: `com.yourorg.vmux` -> `ai.vmux.desktop`
 - `CFBundleShortVersionString`: sync with `Cargo.toml` workspace version (currently hardcoded `0.1.0`)
 - `CFBundleIconFile`: add once `.icns` is created
 - Add `NSCameraUsageDescription`, `NSMicrophoneUsageDescription` if CEF may request permissions
@@ -287,7 +287,7 @@ Every tagged version produces a DMG attached to a GitHub Release with auto-gener
 
 ### Homebrew Cask
 
-Create a cask formula in a tap repository (e.g. `JunichiSugiura/homebrew-tap`):
+Create a cask formula in a tap repository (`JunichiSugiura/homebrew-vmux`):
 
 ```ruby
 cask "vmux" do
@@ -303,7 +303,7 @@ cask "vmux" do
 end
 ```
 
-Usage: `brew tap JunichiSugiura/tap && brew install --cask vmux`
+Usage: `brew tap JunichiSugiura/vmux && brew install --cask vmux`
 
 The GitHub Actions workflow can auto-update the cask SHA and version after a release.
 

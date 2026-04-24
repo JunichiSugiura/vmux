@@ -109,8 +109,13 @@ pub(crate) fn collapse_if_single_child(world: &mut World, split: Entity) {
     world.entity_mut(split).despawn();
 }
 
-/// Replace `target` in its grandparent with a new `PaneSplit` of `direction`
-/// containing `[dragged, target]` if `dragged_first`, else `[target, dragged]`.
+/// Create a new `PaneSplit` of `direction` containing `target` and `dragged`.
+///
+/// Child order is `[dragged, target]` when `dragged_first`, else `[target, dragged]`.
+/// If `target` had a parent, the new split takes `target`'s old slot in that parent.
+/// If `target` had no parent, the new split is returned unparented — the caller
+/// must attach it.
+///
 /// Returns the new split entity.
 pub(crate) fn wrap_in_split(
     world: &mut World,
@@ -307,5 +312,18 @@ mod tests {
 
         let split_kids = world.get::<Children>(split).unwrap();
         assert_eq!(&**split_kids, &[target, dragged]);
+    }
+
+    #[test]
+    fn wrap_leaves_split_parentless_when_target_is_root() {
+        let mut world = World::new();
+        let target = world.spawn_empty().id();
+        let dragged = world.spawn_empty().id();
+
+        let split = wrap_in_split(&mut world, target, PaneSplitDirection::Row, dragged, true);
+
+        assert!(world.get::<ChildOf>(split).is_none());
+        let kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**kids, &[dragged, target]);
     }
 }

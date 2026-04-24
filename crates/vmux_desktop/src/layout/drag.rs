@@ -19,9 +19,45 @@ pub(crate) fn handle_drag_commands(
             } => {
                 move_tab_impl(world, from_pane, from_index, to_pane, to_index);
             }
-            SideSheetDragCommand::SwapPane { .. } => {}
+            SideSheetDragCommand::SwapPane { pane, target } => {
+                swap_pane_impl(world, pane, target);
+            }
             SideSheetDragCommand::SplitPane { .. } => {}
         });
+    }
+}
+
+pub(crate) fn swap_pane_impl(world: &mut World, a_id: u64, b_id: u64) {
+    let a = Entity::from_bits(a_id);
+    let b = Entity::from_bits(b_id);
+    if a == b {
+        return;
+    }
+
+    if !world.get_entity(a).is_ok_and(|e| e.contains::<Pane>()) {
+        return;
+    }
+    if !world.get_entity(b).is_ok_and(|e| e.contains::<Pane>()) {
+        return;
+    }
+
+    let a_parent = world.get::<ChildOf>(a).map(|p| p.parent());
+    let b_parent = world.get::<ChildOf>(b).map(|p| p.parent());
+    let a_idx = a_parent
+        .and_then(|p| world.get::<Children>(p).and_then(|c| c.iter().position(|e| e == a)));
+    let b_idx = b_parent
+        .and_then(|p| world.get::<Children>(p).and_then(|c| c.iter().position(|e| e == b)));
+
+    match (a_parent, b_parent, a_idx, b_idx) {
+        (Some(ap), Some(bp), Some(ai), Some(bi)) if ap == bp => {
+            crate::layout::swap::move_to_index(world, a, ap, bi);
+            crate::layout::swap::move_to_index(world, b, ap, ai);
+        }
+        (Some(ap), Some(bp), Some(ai), Some(bi)) => {
+            crate::layout::swap::move_to_index(world, a, bp, bi);
+            crate::layout::swap::move_to_index(world, b, ap, ai);
+        }
+        _ => {}
     }
 }
 
@@ -59,6 +95,11 @@ pub(crate) fn move_tab_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::pane::{PaneSplit, PaneSplitDirection};
+
+    fn spawn_split(world: &mut World, dir: PaneSplitDirection) -> Entity {
+        world.spawn(PaneSplit { direction: dir }).id()
+    }
 
     fn spawn_pane_with_tabs(world: &mut World, n: usize) -> (Entity, Vec<Entity>) {
         let pane = world.spawn(Pane).id();
@@ -117,5 +158,49 @@ mod tests {
 
         let kids = world.get::<Children>(not_a_pane);
         assert!(kids.is_none() || kids.unwrap().is_empty());
+    }
+
+    #[test]
+    fn swap_pane_same_parent_swaps_positions() {
+        let mut world = World::new();
+        let split = spawn_split(&mut world, PaneSplitDirection::Row);
+        let a = world.spawn((Pane, ChildOf(split))).id();
+        let b = world.spawn((Pane, ChildOf(split))).id();
+
+        swap_pane_impl(&mut world, a.to_bits(), b.to_bits());
+
+        let kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**kids, &[b, a]);
+    }
+
+    #[test]
+    fn swap_pane_cross_parent_exchanges_slots() {
+        let mut world = World::new();
+        let root = spawn_split(&mut world, PaneSplitDirection::Row);
+        let outer_a = world.spawn((Pane, ChildOf(root))).id();
+        let col = world.spawn((PaneSplit { direction: PaneSplitDirection::Column }, ChildOf(root))).id();
+        let inner_a = world.spawn((Pane, ChildOf(col))).id();
+        let inner_b = world.spawn((Pane, ChildOf(col))).id();
+
+        swap_pane_impl(&mut world, outer_a.to_bits(), inner_b.to_bits());
+
+        let root_kids = world.get::<Children>(root).unwrap();
+        assert_eq!(&**root_kids, &[inner_b, col]);
+
+        let col_kids = world.get::<Children>(col).unwrap();
+        assert_eq!(&**col_kids, &[inner_a, outer_a]);
+    }
+
+    #[test]
+    fn swap_pane_rejects_non_pane_ids() {
+        let mut world = World::new();
+        let split = spawn_split(&mut world, PaneSplitDirection::Row);
+        let a = world.spawn((Pane, ChildOf(split))).id();
+        let not_pane = world.spawn(ChildOf(split)).id();
+
+        swap_pane_impl(&mut world, a.to_bits(), not_pane.to_bits());
+
+        let kids = world.get::<Children>(split).unwrap();
+        assert_eq!(&**kids, &[a, not_pane]);
     }
 }

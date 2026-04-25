@@ -1,3 +1,10 @@
+// Bevy systems inherently use many parameters and complex query types.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::new_ret_no_self
+)]
+
 mod browser;
 mod command;
 mod command_bar;

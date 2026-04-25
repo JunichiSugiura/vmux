@@ -68,12 +68,11 @@ pub(crate) fn move_to_index(world: &mut World, child: Entity, new_parent: Entity
     } else {
         index.min(current_len)
     };
-    if already_child {
-        if let Some(children) = world.get::<Children>(new_parent) {
-            if children.get(clamped) == Some(&child) {
-                return;
-            }
-        }
+    if already_child
+        && let Some(children) = world.get::<Children>(new_parent)
+        && children.get(clamped) == Some(&child)
+    {
+        return;
     }
     world.entity_mut(new_parent).insert_child(clamped, child);
 }

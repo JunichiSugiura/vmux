@@ -90,7 +90,7 @@ fn side_sheet_drag_resize(
     let Some(cursor_pos) = window.physical_cursor_position() else {
         return;
     };
-    let cursor_x = cursor_pos.x as f32;
+    let cursor_x = cursor_pos.x;
 
     // Handle active drag
     if let Ok((drag_entity, drag)) = active_drags.single() {
@@ -128,19 +128,18 @@ fn side_sheet_drag_resize(
         let right_edge = center.x + cn.size.x * 0.5;
         let top = center.y - cn.size.y * 0.5;
         let bottom = center.y + cn.size.y * 0.5;
-        let cursor_y = cursor_pos.y as f32;
+        let cursor_y = cursor_pos.y;
 
         if cursor_x >= right_edge - EDGE_HIT_ZONE
             && cursor_x <= right_edge + EDGE_HIT_ZONE
             && cursor_y >= top
             && cursor_y <= bottom
+            && mouse.just_pressed(MouseButton::Left)
         {
-            if mouse.just_pressed(MouseButton::Left) {
-                commands.spawn(SideSheetDrag {
-                    start_cursor_x: cursor_x,
-                    start_width: width_res.0,
-                });
-            }
+            commands.spawn(SideSheetDrag {
+                start_cursor_x: cursor_x,
+                start_width: width_res.0,
+            });
         }
     }
 }
@@ -222,7 +221,7 @@ fn sync_window_buttons_visibility(
     };
 
     // ns_view -> [view window] -> standardWindowButton: for each button type
-    let ns_view = appkit.ns_view.as_ptr() as *mut libc::c_void;
+    let ns_view = appkit.ns_view.as_ptr();
     unsafe {
         use objc_ffi::{objc_msgSend, sel};
         let ns_window = objc_msgSend(ns_view, sel("window"));

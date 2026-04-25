@@ -1,5 +1,6 @@
 //! CEF render-process binary. Keep in lockstep with the workspace `bevy_cef_core` patch.
 
+#![allow(clippy::all)]
 #![cfg_attr(
     all(target_os = "windows", not(debug_assertions)),
     windows_subsystem = "windows"

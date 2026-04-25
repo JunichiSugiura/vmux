@@ -99,7 +99,10 @@ impl CefEmbeddedPageConfig {
 
 impl Default for CefEmbeddedPageConfig {
     fn default() -> Self {
-        Self::new(compile_time_cef_embedded_scheme(), CefEmbeddedHosts::default())
+        Self::new(
+            compile_time_cef_embedded_scheme(),
+            CefEmbeddedHosts::default(),
+        )
     }
 }
 

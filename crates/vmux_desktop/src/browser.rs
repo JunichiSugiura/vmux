@@ -339,7 +339,7 @@ fn sync_cef_webview_resize_after_ui(
             .or_else(|| primary_window.single().ok());
         let device_scale_factor = window_entity
             .and_then(|e| windows.get(e).ok())
-            .map(|w| w.resolution.scale_factor() as f32)
+            .map(|w| w.resolution.scale_factor())
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         if last_entries
@@ -539,7 +539,7 @@ fn push_tabs_host_emit(
     let mut rows: Vec<TabRow> = Vec::new();
     let mut can_go_back = false;
     let mut can_go_forward = false;
-    if active_tab_opt.is_none() {}
+    let _ = active_tab_opt.is_none();
     if let Some(active_tab_entity) = active_tab_opt {
         for (meta, child_of, nav_state) in &browser_q {
             let tab_entity = child_of.get();
@@ -548,11 +548,9 @@ fn push_tabs_host_emit(
                 continue;
             }
             let is_active = tab_entity == active_tab_entity;
-            if is_active {
-                if let Some(ns) = nav_state {
-                    can_go_back = ns.can_go_back;
-                    can_go_forward = ns.can_go_forward;
-                }
+            if is_active && let Some(ns) = nav_state {
+                can_go_back = ns.can_go_back;
+                can_go_forward = ns.can_go_forward;
             }
             rows.push(TabRow {
                 title: meta.title.clone(),
@@ -563,15 +561,16 @@ fn push_tabs_host_emit(
         }
     }
     // If the active tab is an empty new-tab, add a placeholder row
-    if let Some(empty_tab) = new_tab_ctx.tab {
-        if active_tab_opt == Some(empty_tab) && !rows.iter().any(|r| r.is_active) {
-            rows.push(TabRow {
-                title: "New tab".to_string(),
-                url: String::new(),
-                favicon_url: String::new(),
-                is_active: true,
-            });
-        }
+    if let Some(empty_tab) = new_tab_ctx.tab
+        && active_tab_opt == Some(empty_tab)
+        && !rows.iter().any(|r| r.is_active)
+    {
+        rows.push(TabRow {
+            title: "New tab".to_string(),
+            url: String::new(),
+            favicon_url: String::new(),
+            is_active: true,
+        });
     }
     let payload = TabsHostEvent {
         tabs: rows,

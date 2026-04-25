@@ -103,7 +103,7 @@ pub(crate) struct PaneDrag {
 
 pub(crate) fn leaf_pane_bundle() -> impl Bundle {
     (
-        Pane::default(),
+        Pane,
         PaneSize::default(),
         Transform::default(),
         GlobalTransform::default(),
@@ -418,11 +418,11 @@ fn handle_pane_commands(
                         break;
                     };
                     let parent = co.get();
-                    if let Ok(ps) = split_dir_q.get(parent) {
-                        if ps.direction == target_axis {
-                            found_parent = Some(parent);
-                            break;
-                        }
+                    if let Ok(ps) = split_dir_q.get(parent)
+                        && ps.direction == target_axis
+                    {
+                        found_parent = Some(parent);
+                        break;
                     }
                     child_in_split = parent;
                 }
@@ -593,10 +593,10 @@ fn poll_cursor_pane_focus(
     if !active_drags.is_empty() {
         return;
     }
-    if let Some(last) = intent.last_activation {
-        if last.elapsed().as_millis() < HOVER_COOLDOWN_MS as u128 {
-            return;
-        }
+    if let Some(last) = intent.last_activation
+        && last.elapsed().as_millis() < HOVER_COOLDOWN_MS as u128
+    {
+        return;
     }
     let Ok(window) = windows.single() else {
         return;
@@ -728,17 +728,18 @@ fn click_pane_in_player_mode(
     if let Some(pane) = hit_pane {
         // Check for double-click
         const DOUBLE_CLICK_MS: u128 = 400;
-        if let Some((prev_entity, prev_time)) = *last_click {
-            if prev_entity == pane && prev_time.elapsed().as_millis() < DOUBLE_CLICK_MS {
-                // Double-click: exit player mode with animation
-                *last_click = None;
-                camera_state.enabled = false;
-                suppress.0 = false;
-                commands.insert_resource(crate::scene::ModeTransition::new(
-                    crate::scene::TransitionDirection::ExitPlayer,
-                ));
-                return;
-            }
+        if let Some((prev_entity, prev_time)) = *last_click
+            && prev_entity == pane
+            && prev_time.elapsed().as_millis() < DOUBLE_CLICK_MS
+        {
+            // Double-click: exit player mode with animation
+            *last_click = None;
+            camera_state.enabled = false;
+            suppress.0 = false;
+            commands.insert_resource(crate::scene::ModeTransition::new(
+                crate::scene::TransitionDirection::ExitPlayer,
+            ));
+            return;
         }
 
         // Single click: activate pane for keyboard input
@@ -793,7 +794,7 @@ fn pane_gap_drag_resize(
     let Some(cursor_pos) = window.physical_cursor_position() else {
         return;
     };
-    let cursor = Vec2::new(cursor_pos.x as f32, cursor_pos.y as f32);
+    let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
 
     // --- Handle active drag ---
     if let Ok((split_entity, drag, split)) = active_drags.single() {

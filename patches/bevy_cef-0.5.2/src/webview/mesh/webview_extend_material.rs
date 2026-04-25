@@ -1,5 +1,7 @@
 use crate::common::WebviewSource;
-use crate::prelude::{WebviewMaterial, WebviewSurface, update_webview_image, webview_placeholder_image};
+use crate::prelude::{
+    WebviewMaterial, WebviewSurface, update_webview_image, webview_placeholder_image,
+};
 use bevy::app::Plugin;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
@@ -14,10 +16,7 @@ fn ensure_extended_webview_placeholder<E: MaterialExtension>(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<WebviewExtendedMaterial<E>>>,
-    webviews: Query<
-        (Entity, &MeshMaterial3d<WebviewExtendedMaterial<E>>),
-        With<WebviewSource>,
-    >,
+    webviews: Query<(Entity, &MeshMaterial3d<WebviewExtendedMaterial<E>>), With<WebviewSource>>,
 ) {
     for (entity, mesh_mat) in &webviews {
         let Some(mat) = materials.get_mut(mesh_mat.id()) else {

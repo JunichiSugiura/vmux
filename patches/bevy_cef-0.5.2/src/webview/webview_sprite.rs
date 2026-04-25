@@ -65,8 +65,7 @@ fn apply_on_pointer_move(
     if suppress.0 {
         return;
     }
-    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras)
-    else {
+    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras) else {
         return;
     };
     browsers.send_mouse_move(&trigger.entity, input.get_pressed(), pos, false);
@@ -82,8 +81,7 @@ fn apply_on_pointer_pressed(
     if suppress.0 {
         return;
     }
-    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras)
-    else {
+    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras) else {
         return;
     };
     browsers.send_mouse_click(&trigger.entity, pos, trigger.button, false);
@@ -99,8 +97,7 @@ fn apply_on_pointer_released(
     if suppress.0 {
         return;
     }
-    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras)
-    else {
+    let Some(pos) = obtain_relative_pos_from_trigger(&trigger, &webviews, &cameras) else {
         return;
     };
     browsers.send_mouse_click(&trigger.entity, pos, trigger.button, true);

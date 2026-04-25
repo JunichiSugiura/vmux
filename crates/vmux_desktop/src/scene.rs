@@ -150,10 +150,10 @@ fn fit_main_camera(
     };
     let aspect = window.aspect();
 
-    if let Projection::Perspective(ref mut p) = *proj {
-        if (p.aspect_ratio - aspect).abs() > f32::EPSILON {
-            p.aspect_ratio = aspect;
-        }
+    if let Projection::Perspective(ref mut p) = *proj
+        && (p.aspect_ratio - aspect).abs() > f32::EPSILON
+    {
+        p.aspect_ratio = aspect;
     }
 
     // Skip transform update during transitions or when camera is user-controlled

@@ -100,31 +100,29 @@ impl WebviewAppBuilder {
             let public = dx_web_public_dir(&workspace_root, self.dx_bin, release);
             copy_dx_public_to_dist(&public, &dist);
         }
-        if dist.is_dir() {
-            if let Err(e) = finish_cef_embedded_webview_dist(
+        if dist.is_dir()
+            && let Err(e) = finish_cef_embedded_webview_dist(
                 &dist,
                 &self.manifest_dir,
                 &workspace_root,
                 &shell,
                 self.cef_finalize,
-            ) {
-                println!("cargo:warning={warning_prefix}: finish CEF dist failed: {e}");
-            }
+            )
+        {
+            println!("cargo:warning={warning_prefix}: finish CEF dist failed: {e}");
         }
-        if dist.is_dir() {
-            if let Some(prefixes) = self.tailwind_postprocess_stale_prefixes {
-                let dist_assets = dist.join("assets");
-                if let Err(e) = compile_tailwind_index_css(&self.manifest_dir, &dist_assets) {
-                    println!("cargo:warning={warning_prefix}: tailwind compile skipped: {e}");
-                }
-                if let Err(e) = remove_stale_prefixed_css_assets(&dist_assets, prefixes) {
-                    println!(
-                        "cargo:warning={warning_prefix}: could not remove stale css chunks: {e}"
-                    );
-                }
-                if shell.is_file() {
-                    merge_cef_shell_index(&dist, &shell, CefMode::Browser);
-                }
+        if dist.is_dir()
+            && let Some(prefixes) = self.tailwind_postprocess_stale_prefixes
+        {
+            let dist_assets = dist.join("assets");
+            if let Err(e) = compile_tailwind_index_css(&self.manifest_dir, &dist_assets) {
+                println!("cargo:warning={warning_prefix}: tailwind compile skipped: {e}");
+            }
+            if let Err(e) = remove_stale_prefixed_css_assets(&dist_assets, prefixes) {
+                println!("cargo:warning={warning_prefix}: could not remove stale css chunks: {e}");
+            }
+            if shell.is_file() {
+                merge_cef_shell_index(&dist, &shell, CefMode::Browser);
             }
         }
         emit_dist_rerun_if_changed(&dist);
@@ -166,17 +164,17 @@ impl WebviewAppBuilder {
             return true;
         }
         for p in self.dist_dependency_paths() {
-            if let Ok(t) = fs::metadata(&p).and_then(|m| m.modified()) {
-                if t > wasm_mtime {
-                    return true;
-                }
+            if let Ok(t) = fs::metadata(&p).and_then(|m| m.modified())
+                && t > wasm_mtime
+            {
+                return true;
             }
         }
         let dx_public = dx_web_public_dir(workspace_root, self.dx_bin, release);
-        if let Some(dx_mtime) = newest_bg_wasm_mtime(&dx_public) {
-            if dx_mtime > wasm_mtime {
-                return true;
-            }
+        if let Some(dx_mtime) = newest_bg_wasm_mtime(&dx_public)
+            && dx_mtime > wasm_mtime
+        {
+            return true;
         }
         false
     }
@@ -192,19 +190,19 @@ fn emit_dist_rerun_if_changed(dist: &Path) {
         }
     }
     let wasm_dir = dist.join("wasm");
-    if wasm_dir.is_dir() {
-        if let Ok(rd) = fs::read_dir(&wasm_dir) {
-            for e in rd.flatten() {
-                println!("cargo:rerun-if-changed={}", e.path().display());
-            }
+    if wasm_dir.is_dir()
+        && let Ok(rd) = fs::read_dir(&wasm_dir)
+    {
+        for e in rd.flatten() {
+            println!("cargo:rerun-if-changed={}", e.path().display());
         }
     }
     let assets_dir = dist.join("assets");
-    if assets_dir.is_dir() {
-        if let Ok(rd) = fs::read_dir(&assets_dir) {
-            for e in rd.flatten() {
-                println!("cargo:rerun-if-changed={}", e.path().display());
-            }
+    if assets_dir.is_dir()
+        && let Ok(rd) = fs::read_dir(&assets_dir)
+    {
+        for e in rd.flatten() {
+            println!("cargo:rerun-if-changed={}", e.path().display());
         }
     }
 }
@@ -390,7 +388,7 @@ pub fn strip_dx_uncompiled_tailwind_css_assets(dist: &Path, keep_css_names: &[&s
     };
     for e in rd.flatten() {
         let p = e.path();
-        if !p.extension().is_some_and(|x| x == "css") {
+        if p.extension().is_none_or(|x| x != "css") {
             continue;
         }
         let name = e.file_name().to_string_lossy().into_owned();
@@ -562,10 +560,10 @@ fn newest_bg_wasm_mtime(dir: &Path) -> Option<SystemTime> {
     let rd = fs::read_dir(&wasm_dir).ok()?;
     for e in rd.flatten() {
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.ends_with("_bg.wasm") {
-            if let Ok(t) = e.metadata().and_then(|m| m.modified()) {
-                newest = Some(newest.map_or(t, |n: SystemTime| n.max(t)));
-            }
+        if name.ends_with("_bg.wasm")
+            && let Ok(t) = e.metadata().and_then(|m| m.modified())
+        {
+            newest = Some(newest.map_or(t, |n: SystemTime| n.max(t)));
         }
     }
     newest
@@ -607,10 +605,9 @@ fn compile_tailwind_index_css(manifest_dir: &Path, dist_assets: &Path) -> io::Re
         .current_dir(manifest_dir)
         .status()?;
     if !status.success() {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("tailwindcss exited with {status}"),
-        ));
+        return Err(io::Error::other(format!(
+            "tailwindcss exited with {status}"
+        )));
     }
     Ok(())
 }

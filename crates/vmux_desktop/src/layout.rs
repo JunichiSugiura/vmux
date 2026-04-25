@@ -3,10 +3,12 @@ pub(crate) mod glass;
 mod header;
 pub(crate) mod tab;
 
+#[allow(dead_code)]
 pub(crate) mod drag;
 pub(crate) mod pane;
 pub(crate) mod side_sheet;
 pub(crate) mod space;
+#[allow(dead_code)]
 pub(crate) mod swap;
 pub(crate) mod window;
 

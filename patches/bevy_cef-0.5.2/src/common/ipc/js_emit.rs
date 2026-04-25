@@ -8,10 +8,7 @@ use std::ops::{Deref, DerefMut};
 #[derive(Resource, Default)]
 pub struct IpcEventRawBuffer(pub Vec<IpcEventRaw>);
 
-fn drain_ipc_events(
-    receiver: ResMut<IpcEventRawReceiver>,
-    mut buffer: ResMut<IpcEventRawBuffer>,
-) {
+fn drain_ipc_events(receiver: ResMut<IpcEventRawReceiver>, mut buffer: ResMut<IpcEventRawBuffer>) {
     buffer.0.clear();
     while let Ok(event) = receiver.0.try_recv() {
         buffer.0.push(event);

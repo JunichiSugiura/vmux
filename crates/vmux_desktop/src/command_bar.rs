@@ -150,12 +150,12 @@ fn handle_open_command_bar(
             // Discard empty tab created by a previous Cmd+T
             if let Some(tab_e) = new_tab_ctx.tab.take() {
                 commands.entity(tab_e).despawn();
-                if let Some(prev) = new_tab_ctx.previous_tab.take() {
-                    if let Ok(children) = all_children.get(prev) {
-                        for child in children.iter() {
-                            if content_browsers.contains(child) {
-                                commands.entity(child).insert(CefKeyboardTarget);
-                            }
+                if let Some(prev) = new_tab_ctx.previous_tab.take()
+                    && let Ok(children) = all_children.get(prev)
+                {
+                    for child in children.iter() {
+                        if content_browsers.contains(child) {
+                            commands.entity(child).insert(CefKeyboardTarget);
                         }
                     }
                 }
@@ -562,19 +562,17 @@ fn on_command_bar_action(
                 new_tab_ctx.tab = None;
                 new_tab_ctx.previous_tab = None;
             }
-            if let Some((pane_bits, tab_idx)) = evt.value.split_once(':') {
-                if let (Ok(pane_id), Ok(tab_index)) =
+            if let Some((pane_bits, tab_idx)) = evt.value.split_once(':')
+                && let (Ok(pane_id), Ok(tab_index)) =
                     (pane_bits.parse::<u64>(), tab_idx.parse::<usize>())
-                {
-                    if let Some(target_pane) = leaf_panes.iter().find(|e| e.to_bits() == pane_id) {
-                        commands.entity(target_pane).insert(LastActivatedAt::now());
-                        if let Ok(children) = pane_children.get(target_pane) {
-                            let tabs: Vec<Entity> =
-                                children.iter().filter(|&e| tab_q.contains(e)).collect();
-                            if let Some(&target_tab) = tabs.get(tab_index) {
-                                commands.entity(target_tab).insert(LastActivatedAt::now());
-                            }
-                        }
+                && let Some(target_pane) = leaf_panes.iter().find(|e| e.to_bits() == pane_id)
+            {
+                commands.entity(target_pane).insert(LastActivatedAt::now());
+                if let Ok(children) = pane_children.get(target_pane) {
+                    let tabs: Vec<Entity> =
+                        children.iter().filter(|&e| tab_q.contains(e)).collect();
+                    if let Some(&target_tab) = tabs.get(tab_index) {
+                        commands.entity(target_tab).insert(LastActivatedAt::now());
                     }
                 }
             }
@@ -585,12 +583,12 @@ fn on_command_bar_action(
                 commands.entity(tab_e).despawn();
                 new_tab_ctx.tab = None;
                 // Restore keyboard to previous tab's browser
-                if let Some(prev) = previous_tab {
-                    if let Ok(children) = all_children.get(prev) {
-                        for child in children.iter() {
-                            if content_browsers.contains(child) {
-                                commands.entity(child).insert(CefKeyboardTarget);
-                            }
+                if let Some(prev) = previous_tab
+                    && let Ok(children) = all_children.get(prev)
+                {
+                    for child in children.iter() {
+                        if content_browsers.contains(child) {
+                            commands.entity(child).insert(CefKeyboardTarget);
                         }
                     }
                 }

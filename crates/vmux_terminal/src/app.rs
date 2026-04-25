@@ -507,21 +507,18 @@ fn render_span(
         rsx! {
             if !before.is_empty() {
                 span {
-                    key: "{span_idx}-pre",
                     class: "{classes}",
                     style: "{style}",
                     "{before}"
                 }
             }
             span {
-                key: "{span_idx}-cur",
                 class: "{cursor_cls}",
                 style: "{color_css}{blink_css}",
                 "{cursor_ch}"
             }
             if !after.is_empty() {
                 span {
-                    key: "{span_idx}-post",
                     class: "{classes}",
                     style: "{style}",
                     "{after}"

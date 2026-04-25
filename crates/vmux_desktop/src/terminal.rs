@@ -77,10 +77,10 @@ pub(crate) struct VmuxEventProxy {
 
 impl TermEventListener for VmuxEventProxy {
     fn send_event(&self, event: TermEvent) {
-        if let TermEvent::PtyWrite(text) = event {
-            if let Ok(mut writer) = self.pty_writer.lock() {
-                let _ = writer.write_all(text.as_bytes());
-            }
+        if let TermEvent::PtyWrite(text) = event
+            && let Ok(mut writer) = self.pty_writer.lock()
+        {
+            let _ = writer.write_all(text.as_bytes());
         }
     }
 }
@@ -325,14 +325,14 @@ fn poll_pty_output(
         }
 
         // Check if the shell process has exited.
-        if let Ok(mut child) = pty.child.lock() {
-            if let Ok(Some(_status)) = child.try_wait() {
-                commands.entity(entity).insert(PtyExited);
-                // Activate the parent tab so TabCommand::Close targets it.
-                let tab = child_of.get();
-                commands.entity(tab).insert(LastActivatedAt::now());
-                writer.write(AppCommand::Tab(TabCommand::Close));
-            }
+        if let Ok(mut child) = pty.child.lock()
+            && let Ok(Some(_status)) = child.try_wait()
+        {
+            commands.entity(entity).insert(PtyExited);
+            // Activate the parent tab so TabCommand::Close targets it.
+            let tab = child_of.get();
+            commands.entity(tab).insert(LastActivatedAt::now());
+            writer.write(AppCommand::Tab(TabCommand::Close));
         }
     }
 }
@@ -645,21 +645,20 @@ fn handle_terminal_keyboard(
                 KeyCode::KeyV => {
                     // Paste: read system clipboard and write to PTY.
                     // Use pbpaste to avoid objc2/NSPasteboard conflicts with CEF.
-                    if let Ok(output) = std::process::Command::new("pbpaste").output() {
-                        if output.status.success() {
-                            let text = String::from_utf8_lossy(&output.stdout);
-                            if !text.is_empty() {
-                                for (pty, state) in &q {
-                                    if let Ok(mut writer) = pty.writer.lock() {
-                                        let bp =
-                                            state.term.mode().contains(TermMode::BRACKETED_PASTE);
-                                        if bp {
-                                            let _ = writer.write_all(b"\x1b[200~");
-                                        }
-                                        let _ = writer.write_all(text.as_bytes());
-                                        if bp {
-                                            let _ = writer.write_all(b"\x1b[201~");
-                                        }
+                    if let Ok(output) = std::process::Command::new("pbpaste").output()
+                        && output.status.success()
+                    {
+                        let text = String::from_utf8_lossy(&output.stdout);
+                        if !text.is_empty() {
+                            for (pty, state) in &q {
+                                if let Ok(mut writer) = pty.writer.lock() {
+                                    let bp = state.term.mode().contains(TermMode::BRACKETED_PASTE);
+                                    if bp {
+                                        let _ = writer.write_all(b"\x1b[200~");
+                                    }
+                                    let _ = writer.write_all(text.as_bytes());
+                                    if bp {
+                                        let _ = writer.write_all(b"\x1b[201~");
                                     }
                                 }
                             }
@@ -850,19 +849,17 @@ fn visible_text<T: TermEventListener>(term: &Term<T>) -> String {
 fn logical_key_to_bytes(key: &Key, ctrl: bool, alt: bool) -> Vec<u8> {
     match key {
         Key::Character(s) => {
-            if ctrl {
-                if let Some(c) = s.chars().next() {
-                    let code = (c.to_ascii_lowercase() as u8)
-                        .wrapping_sub(b'a')
-                        .wrapping_add(1);
-                    if code <= 26 {
-                        let mut v = Vec::new();
-                        if alt {
-                            v.push(0x1b);
-                        }
-                        v.push(code);
-                        return v;
+            if ctrl && let Some(c) = s.chars().next() {
+                let code = (c.to_ascii_lowercase() as u8)
+                    .wrapping_sub(b'a')
+                    .wrapping_add(1);
+                if code <= 26 {
+                    let mut v = Vec::new();
+                    if alt {
+                        v.push(0x1b);
                     }
+                    v.push(code);
+                    return v;
                 }
             }
             if alt {
@@ -1002,10 +999,10 @@ fn on_term_mouse(
                 let now = std::time::Instant::now();
                 let same_pos = mouse_sel
                     .last_click_pos
-                    .map_or(false, |(c, r)| c == event.col && r == event.row);
+                    .is_some_and(|(c, r)| c == event.col && r == event.row);
                 let fast_enough = mouse_sel
                     .last_click_time
-                    .map_or(false, |t| now.duration_since(t).as_millis() < 500);
+                    .is_some_and(|t| now.duration_since(t).as_millis() < 500);
 
                 if same_pos && fast_enough {
                     mouse_sel.click_count = (mouse_sel.click_count + 1).min(3);
@@ -1069,10 +1066,10 @@ fn on_term_mouse(
 
     let seq = sgr_mouse_sequence(button, event.col, event.row, event.modifiers, event.pressed);
 
-    if let Ok(pty) = pty_q.get(entity) {
-        if let Ok(mut w) = pty.writer.lock() {
-            let _ = w.write_all(&seq);
-        }
+    if let Ok(pty) = pty_q.get(entity)
+        && let Ok(mut w) = pty.writer.lock()
+    {
+        let _ = w.write_all(&seq);
     }
 }
 

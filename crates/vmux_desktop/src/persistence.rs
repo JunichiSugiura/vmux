@@ -69,8 +69,8 @@ fn mark_dirty_on_change(
     if !added_tabs.is_empty()
         || !added_panes.is_empty()
         || !added_spaces.is_empty()
-        || removed_tabs.len() > 0
-        || removed_panes.len() > 0
+        || !removed_tabs.is_empty()
+        || !removed_panes.is_empty()
         || !changed_meta.is_empty()
         || !changed_size.is_empty()
         || !changed_children.is_empty()

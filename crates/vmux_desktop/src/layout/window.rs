@@ -344,7 +344,7 @@ fn spawn_default_session(
 
     let split_root = commands
         .spawn((
-            Pane::default(),
+            Pane,
             PaneSplit {
                 direction: PaneSplitDirection::Row,
             },
@@ -427,7 +427,7 @@ fn spawn_glass_child(
 fn spawn_glass_panes(
     header_q: Query<Entity, With<Header>>,
     side_sheet_q: Query<(Entity, &SideSheetPosition), (With<SideSheet>, With<Browser>)>,
-    modal_q: Query<Entity, With<Modal>>,
+    _modal_q: Query<Entity, With<Modal>>,
     settings: Res<AppSettings>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,

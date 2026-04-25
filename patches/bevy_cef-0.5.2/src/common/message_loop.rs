@@ -67,10 +67,7 @@ impl Plugin for MessageLoopPlugin {
         app.insert_non_send_resource(cef_app);
         app.insert_non_send_resource(MessageLoopWorkingReceiver(rx));
         app.insert_non_send_resource(RunOnMainThread)
-            .add_systems(
-                Main,
-                cef_do_message_loop_work.before(Main::run_main),
-            )
+            .add_systems(Main, cef_do_message_loop_work.before(Main::run_main))
             .add_systems(
                 Update,
                 close_all_browsers_then_cef_shutdown.run_if(on_message::<AppExit>),
@@ -120,8 +117,10 @@ Fix: make install-debug-render-process  (or: cargo build -p bevy_cef_debug_rende
             let exe = std::env::current_exe().unwrap();
             let app_name = exe.file_name().unwrap().to_str().unwrap();
             let helper = exe
-                .parent().unwrap()  // MacOS/
-                .parent().unwrap()  // Contents/
+                .parent()
+                .unwrap() // MacOS/
+                .parent()
+                .unwrap() // Contents/
                 .join("Frameworks")
                 .join(format!("{app_name} Helper.app"))
                 .join("Contents")

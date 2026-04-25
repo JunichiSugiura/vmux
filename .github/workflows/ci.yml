@@ -27,6 +27,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
+            ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
             target
@@ -50,7 +51,11 @@ jobs:
         run: cargo install dioxus-cli --locked --version 0.7.4
 
       - name: Clippy
-        run: env -u CEF_PATH cargo clippy --workspace --exclude bevy_cef_core --all-targets -- -D warnings
+        run: |
+          PKGS=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | test("patches") | not) | .name')
+          for pkg in $PKGS; do
+            env -u CEF_PATH cargo clippy -p "$pkg" --all-targets -- -D warnings
+          done
 
   test:
     name: Test
@@ -65,6 +70,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
+            ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
             target
@@ -80,7 +86,7 @@ jobs:
         run: cargo install dioxus-cli --locked --version 0.7.4
 
       - name: Run tests
-        run: env -u CEF_PATH cargo test --workspace
+        run: env -u CEF_PATH cargo test --workspace --exclude bevy_cef_core
 
   website:
     name: Website Build
@@ -95,6 +101,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: |
+            ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
             website/target

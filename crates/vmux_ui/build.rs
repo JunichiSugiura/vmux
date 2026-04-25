@@ -110,23 +110,23 @@ fn needs_dist_rebuild(manifest_dir: &Path, dx_release: bool) -> bool {
         return true;
     };
     for p in dist_dependency_paths(manifest_dir) {
-        if let Ok(t) = fs::metadata(&p).and_then(|m| m.modified()) {
-            if t > wasm_mtime {
-                return true;
-            }
+        if let Ok(t) = fs::metadata(&p).and_then(|m| m.modified())
+            && t > wasm_mtime
+        {
+            return true;
         }
     }
     let workspace_root = workspace_root_from_manifest_dir(manifest_dir);
     let dx_public = dx_web_public_dir(&workspace_root, "vmux_ui", dx_release);
     let dx_wasm = dx_public.join("wasm").join("vmux_ui_bg.wasm");
-    if dx_wasm.is_file() {
-        if let (Ok(dx_t), Ok(dist_t)) = (
+    if dx_wasm.is_file()
+        && let (Ok(dx_t), Ok(dist_t)) = (
             fs::metadata(&dx_wasm).and_then(|m| m.modified()),
             fs::metadata(&wasm_out).and_then(|m| m.modified()),
-        ) && dx_t > dist_t
-        {
-            return true;
-        }
+        )
+        && dx_t > dist_t
+    {
+        return true;
     }
     false
 }

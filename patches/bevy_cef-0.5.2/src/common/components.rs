@@ -192,5 +192,3 @@ pub struct CefPointerTarget;
 #[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct WebviewTransparent;
-
-

@@ -221,8 +221,23 @@ pub fn App() -> Element {
                     path: e.full_path.clone(),
                 })
                 .collect();
+            let typed_terminal = r
+                .iter()
+                .find(|item| matches!(item, ResultItem::Terminal { path } if !path.is_empty()))
+                .cloned();
             r.retain(|item| !matches!(item, ResultItem::Terminal { path } if !path.is_empty()));
-            let mut combined = path_items;
+            let mut combined = Vec::new();
+            if let Some(ref entry) = typed_terminal {
+                if let ResultItem::Terminal { path: ref tp } = entry {
+                    if !path_items
+                        .iter()
+                        .any(|item| matches!(item, ResultItem::Terminal { path } if path == tp))
+                    {
+                        combined.push(entry.clone());
+                    }
+                }
+            }
+            combined.extend(path_items);
             combined.extend(r);
             combined
         } else {

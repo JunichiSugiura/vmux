@@ -1,4 +1,4 @@
-.PHONY: run-mac run-mac-local run-doctor build-mac-debug build build-local-mac package-mac setup-cef install-debug-render-process doctor-mac ensure-run-mac-deps
+.PHONY: run-mac run-mac-local run-doctor build-mac-debug build build-local-mac package-mac setup-cef install-debug-render-process doctor-mac ensure-run-mac-deps run-website build-website
 
 CARGO_BIN := $(or $(shell command -v cargo 2>/dev/null),$(HOME)/.cargo/bin/cargo)
 RUSTUP_BIN := $(or $(shell command -v rustup 2>/dev/null),$(HOME)/.cargo/bin/rustup)
@@ -44,6 +44,13 @@ install-debug-render-process:
 	env -u CEF_PATH "$(CARGO_BIN)" build -p bevy_cef_debug_render_process --features debug
 	cp "$(CURDIR)/target/debug/bevy_cef_debug_render_process" \
 	  "$(CEF_FRAMEWORK_DIR)/Libraries/bevy_cef_debug_render_process"
+
+# Website
+run-website:
+	cd website && "$(DX_BIN)" serve --platform web
+
+build-website:
+	cd website && "$(DX_BIN)" build --platform web --release
 
 # Friendly prerequisite report (colors / emoji when terminal); README: make run-doctor
 run-doctor: doctor-mac

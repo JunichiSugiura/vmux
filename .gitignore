@@ -25,3 +25,7 @@ crates/vmux_terminal/dist/
 .worktrees/
 .env
 build/
+
+# Website
+website/target/
+website/dist/

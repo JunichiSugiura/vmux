@@ -4,7 +4,7 @@
 
 **Goal:** Ship vmux as a signed, notarized macOS app distributed via GitHub Releases and Homebrew cask.
 
-**Architecture:** Tag-triggered GitHub Actions workflow builds the app bundle, signs it with Developer ID, notarizes with Apple, packages as DMG, uploads to GitHub Releases, and auto-updates the Homebrew cask formula in `JunichiSugiura/homebrew-vmux`.
+**Architecture:** Tag-triggered GitHub Actions workflow builds the app bundle, signs it with Developer ID, notarizes with Apple, packages as DMG, uploads to GitHub Releases, and auto-updates the Homebrew cask formula in `vmux-ai/homebrew-vmux`.
 
 **Tech Stack:** GitHub Actions (macOS runner), `codesign`, `xcrun notarytool`, `hdiutil`, Homebrew cask
 
@@ -64,8 +64,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Tiling browser with pane multiplexing"
 license = "MIT"
-homepage = "https://github.com/JunichiSugiura/vmux"
-repository = "https://github.com/JunichiSugiura/vmux"
+homepage = "https://github.com/vmux-ai/vmux"
+repository = "https://github.com/vmux-ai/vmux"
 ```
 
 - [ ] **Step 3: Update BUNDLE_ID_BASE in bundle-macos.sh**
@@ -464,17 +464,17 @@ jobs:
           DMG_SHA=$(shasum -a 256 "build/Vmux-${VERSION}-mac.dmg" | awk '{print $1}')
 
           # Clone the tap repo
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/JunichiSugiura/homebrew-vmux.git" /tmp/homebrew-vmux
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/vmux-ai/homebrew-vmux.git" /tmp/homebrew-vmux
 
           cat > /tmp/homebrew-vmux/Casks/vmux.rb << EOF
           cask "vmux" do
             version "${VERSION}"
             sha256 "${DMG_SHA}"
 
-            url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+            url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
             name "Vmux"
             desc "Tiling browser with pane multiplexing"
-            homepage "https://github.com/JunichiSugiura/vmux"
+            homepage "https://github.com/vmux-ai/vmux"
 
             app "Vmux.app"
           end
@@ -499,7 +499,7 @@ git commit -m "feat: add GitHub Actions release workflow"
 
 ### Task 6: Create Homebrew Tap Repository
 
-This task is done outside the vmux repo. You need to create the `JunichiSugiura/homebrew-vmux` repository on GitHub with an initial cask formula.
+This task is done outside the vmux repo. You need to create the `vmux-ai/homebrew-vmux` repository on GitHub with an initial cask formula.
 
 - [ ] **Step 1: Create the repo on GitHub**
 
@@ -514,10 +514,10 @@ cask "vmux" do
   version "0.1.0"
   sha256 "PLACEHOLDER"
 
-  url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+  url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
   name "Vmux"
   desc "Tiling browser with pane multiplexing"
-  homepage "https://github.com/JunichiSugiura/vmux"
+  homepage "https://github.com/vmux-ai/vmux"
 
   app "Vmux.app"
 end
@@ -526,7 +526,7 @@ end
 - [ ] **Step 3: Create a GitHub Personal Access Token for tap updates**
 
 Go to https://github.com/settings/tokens and create a fine-grained token with:
-- Repository access: `JunichiSugiura/homebrew-vmux` only
+- Repository access: `vmux-ai/homebrew-vmux` only
 - Permissions: Contents (read & write)
 
 Add this token as `HOMEBREW_TAP_TOKEN` secret in the `vmux` repository settings.
@@ -540,7 +540,7 @@ git commit -m "Initial cask formula"
 git push
 
 # Verify
-brew tap JunichiSugiura/vmux
+brew tap vmux-ai/vmux
 brew info --cask vmux
 ```
 
@@ -638,14 +638,14 @@ git push origin v0.1.0
 
 - [ ] **Step 2: Monitor GitHub Actions**
 
-Go to https://github.com/JunichiSugiura/vmux/actions and watch the Release workflow.
+Go to https://github.com/vmux-ai/vmux/actions and watch the Release workflow.
 
 Expected: All steps pass. GitHub Release created with DMG and .tar.gz assets.
 
 - [ ] **Step 3: Verify Homebrew cask was updated**
 
 ```bash
-brew tap JunichiSugiura/vmux
+brew tap vmux-ai/vmux
 brew install --cask vmux
 ```
 

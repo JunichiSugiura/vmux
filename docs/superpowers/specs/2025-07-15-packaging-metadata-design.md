@@ -38,7 +38,7 @@ Add to `[package.metadata.packager]`:
 
 Create standard MIT license file with copyright holder "Junichi Sugiura".
 
-### 5. Homebrew tap (JunichiSugiura/homebrew-vmux)
+### 5. Homebrew tap (vmux-ai/homebrew-vmux)
 
 Clone repo, create/update `Casks/vmux.rb`:
 
@@ -47,7 +47,7 @@ cask "vmux" do
   version "0.1.0"
   sha256 "PLACEHOLDER"
 
-  url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+  url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
   name "Vmux"
   desc "AI-native workspace combining browser and terminal panes"
   homepage "https://vmux.ai"

@@ -8,8 +8,8 @@
 
 **Tech Stack:** TOML (Cargo), XML (Info.plist), Ruby (Homebrew cask), YAML (GitHub Actions)
 
-**Worktree:** `/Users/junichi.sugiura/Projects/github.com/JunichiSugiura/vmux/.worktrees/jun/vmx-15-release-pipeline`
-**Homebrew tap:** `/Users/junichi.sugiura/Projects/github.com/JunichiSugiura/homebrew-vmux/`
+**Worktree:** `/Users/junichi.sugiura/Projects/github.com/vmux-ai/vmux/.worktrees/jun/vmx-15-release-pipeline`
+**Homebrew tap:** `/Users/junichi.sugiura/Projects/github.com/vmux-ai/homebrew-vmux/`
 
 ---
 
@@ -25,7 +25,7 @@ In `Cargo.toml`, change:
 ```toml
 description = "Tiling browser with pane multiplexing"
 license = "MIT"
-homepage = "https://github.com/JunichiSugiura/vmux"
+homepage = "https://github.com/vmux-ai/vmux"
 ```
 
 to:
@@ -167,7 +167,7 @@ git commit -m "chore: add MIT license file"
 ### Task 5: Update Homebrew cask
 
 **Files:**
-- Modify: `/Users/junichi.sugiura/Projects/github.com/JunichiSugiura/homebrew-vmux/Casks/vmux.rb`
+- Modify: `/Users/junichi.sugiura/Projects/github.com/vmux-ai/homebrew-vmux/Casks/vmux.rb`
 
 - [ ] **Step 1: Update cask with new metadata**
 
@@ -178,7 +178,7 @@ cask "vmux" do
   version "0.1.0"
   sha256 "PLACEHOLDER"
 
-  url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+  url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
   name "Vmux"
   desc "AI-native workspace combining browser and terminal panes"
   homepage "https://vmux.ai"
@@ -197,13 +197,13 @@ end
 
 - [ ] **Step 2: Validate cask syntax**
 
-Run: `cd /Users/junichi.sugiura/Projects/github.com/JunichiSugiura/homebrew-vmux && brew audit --cask Casks/vmux.rb 2>&1 || true`
+Run: `cd /Users/junichi.sugiura/Projects/github.com/vmux-ai/homebrew-vmux && brew audit --cask Casks/vmux.rb 2>&1 || true`
 Note: May warn about PLACEHOLDER sha256 — that's expected until first release.
 
 - [ ] **Step 3: Commit (in homebrew-vmux repo)**
 
 ```bash
-cd /Users/junichi.sugiura/Projects/github.com/JunichiSugiura/homebrew-vmux
+cd /Users/junichi.sugiura/Projects/github.com/vmux-ai/homebrew-vmux
 git add Casks/vmux.rb
 git commit -m "chore: update cask metadata — description, homepage, macOS dep, zap stanza"
 ```
@@ -290,14 +290,14 @@ Update the cask generation to use new description, homepage, and DMG path:
           DMG_NAME=$(basename "$DMG_PATH")
           DMG_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/JunichiSugiura/homebrew-vmux.git" /tmp/homebrew-vmux
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/vmux-ai/homebrew-vmux.git" /tmp/homebrew-vmux
 
           cat > /tmp/homebrew-vmux/Casks/vmux.rb << 'CASKEOF'
           cask "vmux" do
             version "VERSION_PLACEHOLDER"
             sha256 "SHA_PLACEHOLDER"
 
-            url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/DMG_PLACEHOLDER"
+            url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/DMG_PLACEHOLDER"
             name "Vmux"
             desc "AI-native workspace combining browser and terminal panes"
             homepage "https://vmux.ai"

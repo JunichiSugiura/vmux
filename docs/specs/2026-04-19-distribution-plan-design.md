@@ -223,7 +223,7 @@ impl Plugin for UpdatePlugin {
 fn check_for_updates() {
     thread::spawn(|| {
         let result = self_update::backends::github::Update::configure()
-            .repo_owner("JunichiSugiura")
+            .repo_owner("vmux-ai")
             .repo_name("vmux")
             .bin_name("vmux_desktop")
             .current_version(self_update::cargo_crate_version!())
@@ -287,23 +287,23 @@ Every tagged version produces a DMG attached to a GitHub Release with auto-gener
 
 ### Homebrew Cask
 
-Create a cask formula in a tap repository (`JunichiSugiura/homebrew-vmux`):
+Create a cask formula in a tap repository (`vmux-ai/homebrew-vmux`):
 
 ```ruby
 cask "vmux" do
   version "0.1.0"
   sha256 "HASH_OF_DMG"
 
-  url "https://github.com/JunichiSugiura/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
+  url "https://github.com/vmux-ai/vmux/releases/download/v#{version}/Vmux-#{version}-mac.dmg"
   name "Vmux"
   desc "Tiling browser with pane multiplexing"
-  homepage "https://github.com/JunichiSugiura/vmux"
+  homepage "https://github.com/vmux-ai/vmux"
 
   app "Vmux.app"
 end
 ```
 
-Usage: `brew tap JunichiSugiura/vmux && brew install --cask vmux`
+Usage: `brew tap vmux-ai/vmux && brew install --cask vmux`
 
 The GitHub Actions workflow can auto-update the cask SHA and version after a release.
 

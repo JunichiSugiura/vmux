@@ -61,7 +61,10 @@ impl WebviewAppBuilder {
         self
     }
 
-    pub fn tailwind_postprocess_after_dx(mut self, stale_hashed_css_prefixes: &'static [&'static str]) -> Self {
+    pub fn tailwind_postprocess_after_dx(
+        mut self,
+        stale_hashed_css_prefixes: &'static [&'static str],
+    ) -> Self {
         self.tailwind_postprocess_stale_prefixes = Some(stale_hashed_css_prefixes);
         self
     }
@@ -115,7 +118,9 @@ impl WebviewAppBuilder {
                     println!("cargo:warning={warning_prefix}: tailwind compile skipped: {e}");
                 }
                 if let Err(e) = remove_stale_prefixed_css_assets(&dist_assets, prefixes) {
-                    println!("cargo:warning={warning_prefix}: could not remove stale css chunks: {e}");
+                    println!(
+                        "cargo:warning={warning_prefix}: could not remove stale css chunks: {e}"
+                    );
                 }
                 if shell.is_file() {
                     merge_cef_shell_index(&dist, &shell, CefMode::Browser);
@@ -364,10 +369,7 @@ pub fn copy_shared_theme_css_to_cef_dist(dist: &Path, workspace_root: &Path) -> 
     // Copy shared font files
     let fonts_src = workspace_root.join("crates/vmux_ui/assets/fonts");
     if fonts_src.is_dir() {
-        for dest_dir in [
-            dist.join("assets/fonts"),
-            dist.join("vmux_ui/assets/fonts"),
-        ] {
+        for dest_dir in [dist.join("assets/fonts"), dist.join("vmux_ui/assets/fonts")] {
             fs::create_dir_all(&dest_dir)?;
             for entry in fs::read_dir(&fonts_src)?.flatten() {
                 let path = entry.path();
@@ -599,13 +601,7 @@ fn compile_tailwind_index_css(manifest_dir: &Path, dist_assets: &Path) -> io::Re
     };
     let out = dist_assets.join(CEF_EMBEDDED_APP_INDEX_CSS);
     let status = Command::new(&tw)
-        .args([
-            "-c",
-            "tailwind.config.js",
-            "-i",
-            "assets/index.css",
-            "-o",
-        ])
+        .args(["-c", "tailwind.config.js", "-i", "assets/index.css", "-o"])
         .arg(&out)
         .arg("--minify")
         .current_dir(manifest_dir)

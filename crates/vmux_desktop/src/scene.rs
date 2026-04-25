@@ -1,11 +1,11 @@
 use crate::{
-    command::{AppCommand, SceneCommand, ReadAppCommands},
+    command::{AppCommand, ReadAppCommands, SceneCommand},
     layout::fit_window_to_screen,
     settings::{AppSettings, load_settings},
     unit::{PIXELS_PER_METER, WindowExt},
 };
 use bevy::{
-    animation::{animated_field, prelude::*, AnimationTargetId},
+    animation::{AnimationTargetId, animated_field, prelude::*},
     camera::PerspectiveProjection,
     camera::Projection,
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin, FreeCameraState},
@@ -238,12 +238,7 @@ fn on_toggle_player_mode(
                         color: Color::srgb(1.0, 0.98, 0.95),
                         ..default()
                     },
-                    Transform::from_rotation(Quat::from_euler(
-                        EulerRot::XYZ,
-                        -0.6,
-                        0.4,
-                        0.0,
-                    )),
+                    Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.6, 0.4, 0.0)),
                 ));
 
                 // Start transition timer
@@ -278,10 +273,7 @@ fn start_exit_transition(
 // Transition systems
 // ---------------------------------------------------------------------------
 
-fn tick_mode_transition(
-    time: Res<Time>,
-    transition: Option<ResMut<ModeTransition>>,
-) {
+fn tick_mode_transition(time: Res<Time>, transition: Option<ResMut<ModeTransition>>) {
     if let Some(mut t) = transition {
         t.timer.tick(time.delta());
     }
@@ -355,10 +347,7 @@ fn setup_exit_camera_animation(
     );
     clip.add_curve_to_target(
         target_id,
-        AnimatableCurve::new(
-            animated_field!(Transform::translation),
-            translation_curve,
-        ),
+        AnimatableCurve::new(animated_field!(Transform::translation), translation_curve),
     );
 
     // Rotation curve: current -> home, eased
@@ -369,10 +358,7 @@ fn setup_exit_camera_animation(
     );
     clip.add_curve_to_target(
         target_id,
-        AnimatableCurve::new(
-            animated_field!(Transform::rotation),
-            rotation_curve,
-        ),
+        AnimatableCurve::new(animated_field!(Transform::rotation), rotation_curve),
     );
 
     let clip_handle = clips.add(clip);
@@ -395,11 +381,11 @@ fn start_pending_animation(
     mut commands: Commands,
 ) {
     let Some(pending) = pending else { return };
-    let Ok(mut player) = player_q.single_mut() else { return };
+    let Ok(mut player) = player_q.single_mut() else {
+        return;
+    };
 
-    player
-        .start(pending.0)
-        .set_speed(1.0 / TRANSITION_DURATION);
+    player.start(pending.0).set_speed(1.0 / TRANSITION_DURATION);
 
     commands.remove_resource::<PendingAnimationStart>();
 }
@@ -414,7 +400,9 @@ fn complete_mode_transition(
     mut transform: Single<&mut Transform, With<MainCamera>>,
     mut commands: Commands,
 ) {
-    let Some(ref transition) = transition else { return };
+    let Some(ref transition) = transition else {
+        return;
+    };
     if !transition.timer.just_finished() {
         return;
     }

@@ -1,20 +1,15 @@
 use crate::{
     browser::Loading,
     layout::{
-        window::{VmuxWindow, WEBVIEW_Z_FOCUS_RING},
         pane::Pane,
         tab::{Tab, active_tab_in_pane},
+        window::{VmuxWindow, WEBVIEW_Z_FOCUS_RING},
     },
     settings::{AppSettings, load_settings},
 };
 use bevy::{
-    asset::*,
-    pbr::MaterialPlugin,
-    prelude::*,
-    render::alpha::AlphaMode,
-    render::render_resource::AsBindGroup,
-    shader::ShaderRef,
-    ui::UiGlobalTransform,
+    asset::*, pbr::MaterialPlugin, prelude::*, render::alpha::AlphaMode,
+    render::render_resource::AsBindGroup, shader::ShaderRef, ui::UiGlobalTransform,
     window::PrimaryWindow,
 };
 use vmux_history::LastActivatedAt;
@@ -181,9 +176,7 @@ fn sync_focus_ring_to_active_pane(
     }
 }
 
-fn primary_window_focused(
-    windows: Query<&Window, With<PrimaryWindow>>,
-) -> bool {
+fn primary_window_focused(windows: Query<&Window, With<PrimaryWindow>>) -> bool {
     windows.single().map(|w| w.focused).unwrap_or(false)
 }
 

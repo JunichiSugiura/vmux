@@ -75,7 +75,11 @@ pub enum TabCommand {
     SelectIndex8,
     #[menu(id = "tab_select_last", label = "Select Last Tab", accel = "super+9")]
     SelectLast,
-    #[menu(id = "tab_reopen", label = "Reopen Closed Tab", accel = "super+shift+t")]
+    #[menu(
+        id = "tab_reopen",
+        label = "Reopen Closed Tab",
+        accel = "super+shift+t"
+    )]
     Reopen,
     #[menu(id = "tab_duplicate", label = "Duplicate Tab\t<leader> d")]
     #[shortcut(chord = "Ctrl+g, d")]
@@ -127,15 +131,31 @@ pub enum BrowserCommand {
     NextPage,
     #[menu(id = "browser_reload", label = "Reload", accel = "super+r")]
     Reload,
-    #[menu(id = "browser_hard_reload", label = "Hard Reload", accel = "super+shift+r")]
+    #[menu(
+        id = "browser_hard_reload",
+        label = "Hard Reload",
+        accel = "super+shift+r"
+    )]
     HardReload,
     #[menu(id = "browser_stop", label = "Stop Loading", accel = "super+.")]
     Stop,
-    #[menu(id = "browser_focus_address_bar", label = "Open Location", accel = "super+l")]
+    #[menu(
+        id = "browser_focus_address_bar",
+        label = "Open Location",
+        accel = "super+l"
+    )]
     FocusAddressBar,
-    #[menu(id = "browser_open_command_bar", label = "Command Bar", accel = "super+k")]
+    #[menu(
+        id = "browser_open_command_bar",
+        label = "Command Bar",
+        accel = "super+k"
+    )]
     OpenCommandBar,
-    #[menu(id = "browser_open_path_bar", label = "Path Navigator", accel = "super+/")]
+    #[menu(
+        id = "browser_open_path_bar",
+        label = "Path Navigator",
+        accel = "super+/"
+    )]
     OpenPathBar,
     #[menu(id = "browser_open_commands", label = "Commands")]
     #[shortcut(direct = ">")]
@@ -148,9 +168,17 @@ pub enum BrowserCommand {
     ZoomOut,
     #[menu(id = "browser_zoom_reset", label = "Actual Size", accel = "super+0")]
     ZoomReset,
-    #[menu(id = "browser_dev_tools", label = "Developer Tools", accel = "super+alt+i")]
+    #[menu(
+        id = "browser_dev_tools",
+        label = "Developer Tools",
+        accel = "super+alt+i"
+    )]
     DevTools,
-    #[menu(id = "browser_view_source", label = "View Source", accel = "super+alt+u")]
+    #[menu(
+        id = "browser_view_source",
+        label = "View Source",
+        accel = "super+alt+u"
+    )]
     ViewSource,
     #[menu(id = "browser_print", label = "Print", accel = "super+p")]
     Print,
@@ -204,7 +232,10 @@ pub enum PaneCommand {
     #[menu(id = "resize_pane_left", label = "Resize Pane Left\t<leader> alt+left")]
     #[shortcut(chord = "Ctrl+g, Alt+ArrowLeft")]
     ResizeLeft,
-    #[menu(id = "resize_pane_right", label = "Resize Pane Right\t<leader> alt+right")]
+    #[menu(
+        id = "resize_pane_right",
+        label = "Resize Pane Right\t<leader> alt+right"
+    )]
     #[shortcut(chord = "Ctrl+g, Alt+ArrowRight")]
     ResizeRight,
     #[menu(id = "resize_pane_up", label = "Resize Pane Up\t<leader> alt+up")]
@@ -242,13 +273,23 @@ pub enum SpaceCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SideSheetCommand {
     #[default]
-    #[menu(id = "toggle_side_sheet", label = "Toggle Side Sheet", accel = "super+s")]
+    #[menu(
+        id = "toggle_side_sheet",
+        label = "Toggle Side Sheet",
+        accel = "super+s"
+    )]
     #[shortcut(direct = "Super+s")]
     Toggle,
-    #[menu(id = "toggle_side_sheet_right", label = "Toggle Right Sheet\t<leader> r")]
+    #[menu(
+        id = "toggle_side_sheet_right",
+        label = "Toggle Right Sheet\t<leader> r"
+    )]
     #[shortcut(chord = "Ctrl+g, r")]
     ToggleRight,
-    #[menu(id = "toggle_side_sheet_bottom", label = "Toggle Bottom Sheet\t<leader> b")]
+    #[menu(
+        id = "toggle_side_sheet_bottom",
+        label = "Toggle Bottom Sheet\t<leader> b"
+    )]
     #[shortcut(chord = "Ctrl+g, b")]
     ToggleBottom,
 }
@@ -277,7 +318,11 @@ pub enum WindowCommand {
     CloseWindow,
     #[menu(id = "minimize_window", label = "Minimize", accel = "super+m")]
     Minimize,
-    #[menu(id = "toggle_fullscreen", label = "Toggle Fullscreen", accel = "ctrl+super+f")]
+    #[menu(
+        id = "toggle_fullscreen",
+        label = "Toggle Fullscreen",
+        accel = "ctrl+super+f"
+    )]
     ToggleFullscreen,
     #[menu(id = "open_settings", label = "Settings", accel = "super+,")]
     Settings,

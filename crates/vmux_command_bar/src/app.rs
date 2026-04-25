@@ -2,18 +2,19 @@
 
 use dioxus::prelude::*;
 use vmux_command_bar::event::{
-    CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent, CommandBarTab,
-    PathCompleteRequest, PathCompleteResponse, PathEntry, COMMAND_BAR_OPEN_EVENT,
-    PATH_COMPLETE_RESPONSE,
+    COMMAND_BAR_OPEN_EVENT, CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent,
+    CommandBarTab, PATH_COMPLETE_RESPONSE, PathCompleteRequest, PathCompleteResponse, PathEntry,
 };
 use vmux_ui::components::icon::Icon;
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener, use_theme};
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 
 #[derive(Clone, PartialEq)]
 enum ResultItem {
-    Terminal { path: String },
+    Terminal {
+        path: String,
+    },
     Tab {
         title: String,
         url: String,
@@ -52,7 +53,9 @@ fn filter_results(
         let mut items: Vec<ResultItem> = Vec::new();
         items.push(ResultItem::Navigate { url: String::new() });
         if new_tab {
-            items.push(ResultItem::Terminal { path: String::new() });
+            items.push(ResultItem::Terminal {
+                path: String::new(),
+            });
         }
         items.extend(tabs.iter().map(|t| ResultItem::Tab {
             title: t.title.clone(),

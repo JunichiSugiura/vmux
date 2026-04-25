@@ -80,11 +80,7 @@ fn mark_dirty_on_change(
     }
 }
 
-fn auto_save_system(
-    time: Res<Time>,
-    mut auto_save: ResMut<AutoSave>,
-    mut commands: Commands,
-) {
+fn auto_save_system(time: Res<Time>, mut auto_save: ResMut<AutoSave>, mut commands: Commands) {
     auto_save.periodic.tick(time.delta());
 
     if auto_save.dirty {
@@ -256,7 +252,10 @@ pub(crate) fn rebuild_session_views(
             .unwrap_or(false);
 
         if !has_browser {
-            if meta.url.starts_with(TERMINAL_WEBVIEW_URL.trim_end_matches('/')) {
+            if meta
+                .url
+                .starts_with(TERMINAL_WEBVIEW_URL.trim_end_matches('/'))
+            {
                 commands.spawn((
                     Terminal::new(&mut meshes, &mut webview_mt, &settings),
                     ChildOf(entity),
@@ -277,16 +276,22 @@ pub(crate) fn rebuild_session_views(
     // hierarchy. By iterating each parent's deserialized Children in order,
     // the deferred commands preserve the saved sibling order.
     let mut seen_parents = std::collections::HashSet::new();
-    for entity in splits_need_view.iter().map(|(e, _)| e)
+    for entity in splits_need_view
+        .iter()
+        .map(|(e, _)| e)
         .chain(panes_need_view.iter())
         .chain(tabs_need_view.iter().map(|(e, _)| e))
     {
-        let Ok(co) = child_of_q.get(entity) else { continue };
+        let Ok(co) = child_of_q.get(entity) else {
+            continue;
+        };
         let parent = co.get();
         if !seen_parents.insert(parent) {
             continue;
         }
-        let Ok(children) = all_children.get(parent) else { continue };
+        let Ok(children) = all_children.get(parent) else {
+            continue;
+        };
         for child in children.iter() {
             if despawned.contains(&child) {
                 continue;
@@ -305,5 +310,3 @@ pub(crate) fn rebuild_session_views(
         tabs_need_view.iter().count(),
     );
 }
-
-

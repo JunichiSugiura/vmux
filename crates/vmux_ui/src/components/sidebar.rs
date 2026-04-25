@@ -5,11 +5,11 @@ use crate::components::sheet::{
 };
 use crate::components::tooltip::{Tooltip, TooltipContent, TooltipTrigger};
 use dioxus::prelude::*;
-use wasm_bindgen::JsCast;
 use dioxus_primitives::dioxus_attributes::attributes;
 use dioxus_primitives::icon;
 use dioxus_primitives::merge_attributes;
 use dioxus_primitives::use_controlled;
+use wasm_bindgen::JsCast;
 
 // constants
 const SIDEBAR_WIDTH: &str = "16rem";
@@ -149,13 +149,12 @@ pub fn use_is_mobile() -> Signal<bool> {
                     .map(|w| (w as u32) < MOBILE_BREAKPOINT)
                     .unwrap_or(false),
             );
-        }) as Box<dyn FnMut(web_sys::Event)>);
+        })
+            as Box<dyn FnMut(web_sys::Event)>);
 
         if let Some(win) = web_sys::window() {
-            let _ = win.add_event_listener_with_callback(
-                "resize",
-                closure.as_ref().unchecked_ref(),
-            );
+            let _ =
+                win.add_event_listener_with_callback("resize", closure.as_ref().unchecked_ref());
         }
         closure.forget();
     });
@@ -197,20 +196,18 @@ pub fn SidebarProvider(
     use_context_provider(|| ctx);
 
     use_effect(move || {
-        let closure = wasm_bindgen::closure::Closure::wrap(Box::new(
-            move |e: web_sys::KeyboardEvent| {
+        let closure =
+            wasm_bindgen::closure::Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
                 if e.key() == SIDEBAR_KEYBOARD_SHORTCUT && (e.meta_key() || e.ctrl_key()) {
                     e.prevent_default();
                     ctx.toggle();
                 }
-            },
-        ) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+            })
+                as Box<dyn FnMut(web_sys::KeyboardEvent)>);
 
         if let Some(win) = web_sys::window() {
-            let _ = win.add_event_listener_with_callback(
-                "keydown",
-                closure.as_ref().unchecked_ref(),
-            );
+            let _ =
+                win.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
         }
         closure.forget();
     });

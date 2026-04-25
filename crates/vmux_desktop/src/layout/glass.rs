@@ -11,12 +11,7 @@ pub struct GlassMaterialPlugin;
 
 impl Plugin for GlassMaterialPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(
-            app,
-            GLASS_SHADER_HANDLE,
-            "glass.wgsl",
-            Shader::from_wgsl
-        );
+        load_internal_asset!(app, GLASS_SHADER_HANDLE, "glass.wgsl", Shader::from_wgsl);
 
         app.add_plugins(MaterialPlugin::<GlassMaterial>::default());
     }

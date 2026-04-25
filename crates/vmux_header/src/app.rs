@@ -19,9 +19,8 @@ fn favicon_src_for_tab(tab: &TabRow) -> Option<String> {
     if !tab.favicon_url.is_empty() {
         return Some(tab.favicon_url.clone());
     }
-    host_for_favicon_fallback(&tab.url).map(|h| {
-        format!("https://www.google.com/s2/favicons?domain={h}&sz=32")
-    })
+    host_for_favicon_fallback(&tab.url)
+        .map(|h| format!("https://www.google.com/s2/favicons?domain={h}&sz=32"))
 }
 
 #[component]
@@ -37,7 +36,11 @@ pub fn App() -> Element {
         reload_key.set(reload_key() + 1);
     });
 
-    let TabsHostEvent { tabs, can_go_back, can_go_forward } = tabs_state();
+    let TabsHostEvent {
+        tabs,
+        can_go_back,
+        can_go_forward,
+    } = tabs_state();
     let active_row = tabs.iter().find(|t| t.is_active).cloned();
     let favicon_src = active_row.as_ref().and_then(favicon_src_for_tab);
     let mut favicon_error = use_signal(|| false);
@@ -141,7 +144,12 @@ pub fn App() -> Element {
 }
 
 #[component]
-fn NavButton(label: &'static str, command: &'static str, #[props(default)] disabled: bool, children: Element) -> Element {
+fn NavButton(
+    label: &'static str,
+    command: &'static str,
+    #[props(default)] disabled: bool,
+    children: Element,
+) -> Element {
     let class = if disabled {
         "flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 transition-colors cursor-default"
     } else {

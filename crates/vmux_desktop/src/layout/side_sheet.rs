@@ -3,12 +3,7 @@ use crate::{
     layout::window::Main,
     settings::AppSettings,
 };
-use bevy::{
-    prelude::*,
-    ui::UiSystems,
-    window::PrimaryWindow,
-    winit::WinitWindows,
-};
+use bevy::{prelude::*, ui::UiSystems, window::PrimaryWindow, winit::WinitWindows};
 use vmux_header::Header;
 
 pub(crate) struct SideSheetLayoutPlugin;
@@ -92,7 +87,9 @@ fn side_sheet_drag_resize(
     }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.physical_cursor_position() else { return };
+    let Some(cursor_pos) = window.physical_cursor_position() else {
+        return;
+    };
     let cursor_x = cursor_pos.x as f32;
 
     // Handle active drag
@@ -146,8 +143,6 @@ fn side_sheet_drag_resize(
             }
         }
     }
-
-
 }
 
 fn sync_side_sheet_visibility(
@@ -208,13 +203,23 @@ fn sync_window_buttons_visibility(
     if !open.is_changed() {
         return;
     }
-    let Some(winit_windows) = winit_windows else { return };
-    let Ok(entity) = window_q.single() else { return };
-    let Some(winit_win) = winit_windows.get_window(entity) else { return };
+    let Some(winit_windows) = winit_windows else {
+        return;
+    };
+    let Ok(entity) = window_q.single() else {
+        return;
+    };
+    let Some(winit_win) = winit_windows.get_window(entity) else {
+        return;
+    };
 
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-    let Ok(handle) = winit_win.window_handle() else { return };
-    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else { return };
+    let Ok(handle) = winit_win.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+        return;
+    };
 
     // ns_view -> [view window] -> standardWindowButton: for each button type
     let ns_view = appkit.ns_view.as_ptr() as *mut libc::c_void;
@@ -243,7 +248,11 @@ fn sync_window_buttons_visibility() {}
 #[cfg(target_os = "macos")]
 mod objc_ffi {
     unsafe extern "C" {
-        pub fn objc_msgSend(obj: *mut libc::c_void, sel: *const libc::c_void, ...) -> *mut libc::c_void;
+        pub fn objc_msgSend(
+            obj: *mut libc::c_void,
+            sel: *const libc::c_void,
+            ...
+        ) -> *mut libc::c_void;
         pub fn sel_registerName(name: *const libc::c_char) -> *const libc::c_void;
     }
 

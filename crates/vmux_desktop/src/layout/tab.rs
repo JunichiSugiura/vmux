@@ -1,9 +1,9 @@
 use crate::{
     command::{AppCommand, ReadAppCommands, TabCommand, TerminalCommand},
     command_bar::NewTabContext,
-    layout::pane::{first_leaf_descendant, first_tab_in_pane, Pane, PaneSplit, PendingCursorWarp},
+    layout::pane::{Pane, PaneSplit, PendingCursorWarp, first_leaf_descendant, first_tab_in_pane},
     layout::space::Space,
-    layout::swap::{find_kind_index, resolve_prev, resolve_next, swap_siblings},
+    layout::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
     settings::AppSettings,
     terminal::Terminal,
 };
@@ -95,9 +95,10 @@ pub(crate) fn active_tab_in_pane(
     pane_children: &Query<&Children, With<Pane>>,
     tab_ts: &Query<(Entity, &LastActivatedAt), With<Tab>>,
 ) -> Option<Entity> {
-    pane_children.get(pane).ok().and_then(|children| {
-        active_among(children.iter().filter_map(|e| tab_ts.get(e).ok()))
-    })
+    pane_children
+        .get(pane)
+        .ok()
+        .and_then(|children| active_among(children.iter().filter_map(|e| tab_ts.get(e).ok())))
 }
 
 /// Find the globally focused (space, pane, tab) by chaining `active_among()`.
@@ -125,7 +126,12 @@ fn compute_focused_tab(
     tab_ts: Query<(Entity, &LastActivatedAt), With<Tab>>,
 ) {
     let (space, pane, tab) = focused_tab(
-        &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+        &spaces,
+        &all_children,
+        &leaf_panes,
+        &pane_ts,
+        &pane_children,
+        &tab_ts,
     );
     cached.space = space;
     cached.pane = pane;
@@ -176,7 +182,12 @@ fn handle_tab_commands(
         };
 
         let (_, active_pane, active_tab) = focused_tab(
-            &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
         );
 
         match tab_cmd {
@@ -204,11 +215,7 @@ fn handle_tab_commands(
                         continue;
                     }
                     let tab = commands
-                        .spawn((
-                            tab_bundle(),
-                            LastActivatedAt::now(),
-                            ChildOf(pane),
-                        ))
+                        .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane)))
                         .id();
                     new_tab_ctx.tab = Some(tab);
                     new_tab_ctx.previous_tab = active_tab;
@@ -225,10 +232,8 @@ fn handle_tab_commands(
                 let Ok(children) = pane_children.get(pane) else {
                     continue;
                 };
-                let tabs_in_pane: Vec<Entity> = children
-                    .iter()
-                    .filter(|&e| tab_q.contains(e))
-                    .collect();
+                let tabs_in_pane: Vec<Entity> =
+                    children.iter().filter(|&e| tab_q.contains(e)).collect();
                 if tabs_in_pane.len() <= 1 {
                     let Ok(pane_co) = child_of_q.get(pane) else {
                         continue;
@@ -245,9 +250,9 @@ fn handle_tab_commands(
                     let Ok(siblings) = pane_children.get(parent) else {
                         continue;
                     };
-                    let sibling = siblings
-                        .iter()
-                        .find(|&e| e != pane && (leaf_panes.contains(e) || split_dir_q.contains(e)));
+                    let sibling = siblings.iter().find(|&e| {
+                        e != pane && (leaf_panes.contains(e) || split_dir_q.contains(e))
+                    });
                     let Some(sibling) = sibling else {
                         continue;
                     };
@@ -263,7 +268,8 @@ fn handle_tab_commands(
 
                     let new_active_pane;
                     if split_dir_q.contains(sibling) {
-                        new_active_pane = first_leaf_descendant(sibling, &pane_children, &leaf_panes);
+                        new_active_pane =
+                            first_leaf_descendant(sibling, &pane_children, &leaf_panes);
                         commands.entity(sibling).remove::<ChildOf>();
                         commands.queue(move |world: &mut World| {
                             world.despawn(sibling);
@@ -282,10 +288,17 @@ fn handle_tab_commands(
                     }
 
                     commands.entity(pane).despawn();
-                    commands.entity(new_active_pane).insert(LastActivatedAt::now());
+                    commands
+                        .entity(new_active_pane)
+                        .insert(LastActivatedAt::now());
                     let new_tab = active_tab_in_pane(new_active_pane, &pane_children, &tab_ts)
                         .or_else(|| first_tab_in_pane(new_active_pane, &pane_children, &tab_q))
-                        .or_else(|| sibling_children.iter().copied().find(|&e| tab_q.contains(e)));
+                        .or_else(|| {
+                            sibling_children
+                                .iter()
+                                .copied()
+                                .find(|&e| tab_q.contains(e))
+                        });
                     if let Some(t) = new_tab {
                         commands.entity(t).insert(LastActivatedAt::now());
                     }
@@ -349,10 +362,7 @@ fn handle_tab_commands(
                 let Ok(children) = pane_children.get(pane) else {
                     continue;
                 };
-                let tabs: Vec<Entity> = children
-                    .iter()
-                    .filter(|&e| tab_q.contains(e))
-                    .collect();
+                let tabs: Vec<Entity> = children.iter().filter(|&e| tab_q.contains(e)).collect();
                 if tabs.is_empty() {
                     continue;
                 }
@@ -371,7 +381,9 @@ fn handle_tab_commands(
                 if target_idx >= tabs.len() {
                     continue;
                 }
-                commands.entity(tabs[target_idx]).insert(LastActivatedAt::now());
+                commands
+                    .entity(tabs[target_idx])
+                    .insert(LastActivatedAt::now());
             }
             TabCommand::Reopen
             | TabCommand::Duplicate
@@ -381,13 +393,18 @@ fn handle_tab_commands(
             TabCommand::SwapPrev | TabCommand::SwapNext => {
                 let Some(pane) = active_pane else { continue };
                 let Some(tab) = active_tab else { continue };
-                let Ok(children) = pane_children.get(pane) else { continue };
-                let kind_positions: Vec<usize> = children.iter()
+                let Ok(children) = pane_children.get(pane) else {
+                    continue;
+                };
+                let kind_positions: Vec<usize> = children
+                    .iter()
                     .enumerate()
                     .filter(|(_, e)| tab_q.contains(*e))
                     .map(|(i, _)| i)
                     .collect();
-                let Some(active_idx) = find_kind_index(tab, children, &kind_positions) else { continue };
+                let Some(active_idx) = find_kind_index(tab, children, &kind_positions) else {
+                    continue;
+                };
                 let pair = if tab_cmd == TabCommand::SwapPrev {
                     resolve_prev(active_idx)
                 } else {
@@ -412,7 +429,11 @@ fn sync_tab_picking(
         if let Ok(children) = pane_children.get(pane) {
             for child in children.iter() {
                 if let Ok((entity, mut z)) = tabs.get_mut(child) {
-                    let target = if Some(entity) == active { ZIndex(1) } else { ZIndex(0) };
+                    let target = if Some(entity) == active {
+                        ZIndex(1)
+                    } else {
+                        ZIndex(0)
+                    };
                     if *z != target {
                         *z = target;
                     }

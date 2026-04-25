@@ -33,11 +33,6 @@ jobs:
           key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-lint-
 
-      - name: Install CEF framework
-        run: |
-          cargo install export-cef-dir@145.6.1+145.0.28 --force
-          export-cef-dir --force "$HOME/.local/share"
-
       - name: Check formatting
         run: |
           # Exclude vendored patches from formatting checks
@@ -45,6 +40,14 @@ jobs:
           for pkg in $PKGS; do
             cargo fmt -p "$pkg" -- --check
           done
+
+      - name: Install CEF framework
+        run: |
+          cargo install export-cef-dir@145.6.1+145.0.28 --force
+          export-cef-dir --force "$HOME/.local/share"
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
 
       - name: Clippy
         run: env -u CEF_PATH cargo clippy --workspace --exclude bevy_cef_core --all-targets -- -D warnings
@@ -72,6 +75,9 @@ jobs:
         run: |
           cargo install export-cef-dir@145.6.1+145.0.28 --force
           export-cef-dir --force "$HOME/.local/share"
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
 
       - name: Run tests
         run: env -u CEF_PATH cargo test --workspace

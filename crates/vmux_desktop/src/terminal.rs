@@ -27,7 +27,7 @@ use bevy_cef::prelude::*;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::{
     io::{Read, Write},
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
 };
 use vmux_header::PageMetadata;
 use vmux_history::LastActivatedAt;
@@ -95,10 +95,8 @@ impl Plugin for TerminalInputPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    handle_terminal_keyboard
-                        .run_if(on_message::<KeyboardInput>),
-                    handle_terminal_scroll
-                        .run_if(on_message::<MouseWheel>),
+                    handle_terminal_keyboard.run_if(on_message::<KeyboardInput>),
+                    handle_terminal_scroll.run_if(on_message::<MouseWheel>),
                 )
                     .after(InputSystems),
             )
@@ -163,7 +161,10 @@ impl Terminal {
             cmd.cwd(dir);
         }
 
-        let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("failed to spawn shell");
         let pid = child.process_id().unwrap_or(0);
         let reader = pair
             .master
@@ -227,7 +228,10 @@ impl Terminal {
                 },
                 WebviewSource::new(TERMINAL_WEBVIEW_URL),
                 ResolvedWebviewUri(TERMINAL_WEBVIEW_URL.to_string()),
-                Mesh3d(meshes.add(bevy::math::primitives::Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+                Mesh3d(meshes.add(bevy::math::primitives::Plane3d::new(
+                    Vec3::Z,
+                    Vec2::splat(0.5),
+                ))),
             ),
             (
                 MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
@@ -297,7 +301,10 @@ impl Dimensions for PtyDimensions {
 
 /// Drain PTY output from background thread, feed to alacritty_terminal.
 fn poll_pty_output(
-    mut q: Query<(Entity, &mut TerminalState, &PtyHandle, &ChildOf), (With<Terminal>, Without<PtyExited>)>,
+    mut q: Query<
+        (Entity, &mut TerminalState, &PtyHandle, &ChildOf),
+        (With<Terminal>, Without<PtyExited>),
+    >,
     mut commands: Commands,
     mut writer: MessageWriter<AppCommand>,
 ) {
@@ -305,7 +312,11 @@ fn poll_pty_output(
         let rx = pty.rx.lock().unwrap();
         let mut got_data = false;
         while let Ok(data) = rx.try_recv() {
-            let TerminalState { ref mut term, ref mut processor, .. } = *state;
+            let TerminalState {
+                ref mut term,
+                ref mut processor,
+                ..
+            } = *state;
             processor.advance(term, &data);
             got_data = true;
         }
@@ -458,8 +469,9 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
 fn color_to_term_color(color: &Color) -> TermColor {
     match color {
         Color::Named(named) => match named {
-            NamedColor::Foreground | NamedColor::DimForeground
-            | NamedColor::BrightForeground => TermColor::Default,
+            NamedColor::Foreground | NamedColor::DimForeground | NamedColor::BrightForeground => {
+                TermColor::Default
+            }
             NamedColor::Background => TermColor::Default,
             NamedColor::Cursor => TermColor::Default,
             other => TermColor::Indexed(named_to_ansi_index(other)),
@@ -639,7 +651,8 @@ fn handle_terminal_keyboard(
                             if !text.is_empty() {
                                 for (pty, state) in &q {
                                     if let Ok(mut writer) = pty.writer.lock() {
-                                        let bp = state.term.mode().contains(TermMode::BRACKETED_PASTE);
+                                        let bp =
+                                            state.term.mode().contains(TermMode::BRACKETED_PASTE);
                                         if bp {
                                             let _ = writer.write_all(b"\x1b[200~");
                                         }
@@ -732,8 +745,7 @@ fn handle_terminal_keyboard(
                         Point::new(Line(target_line), cur.column)
                     }
                     KeyCode::PageDown => {
-                        let target_line =
-                            (cur.line.0 + num_lines as i32).min(num_lines as i32 - 1);
+                        let target_line = (cur.line.0 + num_lines as i32).min(num_lines as i32 - 1);
                         Point::new(Line(target_line), cur.column)
                     }
                     _ => cur,
@@ -747,8 +759,7 @@ fn handle_terminal_keyboard(
                     } else {
                         SelectionType::Simple
                     };
-                    state.term.selection =
-                        Some(Selection::new(sel_type, cursor_point, Side::Left));
+                    state.term.selection = Some(Selection::new(sel_type, cursor_point, Side::Left));
                 }
                 if let Some(ref mut sel) = state.term.selection {
                     sel.update(new_point, Side::Left);
@@ -1093,8 +1104,16 @@ fn on_term_resize(
 
     // Use viewport dimensions from JS when available (accounts for CEF zoom),
     // otherwise fall back to WebviewSize (DIP).
-    let vw = if event.viewport_width > 0.0 { event.viewport_width } else { webview_size.0.x };
-    let vh = if event.viewport_height > 0.0 { event.viewport_height } else { webview_size.0.y };
+    let vw = if event.viewport_width > 0.0 {
+        event.viewport_width
+    } else {
+        webview_size.0.x
+    };
+    let vh = if event.viewport_height > 0.0 {
+        event.viewport_height
+    } else {
+        webview_size.0.y
+    };
 
     let cols = (vw / event.char_width).floor().max(1.0) as u16;
     let rows = (vh / event.char_height).floor().max(1.0) as u16;
@@ -1132,14 +1151,23 @@ fn sync_terminal_theme(
     };
 
     let theme = terminal_settings.resolve_theme(&terminal_settings.default_theme);
-    let colors = crate::themes::resolve_theme(&theme.color_scheme, &terminal_settings.custom_themes);
+    let colors =
+        crate::themes::resolve_theme(&theme.color_scheme, &terminal_settings.custom_themes);
 
     // Simple hash to detect theme changes
     let hash = {
         let mut h: u64 = 0;
-        for b in &colors.foreground { h = h.wrapping_mul(31).wrapping_add(*b as u64); }
-        for b in &colors.background { h = h.wrapping_mul(31).wrapping_add(*b as u64); }
-        for row in &colors.ansi { for b in row { h = h.wrapping_mul(31).wrapping_add(*b as u64); } }
+        for b in &colors.foreground {
+            h = h.wrapping_mul(31).wrapping_add(*b as u64);
+        }
+        for b in &colors.background {
+            h = h.wrapping_mul(31).wrapping_add(*b as u64);
+        }
+        for row in &colors.ansi {
+            for b in row {
+                h = h.wrapping_mul(31).wrapping_add(*b as u64);
+            }
+        }
         h
     };
 
@@ -1213,7 +1241,10 @@ fn on_restart_pty(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .expect("failed to spawn shell");
     let pid = child.process_id().unwrap_or(0);
     let reader = pair
         .master

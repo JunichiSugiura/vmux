@@ -1,7 +1,7 @@
 use crate::{
     browser::Browser,
-    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
     layout::glass::{GlassCorners, GlassMaterial},
+    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
     layout::side_sheet::{SideSheet, SideSheetPosition},
     layout::space::space_bundle,
     layout::tab::tab_bundle,
@@ -10,7 +10,6 @@ use crate::{
     settings::{AppSettings, load_settings},
     unit::{PIXELS_PER_METER, WindowExt},
 };
-use vmux_webview_app::WebviewAppEmbedSet;
 use bevy::{
     ecs::relationship::Relationship,
     prelude::*,
@@ -23,6 +22,7 @@ use bevy_cef::prelude::*;
 use vmux_command_bar::COMMAND_BAR_WEBVIEW_URL;
 use vmux_header::{HEADER_HEIGHT_PX, HEADER_WEBVIEW_URL, Header, HeaderBundle};
 use vmux_history::{CreatedAt, LastActivatedAt};
+use vmux_webview_app::WebviewAppEmbedSet;
 
 pub(crate) const WEBVIEW_Z_MAIN: f32 = 0.12;
 pub(crate) const WEBVIEW_Z_FOCUS_RING: f32 = 0.122;
@@ -51,7 +51,10 @@ impl Plugin for WindowPlugin {
                 .after(WebviewAppEmbedSet),
         )
         .add_systems(PostUpdate, (fit_window_to_screen, sync_glass_pane_clip))
-        .add_systems(Update, maximize_window_to_screen.run_if(not(resource_exists::<ScreenMaximized>)));
+        .add_systems(
+            Update,
+            maximize_window_to_screen.run_if(not(resource_exists::<ScreenMaximized>)),
+        );
     }
 }
 
@@ -214,17 +217,15 @@ fn setup(
                     marker: Header,
                     source: WebviewSource::new(HEADER_WEBVIEW_URL),
                     mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-                    material: MeshMaterial3d(webview_mt.add(
-                        WebviewExtendStandardMaterial {
-                            base: StandardMaterial {
-                                unlit: true,
-                                alpha_mode: AlphaMode::Blend,
-                                depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
-                                ..default()
-                            },
+                    material: MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+                        base: StandardMaterial {
+                            unlit: true,
+                            alpha_mode: AlphaMode::Blend,
+                            depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
                             ..default()
                         },
-                    )),
+                        ..default()
+                    },)),
                     webview_size: WebviewSize(Vec2::new(1280.0, HEADER_HEIGHT_PX)),
                 },
             ),
@@ -332,42 +333,52 @@ fn spawn_default_session(
     // when session.ron is loaded (the guard checks profile_q.is_empty()).
     commands.spawn(Profile::default_profile());
 
-    let space = commands.spawn((
-        space_bundle(),
-        LastActivatedAt::now(),
-        CreatedAt::now(),
-        ChildOf(main),
-    )).id();
+    let space = commands
+        .spawn((
+            space_bundle(),
+            LastActivatedAt::now(),
+            CreatedAt::now(),
+            ChildOf(main),
+        ))
+        .id();
 
-    let split_root = commands.spawn((
-        Pane::default(),
-        PaneSplit { direction: PaneSplitDirection::Row },
-        HostWindow(pw),
-        ZIndex(0),
-        Transform::default(),
-        GlobalTransform::default(),
-        Node {
-            flex_grow: 1.0,
-            min_height: Val::Px(0.0),
-            column_gap: Val::Px(settings.layout.pane.gap),
-            row_gap: Val::Px(settings.layout.pane.gap),
-            ..default()
-        },
-        ChildOf(space),
-    )).id();
+    let split_root = commands
+        .spawn((
+            Pane::default(),
+            PaneSplit {
+                direction: PaneSplitDirection::Row,
+            },
+            HostWindow(pw),
+            ZIndex(0),
+            Transform::default(),
+            GlobalTransform::default(),
+            Node {
+                flex_grow: 1.0,
+                min_height: Val::Px(0.0),
+                column_gap: Val::Px(settings.layout.pane.gap),
+                row_gap: Val::Px(settings.layout.pane.gap),
+                ..default()
+            },
+            ChildOf(space),
+        ))
+        .id();
 
-    let leaf = commands.spawn((
-        leaf_pane_bundle(),
-        LastActivatedAt::now(),
-        ChildOf(split_root),
-    )).id();
+    let leaf = commands
+        .spawn((
+            leaf_pane_bundle(),
+            LastActivatedAt::now(),
+            ChildOf(split_root),
+        ))
+        .id();
 
-    let tab = commands.spawn((
-        tab_bundle(),
-        LastActivatedAt::now(),
-        CreatedAt::now(),
-        ChildOf(leaf),
-    )).id();
+    let tab = commands
+        .spawn((
+            tab_bundle(),
+            LastActivatedAt::now(),
+            CreatedAt::now(),
+            ChildOf(leaf),
+        ))
+        .id();
 
     commands.spawn((
         Browser::new(&mut meshes, &mut webview_mt, startup_url),
@@ -436,8 +447,6 @@ fn spawn_glass_panes(
     // Modal and panes use CSS-based glass, not 3D meshes.
 }
 
-
-
 /// Keeps each Glass's GlassCorners clip in sync with its parent panel's computed size.
 fn sync_glass_pane_clip(
     q: Query<(&ChildOf, &MeshMaterial3d<GlassMaterial>), With<Glass>>,
@@ -458,7 +467,10 @@ fn sync_glass_pane_clip(
         let h_m = size_logical.y / PIXELS_PER_METER;
         if let Some(mat) = materials.get_mut(handle) {
             let clip = &mut mat.extension.clip;
-            if (clip.x - r).abs() > 0.01 || (clip.y - w_m).abs() > 0.01 || (clip.z - h_m).abs() > 0.01 {
+            if (clip.x - r).abs() > 0.01
+                || (clip.y - w_m).abs() > 0.01
+                || (clip.z - h_m).abs() > 0.01
+            {
                 *clip = Vec4::new(r, w_m, h_m, PIXELS_PER_METER);
             }
         }

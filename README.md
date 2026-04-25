@@ -2,7 +2,7 @@
 <p align="center">Vibe Multiplexer — AI-native workspace combining browser and terminal panes.</p>
 
 <p align="center">
-  <img src="icon.png" alt="Vmux icon" width="128" />
+  <img src="icon.png" alt="Vmux icon" width="256" />
 </p>
 
 ## Features

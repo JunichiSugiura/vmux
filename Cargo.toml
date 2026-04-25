@@ -10,7 +10,7 @@ edition = "2024"
 description = "AI-native workspace combining browser and terminal panes"
 license = "MIT"
 homepage = "https://vmux.ai"
-repository = "https://github.com/JunichiSugiura/vmux"
+repository = "https://github.com/vmux-ai/vmux"
 
 [workspace.dependencies]
 bevy = { version = "0.18", default-features = true, features = ["https"] }

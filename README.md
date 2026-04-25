@@ -16,13 +16,13 @@
 ### Homebrew (macOS)
 
 ```sh
-brew tap JunichiSugiura/vmux
+brew tap vmux-ai/vmux
 brew install --cask vmux
 ```
 
 ### Download
 
-Grab the latest `.dmg` from [GitHub Releases](https://github.com/JunichiSugiura/vmux/releases).
+Grab the latest `.dmg` from [GitHub Releases](https://github.com/vmux-ai/vmux/releases).
 
 Requires macOS 13.0 (Ventura) or later.
 

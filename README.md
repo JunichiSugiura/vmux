@@ -14,6 +14,10 @@
 
 ## Install
 
+```sh
+curl -fsSL https://vmux.ai/install | sh
+```
+
 ### Homebrew (macOS)
 
 ```sh

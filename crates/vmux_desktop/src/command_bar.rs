@@ -598,6 +598,11 @@ fn on_command_bar_action(
                                     ChildOf(pane_e),
                                 ))
                                 .id();
+                            commands.entity(new_tab_e).insert(PageMetadata {
+                                url: url.clone(),
+                                title: url.clone(),
+                                ..default()
+                            });
                             let browser_e = commands
                                 .spawn((
                                     Browser::new(&mut meshes, &mut webview_mt, &url),
@@ -629,6 +634,11 @@ fn on_command_bar_action(
                                 .id();
                             commands.entity(term_e).insert(CefKeyboardTarget);
                         } else {
+                            commands.entity(new_tab_e).insert(PageMetadata {
+                                url: url.clone(),
+                                title: url.clone(),
+                                ..default()
+                            });
                             let browser_e = commands
                                 .spawn((
                                     Browser::new(&mut meshes, &mut webview_mt, &url),

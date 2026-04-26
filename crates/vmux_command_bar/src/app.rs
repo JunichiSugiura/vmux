@@ -31,16 +31,7 @@ enum ResultItem {
     },
 }
 
-fn looks_like_path(s: &str) -> bool {
-    s.starts_with('/')
-        || s.starts_with("~/")
-        || s.starts_with("./")
-        || s.starts_with("../")
-        || s.contains('/')
-            && !s.contains(' ')
-            && !s.starts_with("http://")
-            && !s.starts_with("https://")
-}
+use vmux_command_bar::event::looks_like_path;
 
 fn filter_results(
     query: &str,

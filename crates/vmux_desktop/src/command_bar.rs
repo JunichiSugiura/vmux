@@ -18,6 +18,7 @@ use bevy_cef::prelude::*;
 use vmux_command_bar::event::{
     COMMAND_BAR_OPEN_EVENT, CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent,
     CommandBarTab, PATH_COMPLETE_RESPONSE, PathCompleteRequest, PathCompleteResponse, PathEntry,
+    looks_like_explicit_path,
 };
 use vmux_header::{Header, PageMetadata};
 use vmux_history::LastActivatedAt;
@@ -383,6 +384,7 @@ fn on_command_bar_action(
 
     match evt.action.as_str() {
         "navigate" => {
+            let looks_like_path = looks_like_explicit_path(&evt.value);
             let expanded = if evt.value.starts_with('~') {
                 std::env::var("HOME")
                     .ok()
@@ -390,15 +392,10 @@ fn on_command_bar_action(
                         std::path::PathBuf::from(h).join(evt.value[1..].trim_start_matches('/'))
                     })
                     .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
-            } else if evt.value.starts_with('/') {
-                std::path::PathBuf::from(&evt.value)
             } else {
-                std::env::var("HOME")
-                    .ok()
-                    .map(|h| std::path::PathBuf::from(h).join(&evt.value))
-                    .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
+                std::path::PathBuf::from(&evt.value)
             };
-            let is_path = expanded.exists();
+            let is_path = looks_like_path && expanded.exists();
 
             if is_path {
                 let dir = if expanded.is_dir() {

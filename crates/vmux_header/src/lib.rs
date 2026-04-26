@@ -7,10 +7,10 @@ pub mod bundle;
 pub mod system;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use bundle::{Header, HeaderBundle, HEADER_WEBVIEW_URL};
+pub use bundle::{HEADER_WEBVIEW_URL, Header, HeaderBundle};
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use system::{NavigationState, PageMetadata, HEADER_HEIGHT_PX};
+pub use system::{HEADER_HEIGHT_PX, NavigationState, PageMetadata};
 
 #[cfg(not(target_arch = "wasm32"))]
 include!("plugin.rs");

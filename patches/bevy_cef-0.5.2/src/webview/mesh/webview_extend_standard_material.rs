@@ -1,5 +1,7 @@
 use crate::common::WebviewSource;
-use crate::prelude::{WebviewMaterial, WebviewSurface, update_webview_image, webview_placeholder_image};
+use crate::prelude::{
+    WebviewMaterial, WebviewSurface, update_webview_image, webview_placeholder_image,
+};
 use bevy::asset::*;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension};
 use bevy::prelude::*;
@@ -38,10 +40,7 @@ fn ensure_mesh_webview_placeholder(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<WebviewExtendStandardMaterial>>,
-    webviews: Query<
-        (Entity, &MeshMaterial3d<WebviewExtendStandardMaterial>),
-        With<WebviewSource>,
-    >,
+    webviews: Query<(Entity, &MeshMaterial3d<WebviewExtendStandardMaterial>), With<WebviewSource>>,
 ) {
     for (entity, mesh_mat) in &webviews {
         let Some(mat) = materials.get_mut(mesh_mat.id()) else {
@@ -82,7 +81,12 @@ pub fn render_standard_materials(
         {
             update_webview_image(texture.clone(), image);
         } else {
-            bevy::log::warn!("[tex-apply] FAILED to apply texture for {:?} {}x{}", texture.webview, texture.width, texture.height);
+            bevy::log::warn!(
+                "[tex-apply] FAILED to apply texture for {:?} {}x{}",
+                texture.webview,
+                texture.width,
+                texture.height
+            );
         }
     }
 }

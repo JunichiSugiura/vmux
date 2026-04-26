@@ -39,17 +39,9 @@ pub struct ShortcutMap {
     pub chord_timeout_ms: u64,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct ChordState {
     pub pending_prefix: Option<(KeyCombo, Instant)>,
-}
-
-impl Default for ChordState {
-    fn default() -> Self {
-        Self {
-            pending_prefix: None,
-        }
-    }
 }
 
 fn init_shortcuts(mut commands: Commands, settings: Option<Res<AppSettings>>) {
@@ -134,15 +126,16 @@ fn process_key_input(
                     effective.modifiers.super_key = false;
                 }
                 for (binding, cmd_id) in &bindings.bindings {
-                    if let Shortcut::Chord(b_prefix, b_second) = binding {
-                        if b_prefix == prefix && *b_second == effective {
-                            if let Some(cmd) = AppCommand::from_menu_id(cmd_id.as_str()) {
-                                writer.write(cmd);
-                            }
-                            chord_state.pending_prefix = None;
-                            suppress.0 = false;
-                            return;
+                    if let Shortcut::Chord(b_prefix, b_second) = binding
+                        && b_prefix == prefix
+                        && *b_second == effective
+                    {
+                        if let Some(cmd) = AppCommand::from_menu_id(cmd_id.as_str()) {
+                            writer.write(cmd);
                         }
+                        chord_state.pending_prefix = None;
+                        suppress.0 = false;
+                        return;
                     }
                 }
             }

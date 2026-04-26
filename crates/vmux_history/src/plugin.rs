@@ -21,8 +21,9 @@ impl Plugin for HistoryPlugin {
 }
 
 #[derive(Component, Clone, Copy, Debug)]
-struct Sent(i64);
+struct Sent(#[allow(dead_code)] i64);
 
+#[allow(clippy::type_complexity)]
 fn push_history_via_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,

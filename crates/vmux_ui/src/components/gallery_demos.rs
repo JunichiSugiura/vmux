@@ -70,8 +70,8 @@ pub fn GalleryDemos() -> Element {
     let mut dlg_open = use_signal(|| Some(false));
     let alert_id = use_signal(|| None::<String>);
     let mut alert_open = use_signal(|| Some(false));
-    let mut alert_close_cancel = alert_open.clone();
-    let mut alert_close_ok = alert_open.clone();
+    let mut alert_close_cancel = alert_open;
+    let mut alert_close_ok = alert_open;
     let sheet_id = use_signal(|| None::<String>);
     let mut sheet_open = use_signal(|| Some(false));
 

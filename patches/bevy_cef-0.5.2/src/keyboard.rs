@@ -1,10 +1,9 @@
 use crate::common::{CefKeyboardTarget, CefSuppressKeyboardInput, WebviewSource};
-use bevy::input::keyboard::KeyboardInput;
 use bevy::input::ButtonState;
 use bevy::input::InputSystems;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy_cef_core::prelude::{Browsers, create_cef_key_events, keyboard_modifiers};
-use cef;
 use serde::{Deserialize, Serialize};
 
 /// [`SystemSet`] for systems that forward keyboard and IME input to CEF (runs in [`PreUpdate`]
@@ -107,8 +106,8 @@ fn send_key_event(
                 continue;
             }
         }
-        let needs_dedup = is_non_character_key(event.key_code)
-            || is_emacs_nav_key(event.key_code, &input);
+        let needs_dedup =
+            is_non_character_key(event.key_code) || is_emacs_nav_key(event.key_code, &input);
         if event.state == ButtonState::Pressed && !event.repeat && needs_dedup {
             if forwarded_presses.contains(&event.key_code) {
                 cef::do_message_loop_work();
@@ -153,7 +152,7 @@ fn send_key_event(
                 continue;
             }
         }
-        let key_events = create_cef_key_events(modifiers, &input, &event);
+        let key_events = create_cef_key_events(modifiers, &input, event);
         for key_event in key_events {
             if use_targets {
                 for webview in targeted_buf.iter() {

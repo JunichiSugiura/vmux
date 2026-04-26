@@ -1,3 +1,5 @@
+#![allow(clippy::all)]
+
 mod browser_process;
 #[cfg(target_os = "macos")]
 mod debug;

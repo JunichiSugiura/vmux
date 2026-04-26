@@ -1,10 +1,10 @@
+use crate::chrome_state::WebviewChromeStateSender;
 use crate::common::localhost::responser::{InlineHtmlId, InlineHtmlStore};
 use crate::common::{
     HostWindow, IpcEventRawSender, ResolvedWebviewUri, WebviewSize, WebviewSource,
     WebviewTransparent,
 };
 use crate::cursor_icon::SystemCursorIconSender;
-use crate::chrome_state::WebviewChromeStateSender;
 use crate::loading_state::WebviewLoadingStateSender;
 use crate::popup_state::WebviewPopupSender;
 use crate::prelude::PreloadScripts;
@@ -24,7 +24,9 @@ mod mesh;
 mod webview_sprite;
 
 pub mod prelude {
-    pub use crate::webview::{CefSystems, RequestCloseDevtool, RequestShowDevTool, WebviewPlugin, mesh::*};
+    pub use crate::webview::{
+        CefSystems, RequestCloseDevtool, RequestShowDevTool, WebviewPlugin, mesh::*,
+    };
 }
 
 /// A Trigger event to request showing the developer tools in a webview.
@@ -96,7 +98,7 @@ impl Plugin for WebviewPlugin {
                     create_webview,
                     navigate_on_source_change,
                 )
-                .in_set(CefSystems::CreateAndResize),
+                    .in_set(CefSystems::CreateAndResize),
             )
             .add_observer(apply_request_show_devtool)
             .add_observer(apply_request_close_devtool);
@@ -113,10 +115,7 @@ impl Plugin for WebviewPlugin {
                 // `on_remove` runs before the component is dropped; `get` should succeed. If it does
                 // not (e.g. despawn edge cases), skip rather than panic — stale store entries are
                 // bounded and harmless compared to crashing the host.
-                if let Some(id) = world
-                    .get::<InlineHtmlId>(ctx.entity)
-                    .map(|c| c.0.clone())
-                {
+                if let Some(id) = world.get::<InlineHtmlId>(ctx.entity).map(|c| c.0.clone()) {
                     world.resource_mut::<InlineHtmlStore>().remove(&id);
                 }
             });
@@ -160,7 +159,7 @@ fn create_webview(
                 .or_else(|| primary_window.single().ok());
             let device_scale_factor = window_entity
                 .and_then(|e| windows.get(e).ok())
-                .map(|w| w.resolution.scale_factor() as f32)
+                .map(|w| w.resolution.scale_factor())
                 .filter(|s| s.is_finite() && *s > 0.0)
                 .unwrap_or(1.0);
 
@@ -220,7 +219,7 @@ fn resize(
             .or_else(|| primary_window.single().ok());
         let device_scale_factor = window_entity
             .and_then(|e| windows.get(e).ok())
-            .map(|w| w.resolution.scale_factor() as f32)
+            .map(|w| w.resolution.scale_factor())
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         browsers.resize(&webview, size.0, device_scale_factor);

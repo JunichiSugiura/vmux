@@ -14,8 +14,12 @@ pub(crate) fn swap_siblings(
     if a == b {
         return;
     }
-    let Some(&pos_a) = kind_positions.get(a) else { return };
-    let Some(&pos_b) = kind_positions.get(b) else { return };
+    let Some(&pos_a) = kind_positions.get(a) else {
+        return;
+    };
+    let Some(&pos_b) = kind_positions.get(b) else {
+        return;
+    };
 
     let mut ordered: Vec<Entity> = children.iter().collect();
     ordered.swap(pos_a, pos_b);
@@ -34,7 +38,9 @@ pub(crate) fn find_kind_index(
     children: &Children,
     kind_positions: &[usize],
 ) -> Option<usize> {
-    kind_positions.iter().position(|&pos| children[pos] == entity)
+    kind_positions
+        .iter()
+        .position(|&pos| children[pos] == entity)
 }
 
 pub(crate) fn resolve_prev(active_idx: usize) -> Option<(usize, usize)> {
@@ -49,12 +55,7 @@ pub(crate) fn resolve_next(active_idx: usize, len: usize) -> Option<(usize, usiz
 ///
 /// Clamps `index` to a valid slot. Works around a Bevy 0.18 `Vec<Entity>::place`
 /// panic when the child is already present and `index >= len`.
-pub(crate) fn move_to_index(
-    world: &mut World,
-    child: Entity,
-    new_parent: Entity,
-    index: usize,
-) {
+pub(crate) fn move_to_index(world: &mut World, child: Entity, new_parent: Entity, index: usize) {
     let already_child = world
         .get::<ChildOf>(child)
         .is_some_and(|c| c.parent() == new_parent);
@@ -67,12 +68,11 @@ pub(crate) fn move_to_index(
     } else {
         index.min(current_len)
     };
-    if already_child {
-        if let Some(children) = world.get::<Children>(new_parent) {
-            if children.get(clamped) == Some(&child) {
-                return;
-            }
-        }
+    if already_child
+        && let Some(children) = world.get::<Children>(new_parent)
+        && children.get(clamped) == Some(&child)
+    {
+        return;
     }
     world.entity_mut(new_parent).insert_child(clamped, child);
 }
@@ -127,8 +127,11 @@ pub(crate) fn wrap_in_split(
     use crate::layout::pane::PaneSplit;
 
     let grandparent = world.get::<ChildOf>(target).map(|p| p.parent());
-    let target_idx = grandparent
-        .and_then(|gp| world.get::<Children>(gp).and_then(|c| c.iter().position(|e| e == target)));
+    let target_idx = grandparent.and_then(|gp| {
+        world
+            .get::<Children>(gp)
+            .and_then(|c| c.iter().position(|e| e == target))
+    });
 
     let split = world.spawn(PaneSplit { direction }).id();
 
@@ -157,9 +160,7 @@ mod tests {
 
     fn spawn_parent_with_children(world: &mut World, n: usize) -> (Entity, Vec<Entity>) {
         let parent = world.spawn_empty().id();
-        let kids: Vec<Entity> = (0..n)
-            .map(|_| world.spawn(ChildOf(parent)).id())
-            .collect();
+        let kids: Vec<Entity> = (0..n).map(|_| world.spawn(ChildOf(parent)).id()).collect();
         (parent, kids)
     }
 
@@ -216,7 +217,9 @@ mod tests {
     use crate::layout::pane::{PaneSplit, PaneSplitDirection};
 
     fn spawn_split(world: &mut World, dir: PaneSplitDirection, parent: Entity) -> Entity {
-        world.spawn((PaneSplit { direction: dir }, ChildOf(parent))).id()
+        world
+            .spawn((PaneSplit { direction: dir }, ChildOf(parent)))
+            .id()
     }
 
     #[test]
@@ -299,13 +302,7 @@ mod tests {
         let c = world.spawn(ChildOf(root)).id();
         let dragged = world.spawn_empty().id();
 
-        let split = wrap_in_split(
-            &mut world,
-            target,
-            PaneSplitDirection::Row,
-            dragged,
-            false,
-        );
+        let split = wrap_in_split(&mut world, target, PaneSplitDirection::Row, dragged, false);
 
         let root_kids = world.get::<Children>(root).unwrap();
         assert_eq!(&**root_kids, &[a, split, c]);

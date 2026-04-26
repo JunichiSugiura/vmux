@@ -55,7 +55,12 @@ fn resolve_webview_source(
     mut commands: Commands,
     mut store: ResMut<InlineHtmlStore>,
     query: Query<
-        (Entity, &WebviewSource, Option<&InlineHtmlId>, Option<&ResolvedWebviewUri>),
+        (
+            Entity,
+            &WebviewSource,
+            Option<&InlineHtmlId>,
+            Option<&ResolvedWebviewUri>,
+        ),
         Or<(Added<WebviewSource>, Changed<WebviewSource>)>,
     >,
 ) {

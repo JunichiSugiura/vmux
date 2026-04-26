@@ -1,6 +1,6 @@
 use crate::{
     command::{AppCommand, ReadAppCommands, SpaceCommand},
-    layout::swap::{find_kind_index, resolve_prev, resolve_next, swap_siblings},
+    layout::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
 };
 use bevy::{ecs::relationship::Relationship, prelude::*};
 use moonshine_save::prelude::*;
@@ -64,15 +64,22 @@ fn handle_space_commands(
             SpaceCommand::Rename => {}
             SpaceCommand::SwapPrev | SpaceCommand::SwapNext => {
                 let Some(active) = active_space else { continue };
-                let Ok(co) = child_of_q.get(active) else { continue };
+                let Ok(co) = child_of_q.get(active) else {
+                    continue;
+                };
                 let parent = co.get();
-                let Ok(children) = all_children.get(parent) else { continue };
-                let kind_positions: Vec<usize> = children.iter()
+                let Ok(children) = all_children.get(parent) else {
+                    continue;
+                };
+                let kind_positions: Vec<usize> = children
+                    .iter()
                     .enumerate()
                     .filter(|(_, e)| space_q.contains(*e))
                     .map(|(i, _)| i)
                     .collect();
-                let Some(active_idx) = find_kind_index(active, children, &kind_positions) else { continue };
+                let Some(active_idx) = find_kind_index(active, children, &kind_positions) else {
+                    continue;
+                };
                 let pair = if space_cmd == SpaceCommand::SwapPrev {
                     resolve_prev(active_idx)
                 } else {
@@ -86,12 +93,17 @@ fn handle_space_commands(
     }
 }
 
-fn sync_space_visibility(
-    mut spaces: Query<(Entity, &LastActivatedAt, &mut Node), With<Space>>,
-) {
-    let active = spaces.iter().max_by_key(|(_, ts, _)| ts.0).map(|(e, _, _)| e);
+fn sync_space_visibility(mut spaces: Query<(Entity, &LastActivatedAt, &mut Node), With<Space>>) {
+    let active = spaces
+        .iter()
+        .max_by_key(|(_, ts, _)| ts.0)
+        .map(|(e, _, _)| e);
     for (entity, _, mut node) in &mut spaces {
-        let target = if Some(entity) == active { Display::Flex } else { Display::None };
+        let target = if Some(entity) == active {
+            Display::Flex
+        } else {
+            Display::None
+        };
         if node.display != target {
             node.display = target;
         }

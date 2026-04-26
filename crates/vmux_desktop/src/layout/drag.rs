@@ -43,10 +43,16 @@ pub(crate) fn swap_pane_impl(world: &mut World, a_id: u64, b_id: u64) {
 
     let a_parent = world.get::<ChildOf>(a).map(|p| p.parent());
     let b_parent = world.get::<ChildOf>(b).map(|p| p.parent());
-    let a_idx = a_parent
-        .and_then(|p| world.get::<Children>(p).and_then(|c| c.iter().position(|e| e == a)));
-    let b_idx = b_parent
-        .and_then(|p| world.get::<Children>(p).and_then(|c| c.iter().position(|e| e == b)));
+    let a_idx = a_parent.and_then(|p| {
+        world
+            .get::<Children>(p)
+            .and_then(|c| c.iter().position(|e| e == a))
+    });
+    let b_idx = b_parent.and_then(|p| {
+        world
+            .get::<Children>(p)
+            .and_then(|c| c.iter().position(|e| e == b))
+    });
 
     match (a_parent, b_parent, a_idx, b_idx) {
         (Some(ap), Some(bp), Some(ai), Some(bi)) if ap == bp => {
@@ -71,10 +77,16 @@ pub(crate) fn move_tab_impl(
     let from_pane = Entity::from_bits(from_pane_id);
     let to_pane = Entity::from_bits(to_pane_id);
 
-    if !world.get_entity(from_pane).is_ok_and(|e| e.contains::<Pane>()) {
+    if !world
+        .get_entity(from_pane)
+        .is_ok_and(|e| e.contains::<Pane>())
+    {
         return;
     }
-    if !world.get_entity(to_pane).is_ok_and(|e| e.contains::<Pane>()) {
+    if !world
+        .get_entity(to_pane)
+        .is_ok_and(|e| e.contains::<Pane>())
+    {
         return;
     }
 
@@ -178,7 +190,14 @@ mod tests {
         let mut world = World::new();
         let root = spawn_split(&mut world, PaneSplitDirection::Row);
         let outer_a = world.spawn((Pane, ChildOf(root))).id();
-        let col = world.spawn((PaneSplit { direction: PaneSplitDirection::Column }, ChildOf(root))).id();
+        let col = world
+            .spawn((
+                PaneSplit {
+                    direction: PaneSplitDirection::Column,
+                },
+                ChildOf(root),
+            ))
+            .id();
         let inner_a = world.spawn((Pane, ChildOf(col))).id();
         let inner_b = world.spawn((Pane, ChildOf(col))).id();
 

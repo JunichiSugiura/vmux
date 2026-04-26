@@ -3,20 +3,21 @@ use crate::{
     command::{AppCommand, BrowserCommand, ReadAppCommands, TabCommand, TerminalCommand},
     layout::{
         pane::{Pane, PaneSplit},
-        space::Space,
         side_sheet::SideSheet,
+        space::Space,
         tab::{Tab, active_among, collect_leaf_panes, focused_tab},
         window::Modal,
     },
     settings::AppSettings,
     terminal::Terminal,
 };
-use bevy::{ecs::message::MessageReader, ecs::relationship::Relationship, prelude::*, ui::UiSystems};
+use bevy::{
+    ecs::message::MessageReader, ecs::relationship::Relationship, prelude::*, ui::UiSystems,
+};
 use bevy_cef::prelude::*;
 use vmux_command_bar::event::{
-    CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent, CommandBarTab,
-    PathCompleteRequest, PathCompleteResponse, PathEntry, COMMAND_BAR_OPEN_EVENT,
-    PATH_COMPLETE_RESPONSE,
+    COMMAND_BAR_OPEN_EVENT, CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent,
+    CommandBarTab, PATH_COMPLETE_RESPONSE, PathCompleteRequest, PathCompleteResponse, PathEntry,
 };
 use vmux_header::{Header, PageMetadata};
 use vmux_history::LastActivatedAt;
@@ -149,18 +150,23 @@ fn handle_open_command_bar(
             // Discard empty tab created by a previous Cmd+T
             if let Some(tab_e) = new_tab_ctx.tab.take() {
                 commands.entity(tab_e).despawn();
-                if let Some(prev) = new_tab_ctx.previous_tab.take() {
-                    if let Ok(children) = all_children.get(prev) {
-                        for child in children.iter() {
-                            if content_browsers.contains(child) {
-                                commands.entity(child).insert(CefKeyboardTarget);
-                            }
+                if let Some(prev) = new_tab_ctx.previous_tab.take()
+                    && let Ok(children) = all_children.get(prev)
+                {
+                    for child in children.iter() {
+                        if content_browsers.contains(child) {
+                            commands.entity(child).insert(CefKeyboardTarget);
                         }
                     }
                 }
             } else {
                 let (_, _, active_tab) = focused_tab(
-                    &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+                    &spaces,
+                    &all_children,
+                    &leaf_panes,
+                    &pane_ts,
+                    &pane_children,
+                    &tab_ts,
                 );
                 if let Some(tab) = active_tab {
                     for browser_e in &content_browsers {
@@ -226,8 +232,14 @@ fn handle_open_command_bar(
     } else if is_new_tab {
         String::new()
     } else {
-        let (_, _, active_tab) =
-            focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+        let (_, _, active_tab) = focused_tab(
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
+        );
         active_tab
             .and_then(|tab| {
                 let Ok(children) = all_children.get(tab) else {
@@ -243,11 +255,15 @@ fn handle_open_command_bar(
     let active_space = active_among(spaces.iter());
     let mut bar_tabs = Vec::new();
     if let Some(space) = active_space {
-        let (_, _, active_tab) =
-            focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
-        let active_pane = active_tab.and_then(|t| {
-            child_of_q.get(t).ok().map(|co| co.get())
-        });
+        let (_, _, active_tab) = focused_tab(
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
+        );
+        let active_pane = active_tab.and_then(|t| child_of_q.get(t).ok().map(|co| co.get()));
         let mut space_panes = Vec::new();
         collect_leaf_panes(space, &all_children, &leaf_panes, &mut space_panes);
         for &pane_e in &space_panes {
@@ -297,7 +313,11 @@ fn handle_open_command_bar(
             new_tab: is_new_tab,
         };
         let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
-        commands.trigger(HostEmitEvent::new(modal_e, COMMAND_BAR_OPEN_EVENT, &ron_body));
+        commands.trigger(HostEmitEvent::new(
+            modal_e,
+            COMMAND_BAR_OPEN_EVENT,
+            &ron_body,
+        ));
     }
 }
 
@@ -334,19 +354,21 @@ fn on_command_bar_action(
     // Track whether we handle keyboard restore ourselves
     let mut custom_keyboard_restore = false;
 
-
-
     match evt.action.as_str() {
         "navigate" => {
             // Detect filesystem paths — open terminal with cwd instead of browser
             let expanded = if evt.value.starts_with('~') {
-                std::env::var("HOME").ok()
-                    .map(|h| std::path::PathBuf::from(h).join(evt.value[1..].trim_start_matches('/')))
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| {
+                        std::path::PathBuf::from(h).join(evt.value[1..].trim_start_matches('/'))
+                    })
                     .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
             } else if evt.value.starts_with('/') {
                 std::path::PathBuf::from(&evt.value)
             } else {
-                std::env::var("HOME").ok()
+                std::env::var("HOME")
+                    .ok()
                     .map(|h| std::path::PathBuf::from(h).join(&evt.value))
                     .unwrap_or_else(|| std::path::PathBuf::from(&evt.value))
             };
@@ -366,7 +388,12 @@ fn on_command_bar_action(
                     });
                     let term_e = commands
                         .spawn((
-                            Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, Some(dir)),
+                            Terminal::new_with_cwd(
+                                &mut meshes,
+                                &mut webview_mt,
+                                &settings,
+                                Some(dir),
+                            ),
                             ChildOf(tab_e),
                         ))
                         .id();
@@ -416,8 +443,14 @@ fn on_command_bar_action(
                     if url.starts_with("vmux://terminal") {
                         writer.write(AppCommand::Terminal(TerminalCommand::New));
                     } else {
-                        let (_, _, active_tab) =
-                            focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+                        let (_, _, active_tab) = focused_tab(
+                            &spaces,
+                            &all_children,
+                            &leaf_panes,
+                            &pane_ts,
+                            &pane_children,
+                            &tab_ts,
+                        );
                         if let Some(tab) = active_tab {
                             for browser_e in &content_browsers {
                                 let is_child = child_of_q
@@ -459,7 +492,12 @@ fn on_command_bar_action(
                 });
                 let term_e = commands
                     .spawn((
-                        Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, cwd.as_deref()),
+                        Terminal::new_with_cwd(
+                            &mut meshes,
+                            &mut webview_mt,
+                            &settings,
+                            cwd.as_deref(),
+                        ),
                         ChildOf(tab_e),
                     ))
                     .id();
@@ -468,8 +506,14 @@ fn on_command_bar_action(
                 new_tab_ctx.previous_tab = None;
                 custom_keyboard_restore = true;
             } else {
-                let (_, active_pane_opt, _) =
-                    focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+                let (_, active_pane_opt, _) = focused_tab(
+                    &spaces,
+                    &all_children,
+                    &leaf_panes,
+                    &pane_ts,
+                    &pane_children,
+                    &tab_ts,
+                );
                 if let Some(pane_e) = active_pane_opt {
                     let tab_e = commands
                         .spawn((
@@ -485,7 +529,12 @@ fn on_command_bar_action(
                     });
                     let term_e = commands
                         .spawn((
-                            Terminal::new_with_cwd(&mut meshes, &mut webview_mt, &settings, cwd.as_deref()),
+                            Terminal::new_with_cwd(
+                                &mut meshes,
+                                &mut webview_mt,
+                                &settings,
+                                cwd.as_deref(),
+                            ),
                             ChildOf(tab_e),
                         ))
                         .id();
@@ -513,21 +562,17 @@ fn on_command_bar_action(
                 new_tab_ctx.tab = None;
                 new_tab_ctx.previous_tab = None;
             }
-            if let Some((pane_bits, tab_idx)) = evt.value.split_once(':') {
-                if let (Ok(pane_id), Ok(tab_index)) =
+            if let Some((pane_bits, tab_idx)) = evt.value.split_once(':')
+                && let (Ok(pane_id), Ok(tab_index)) =
                     (pane_bits.parse::<u64>(), tab_idx.parse::<usize>())
-                {
-                    if let Some(target_pane) =
-                        leaf_panes.iter().find(|e| e.to_bits() == pane_id)
-                    {
-                        commands.entity(target_pane).insert(LastActivatedAt::now());
-                        if let Ok(children) = pane_children.get(target_pane) {
-                            let tabs: Vec<Entity> =
-                                children.iter().filter(|&e| tab_q.contains(e)).collect();
-                            if let Some(&target_tab) = tabs.get(tab_index) {
-                                commands.entity(target_tab).insert(LastActivatedAt::now());
-                            }
-                        }
+                && let Some(target_pane) = leaf_panes.iter().find(|e| e.to_bits() == pane_id)
+            {
+                commands.entity(target_pane).insert(LastActivatedAt::now());
+                if let Ok(children) = pane_children.get(target_pane) {
+                    let tabs: Vec<Entity> =
+                        children.iter().filter(|&e| tab_q.contains(e)).collect();
+                    if let Some(&target_tab) = tabs.get(tab_index) {
+                        commands.entity(target_tab).insert(LastActivatedAt::now());
                     }
                 }
             }
@@ -538,12 +583,12 @@ fn on_command_bar_action(
                 commands.entity(tab_e).despawn();
                 new_tab_ctx.tab = None;
                 // Restore keyboard to previous tab's browser
-                if let Some(prev) = previous_tab {
-                    if let Ok(children) = all_children.get(prev) {
-                        for child in children.iter() {
-                            if content_browsers.contains(child) {
-                                commands.entity(child).insert(CefKeyboardTarget);
-                            }
+                if let Some(prev) = previous_tab
+                    && let Ok(children) = all_children.get(prev)
+                {
+                    for child in children.iter() {
+                        if content_browsers.contains(child) {
+                            commands.entity(child).insert(CefKeyboardTarget);
                         }
                     }
                 }
@@ -564,8 +609,14 @@ fn on_command_bar_action(
             .remove::<PendingCommandBarReveal>();
     }
     if !custom_keyboard_restore {
-        let (_, _, active_tab) =
-            focused_tab(&spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts);
+        let (_, _, active_tab) = focused_tab(
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
+        );
         if let Some(tab) = active_tab {
             for browser_e in &content_browsers {
                 let is_child = child_of_q
@@ -614,7 +665,11 @@ fn on_path_complete_request(
     let completions = complete_path(query);
     let payload = PathCompleteResponse { completions };
     let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
-    commands.trigger(HostEmitEvent::new(modal_e, PATH_COMPLETE_RESPONSE, &ron_body));
+    commands.trigger(HostEmitEvent::new(
+        modal_e,
+        PATH_COMPLETE_RESPONSE,
+        &ron_body,
+    ));
 }
 
 fn complete_path(query: &str) -> Vec<PathEntry> {

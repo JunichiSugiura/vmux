@@ -55,7 +55,10 @@ fn split_custom_scheme_host_and_tail(path_part: &str) -> Option<(&str, &str)> {
     }
 }
 
-pub(crate) fn asset_load_path_from_request_url_with(url: &str, cfg: &CefEmbeddedPageConfig) -> String {
+pub(crate) fn asset_load_path_from_request_url_with(
+    url: &str,
+    cfg: &CefEmbeddedPageConfig,
+) -> String {
     const CEF_LOCAL: &str = concat!("cef", "://", "localhost", "/");
     const EMBEDDED_LEAF: &str = "embedded/";
     const EMBEDDED_SCHEME: &str = "embedded://";
@@ -411,10 +414,7 @@ mod custom_scheme_url_tests {
         let cfg = history_config();
         let p = cfg.scheme_prefix();
         assert_eq!(
-            asset_load_path_from_request_url_with(
-                &format!("{p}history/other/page.html"),
-                &cfg
-            ),
+            asset_load_path_from_request_url_with(&format!("{p}history/other/page.html"), &cfg),
             "embedded://history/other/page.html"
         );
     }
@@ -453,7 +453,10 @@ mod custom_scheme_url_tests {
     #[test]
     fn cef_localhost_disk_style_path() {
         assert_eq!(
-            asset_load_path_from_request_url_with("cef://localhost/index.html", &empty_hosts_config()),
+            asset_load_path_from_request_url_with(
+                "cef://localhost/index.html",
+                &empty_hosts_config()
+            ),
             "index.html"
         );
     }

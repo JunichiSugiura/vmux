@@ -5,7 +5,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::mesh::{Indices, Mesh, PrimitiveTopology, VertexAttributeValues};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
-use bevy_picking::mesh_picking::ray_cast::{ray_mesh_intersection, Backfaces};
+use bevy_picking::mesh_picking::ray_cast::{Backfaces, ray_mesh_intersection};
 use std::fmt::Debug;
 
 #[derive(SystemParam)]
@@ -129,7 +129,6 @@ impl<C: Component> WebviewPointer<'_, '_, C> {
             })
         })
     }
-
 }
 
 /// CEF mouse / click coordinates use the same **DIP / layout** space as `GetViewRect` / [`WebviewSize`],
@@ -154,7 +153,10 @@ fn cef_pixels_from_mesh_ray(
     if mesh.primitive_topology() != PrimitiveTopology::TriangleList {
         return None;
     }
-    let positions = mesh.try_attribute(Mesh::ATTRIBUTE_POSITION).ok()?.as_float3()?;
+    let positions = mesh
+        .try_attribute(Mesh::ATTRIBUTE_POSITION)
+        .ok()?
+        .as_float3()?;
     let normals = mesh
         .try_attribute(Mesh::ATTRIBUTE_NORMAL)
         .ok()

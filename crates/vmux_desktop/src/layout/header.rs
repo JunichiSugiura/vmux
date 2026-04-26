@@ -1,6 +1,6 @@
 use crate::command::{AppCommand, HeaderCommand, ReadAppCommands};
 use bevy::prelude::*;
-use vmux_header::{Header, HEADER_HEIGHT_PX};
+use vmux_header::{HEADER_HEIGHT_PX, Header};
 
 pub(crate) struct HeaderLayoutPlugin;
 
@@ -18,10 +18,7 @@ impl Plugin for HeaderLayoutPlugin {
 #[derive(Resource)]
 pub(crate) struct HeaderOpen(pub bool);
 
-fn handle_header_toggle(
-    mut reader: MessageReader<AppCommand>,
-    mut open: ResMut<HeaderOpen>,
-) {
+fn handle_header_toggle(mut reader: MessageReader<AppCommand>, mut open: ResMut<HeaderOpen>) {
     for cmd in reader.read() {
         if matches!(cmd, AppCommand::Header(HeaderCommand::Toggle)) {
             open.0 = !open.0;

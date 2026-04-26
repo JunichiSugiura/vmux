@@ -10,9 +10,9 @@ use bevy_remote::BrpMessage;
 use cef::{
     Browser, BrowserHost, BrowserSettings, CefString, Client, CompositionUnderline,
     DictionaryValue, ImplBrowser, ImplBrowserHost, ImplDictionaryValue, ImplFrame, ImplListValue,
-    ImplProcessMessage, ImplRequestContext, MouseButtonType, ProcessId, Range,
-    RequestContext, RequestContextSettings, WindowInfo, browser_host_create_browser_sync,
-    dictionary_value_create, process_message_create, register_scheme_handler_factory,
+    ImplProcessMessage, ImplRequestContext, MouseButtonType, ProcessId, Range, RequestContext,
+    RequestContextSettings, WindowInfo, browser_host_create_browser_sync, dictionary_value_create,
+    process_message_create, register_scheme_handler_factory,
 };
 use cef_dll_sys::{cef_event_flags_t, cef_mouse_button_type_t};
 #[allow(deprecated)]
@@ -28,16 +28,13 @@ use crate::browser_process::browsers::devtool_render_handler::DevToolRenderHandl
 use crate::browser_process::display_handler::{
     DisplayHandlerBuilder, SystemCursorIconSenderInner, WebviewChromeStateSenderInner,
 };
-use crate::browser_process::life_span_handler::{
-    LifeSpanHandlerBuilder, WebviewPopupSenderInner,
-};
+use crate::browser_process::life_span_handler::{LifeSpanHandlerBuilder, WebviewPopupSenderInner};
 use crate::browser_process::load_handler::{
     WebviewLoadHandlerBuilder, WebviewLoadingStateSenderInner,
 };
-use crate::browser_process::request_handler::RequestHandlerBuilder;
 use crate::browser_process::renderer_handler::SharedDeviceScaleFactor;
+use crate::browser_process::request_handler::RequestHandlerBuilder;
 pub use keyboard::*;
-
 
 /// Default CEF [`BrowserSettings::background_color`] ARGB.
 /// Opaque white so normal web pages render correctly.
@@ -240,8 +237,6 @@ impl Browsers {
             b.host.was_hidden(1);
         }
     }
-
-
 
     /// Align CEF focus with the tiled pane that has keyboard target / `Active` in the host app.
     ///
@@ -733,10 +728,7 @@ impl Browsers {
             webview,
             webview_popup_sender.clone(),
         ))
-        .with_request_handler(RequestHandlerBuilder::build(
-            webview,
-            webview_popup_sender,
-        ))
+        .with_request_handler(RequestHandlerBuilder::build(webview, webview_popup_sender))
         .with_message_handler(JsEmitEventHandler::new(webview, ipc_event_sender))
         .with_message_handler(BrpHandler::new(brp_sender))
         .build()

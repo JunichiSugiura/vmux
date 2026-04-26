@@ -1,13 +1,20 @@
+// Bevy systems inherently use many parameters and complex query types.
+#![allow(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::new_ret_no_self
+)]
+
 mod browser;
 mod command;
-pub(crate) mod shortcut;
 mod command_bar;
 mod layout;
+mod os_menu;
 mod persistence;
 mod profile;
-mod os_menu;
 mod scene;
 mod settings;
+pub(crate) mod shortcut;
 mod terminal;
 mod themes;
 mod unit;
@@ -19,13 +26,11 @@ use bevy::winit::WinitSettings;
 use std::time::Duration;
 
 use {
-    browser::BrowserPlugin, command::CommandPlugin, shortcut::ShortcutPlugin,
-    layout::LayoutPlugin, os_menu::OsMenuPlugin,
-    command_bar::CommandBarInputPlugin, persistence::PersistencePlugin, profile::ProfilePlugin,
-    scene::ScenePlugin, settings::SettingsPlugin, terminal::TerminalInputPlugin,
-    vmux_command_bar::CommandBarPlugin,
-    vmux_header::HeaderPlugin, vmux_side_sheet::SideSheetPlugin,
-    vmux_terminal::TerminalPlugin,
+    browser::BrowserPlugin, command::CommandPlugin, command_bar::CommandBarInputPlugin,
+    layout::LayoutPlugin, os_menu::OsMenuPlugin, persistence::PersistencePlugin,
+    profile::ProfilePlugin, scene::ScenePlugin, settings::SettingsPlugin, shortcut::ShortcutPlugin,
+    terminal::TerminalInputPlugin, vmux_command_bar::CommandBarPlugin, vmux_header::HeaderPlugin,
+    vmux_side_sheet::SideSheetPlugin, vmux_terminal::TerminalPlugin,
     vmux_webview_app::WebviewAppRegistryPlugin,
 };
 

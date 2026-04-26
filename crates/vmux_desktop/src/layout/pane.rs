@@ -1,10 +1,11 @@
 use crate::{
     command::{AppCommand, PaneCommand, ReadAppCommands},
     command_bar::NewTabContext,
-    layout::swap::{find_kind_index, resolve_prev, resolve_next, swap_siblings},
     layout::space::Space,
-    layout::tab::{Tab, tab_bundle, active_among, active_pane_in_space, active_tab_in_pane,
-                  focused_tab},
+    layout::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
+    layout::tab::{
+        Tab, active_among, active_pane_in_space, active_tab_in_pane, focused_tab, tab_bundle,
+    },
     settings::AppSettings,
 };
 use bevy::{
@@ -15,8 +16,8 @@ use bevy::{
     window::PrimaryWindow,
 };
 use bevy_cef::prelude::CefKeyboardTarget;
-use std::time::Instant;
 use moonshine_save::prelude::*;
+use std::time::Instant;
 use vmux_history::LastActivatedAt;
 
 pub(crate) struct PanePlugin;
@@ -102,7 +103,7 @@ pub(crate) struct PaneDrag {
 
 pub(crate) fn leaf_pane_bundle() -> impl Bundle {
     (
-        Pane::default(),
+        Pane,
         PaneSize::default(),
         Transform::default(),
         GlobalTransform::default(),
@@ -117,17 +118,14 @@ pub(crate) fn leaf_pane_bundle() -> impl Bundle {
 }
 
 fn spawn_leaf_pane(commands: &mut Commands, parent: Entity) -> Entity {
-    commands.spawn((leaf_pane_bundle(), LastActivatedAt::now(), ChildOf(parent))).id()
+    commands
+        .spawn((leaf_pane_bundle(), LastActivatedAt::now(), ChildOf(parent)))
+        .id()
 }
 
 /// Compute clamped flex_grow values after a resize delta.
 /// Returns (new_pane_grow, new_sibling_grow).
-fn compute_resize(
-    pane_grow: f32,
-    sib_grow: f32,
-    delta: f32,
-    parent_len: f32,
-) -> (f32, f32) {
+fn compute_resize(pane_grow: f32, sib_grow: f32, delta: f32, parent_len: f32) -> (f32, f32) {
     let total = pane_grow + sib_grow;
     let mut pg = pane_grow + delta;
     let mut sg = sib_grow - delta;
@@ -190,14 +188,24 @@ fn handle_pane_commands(
     mut commands: Commands,
     mut hover_intent: ResMut<PaneHoverIntent>,
     mut new_tab_ctx: ResMut<NewTabContext>,
-    mut resize_q: ParamSet<(Query<&mut Node>, Query<&mut PaneSize>, Query<&ComputedNode>, ResMut<PendingCursorWarp>)>,
+    mut resize_q: ParamSet<(
+        Query<&mut Node>,
+        Query<&mut PaneSize>,
+        Query<&ComputedNode>,
+        ResMut<PendingCursorWarp>,
+    )>,
 ) {
     for cmd in reader.read() {
         let AppCommand::Pane(pane_cmd) = *cmd else {
             continue;
         };
         let (_, active_pane_opt, active_tab_opt) = focused_tab(
-            &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
         );
         let Some(active) = active_pane_opt else {
             continue;
@@ -223,7 +231,9 @@ fn handle_pane_commands(
                     commands.entity(tab).insert(ChildOf(pane1));
                 }
 
-                let new_tab = commands.spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane2))).id();
+                let new_tab = commands
+                    .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(pane2)))
+                    .id();
                 new_tab_ctx.tab = Some(new_tab);
                 new_tab_ctx.previous_tab = active_tab_opt;
                 new_tab_ctx.needs_open = true;
@@ -233,7 +243,9 @@ fn handle_pane_commands(
                 } else {
                     PaneSplitDirection::Column
                 };
-                commands.entity(active).insert(PaneSplit { direction: split_dir });
+                commands.entity(active).insert(PaneSplit {
+                    direction: split_dir,
+                });
                 let gap = Val::Px(settings.layout.pane.gap);
                 commands.entity(active).insert(Node {
                     flex_grow: 1.0,
@@ -258,7 +270,9 @@ fn handle_pane_commands(
                 if !split_dir_q.contains(parent) {
                     commands.entity(active).despawn();
                     let leaf = spawn_leaf_pane(&mut commands, parent);
-                    let tab = commands.spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(leaf))).id();
+                    let tab = commands
+                        .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(leaf)))
+                        .id();
                     commands.entity(leaf).insert(LastActivatedAt::now());
                     new_tab_ctx.tab = Some(tab);
                     new_tab_ctx.previous_tab = None;
@@ -306,10 +320,17 @@ fn handle_pane_commands(
                 }
 
                 commands.entity(active).despawn();
-                commands.entity(new_active_pane).insert(LastActivatedAt::now());
+                commands
+                    .entity(new_active_pane)
+                    .insert(LastActivatedAt::now());
                 let tab = active_tab_in_pane(new_active_pane, &pane_children, &tab_ts)
                     .or_else(|| first_tab_in_pane(new_active_pane, &pane_children, &tab_filter))
-                    .or_else(|| sibling_children.iter().copied().find(|&e| tab_filter.contains(e)));
+                    .or_else(|| {
+                        sibling_children
+                            .iter()
+                            .copied()
+                            .find(|&e| tab_filter.contains(e))
+                    });
                 if let Some(tab) = tab {
                     commands.entity(tab).insert(LastActivatedAt::now());
                 }
@@ -321,16 +342,25 @@ fn handle_pane_commands(
             PaneCommand::SelectUp => {}
             PaneCommand::SelectDown => {}
             PaneCommand::SwapPrev | PaneCommand::SwapNext => {
-                let Ok(co) = child_of_q.get(active) else { continue };
+                let Ok(co) = child_of_q.get(active) else {
+                    continue;
+                };
                 let parent = co.get();
-                if !split_dir_q.contains(parent) { continue; }
-                let Ok(children) = all_children.get(parent) else { continue };
-                let kind_positions: Vec<usize> = children.iter()
+                if !split_dir_q.contains(parent) {
+                    continue;
+                }
+                let Ok(children) = all_children.get(parent) else {
+                    continue;
+                };
+                let kind_positions: Vec<usize> = children
+                    .iter()
                     .enumerate()
                     .filter(|(_, e)| leaf_panes.contains(*e) || split_dir_q.contains(*e))
                     .map(|(i, _)| i)
                     .collect();
-                let Some(active_idx) = find_kind_index(active, children, &kind_positions) else { continue };
+                let Some(active_idx) = find_kind_index(active, children, &kind_positions) else {
+                    continue;
+                };
                 let pair = if pane_cmd == PaneCommand::SwapPrev {
                     resolve_prev(active_idx)
                 } else {
@@ -343,10 +373,16 @@ fn handle_pane_commands(
             PaneCommand::RotateForward => {}
             PaneCommand::RotateBackward => {}
             PaneCommand::EqualizeSize => {
-                let Ok(co) = child_of_q.get(active) else { continue };
+                let Ok(co) = child_of_q.get(active) else {
+                    continue;
+                };
                 let parent = co.get();
-                if !split_dir_q.contains(parent) { continue; }
-                let Ok(children) = all_children.get(parent) else { continue };
+                if !split_dir_q.contains(parent) {
+                    continue;
+                }
+                let Ok(children) = all_children.get(parent) else {
+                    continue;
+                };
                 let targets: Vec<Entity> = children.iter().collect();
                 {
                     let mut nq = resize_q.p0();
@@ -365,40 +401,49 @@ fn handle_pane_commands(
                     }
                 }
             }
-            PaneCommand::ResizeLeft | PaneCommand::ResizeRight
-            | PaneCommand::ResizeUp | PaneCommand::ResizeDown => {
+            PaneCommand::ResizeLeft
+            | PaneCommand::ResizeRight
+            | PaneCommand::ResizeUp
+            | PaneCommand::ResizeDown => {
                 let target_axis = match pane_cmd {
                     PaneCommand::ResizeLeft | PaneCommand::ResizeRight => PaneSplitDirection::Row,
                     _ => PaneSplitDirection::Column,
                 };
-                let grows = matches!(
-                    pane_cmd,
-                    PaneCommand::ResizeRight | PaneCommand::ResizeDown
-                );
+                let grows = matches!(pane_cmd, PaneCommand::ResizeRight | PaneCommand::ResizeDown);
 
                 let mut child_in_split = active;
                 let mut found_parent: Option<Entity> = None;
                 for _ in 0..10 {
-                    let Ok(co) = child_of_q.get(child_in_split) else { break };
+                    let Ok(co) = child_of_q.get(child_in_split) else {
+                        break;
+                    };
                     let parent = co.get();
-                    if let Ok(ps) = split_dir_q.get(parent) {
-                        if ps.direction == target_axis {
-                            found_parent = Some(parent);
-                            break;
-                        }
+                    if let Ok(ps) = split_dir_q.get(parent)
+                        && ps.direction == target_axis
+                    {
+                        found_parent = Some(parent);
+                        break;
                     }
                     child_in_split = parent;
                 }
                 let Some(parent) = found_parent else { continue };
-                let Ok(siblings) = all_children.get(parent) else { continue };
+                let Ok(siblings) = all_children.get(parent) else {
+                    continue;
+                };
                 let sibs: Vec<Entity> = siblings.iter().collect();
-                let Some(idx) = sibs.iter().position(|&e| e == child_in_split) else { continue };
+                let Some(idx) = sibs.iter().position(|&e| e == child_in_split) else {
+                    continue;
+                };
 
                 let (pane_entity, sibling_entity) = if grows {
-                    if idx + 1 >= sibs.len() { continue; }
+                    if idx + 1 >= sibs.len() {
+                        continue;
+                    }
                     (child_in_split, sibs[idx + 1])
                 } else {
-                    if idx == 0 { continue; }
+                    if idx == 0 {
+                        continue;
+                    }
                     (child_in_split, sibs[idx - 1])
                 };
 
@@ -426,13 +471,21 @@ fn handle_pane_commands(
 
                 {
                     let mut nq = resize_q.p0();
-                    if let Ok(mut n) = nq.get_mut(pane_entity) { n.flex_grow = pg; }
-                    if let Ok(mut n) = nq.get_mut(sibling_entity) { n.flex_grow = sg; }
+                    if let Ok(mut n) = nq.get_mut(pane_entity) {
+                        n.flex_grow = pg;
+                    }
+                    if let Ok(mut n) = nq.get_mut(sibling_entity) {
+                        n.flex_grow = sg;
+                    }
                 }
                 {
                     let mut sq = resize_q.p1();
-                    if let Ok(mut ps) = sq.get_mut(pane_entity) { ps.flex_grow = pg; }
-                    if let Ok(mut ps) = sq.get_mut(sibling_entity) { ps.flex_grow = sg; }
+                    if let Ok(mut ps) = sq.get_mut(pane_entity) {
+                        ps.flex_grow = pg;
+                    }
+                    if let Ok(mut ps) = sq.get_mut(sibling_entity) {
+                        ps.flex_grow = sg;
+                    }
                 }
             }
         }
@@ -521,7 +574,10 @@ fn on_pane_select(
 fn poll_cursor_pane_focus(
     mode: Res<crate::scene::InteractionMode>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
+    leaf_panes: Query<
+        (Entity, &ComputedNode, &UiGlobalTransform),
+        (With<Pane>, Without<PaneSplit>),
+    >,
     pane_ts: Query<(Entity, &LastActivatedAt), With<Pane>>,
     mut intent: ResMut<PaneHoverIntent>,
     mut commands: Commands,
@@ -537,10 +593,10 @@ fn poll_cursor_pane_focus(
     if !active_drags.is_empty() {
         return;
     }
-    if let Some(last) = intent.last_activation {
-        if last.elapsed().as_millis() < HOVER_COOLDOWN_MS as u128 {
-            return;
-        }
+    if let Some(last) = intent.last_activation
+        && last.elapsed().as_millis() < HOVER_COOLDOWN_MS as u128
+    {
+        return;
     }
     let Ok(window) = windows.single() else {
         return;
@@ -569,7 +625,9 @@ fn poll_cursor_pane_focus(
 
     // Check if already the active pane
     let current_active = active_among(
-        leaf_panes.iter().filter_map(|(e, _, _)| pane_ts.get(e).ok()),
+        leaf_panes
+            .iter()
+            .filter_map(|(e, _, _)| pane_ts.get(e).ok()),
     );
     if current_active == Some(target) {
         intent.target = None;
@@ -598,7 +656,10 @@ fn click_pane_in_player_mode(
     mode: Res<crate::scene::InteractionMode>,
     mouse: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    leaf_panes: Query<(Entity, &ComputedNode, &UiGlobalTransform), (With<Pane>, Without<PaneSplit>)>,
+    leaf_panes: Query<
+        (Entity, &ComputedNode, &UiGlobalTransform),
+        (With<Pane>, Without<PaneSplit>),
+    >,
     kb_targets: Query<Entity, With<CefKeyboardTarget>>,
     mut commands: Commands,
     accumulated_motion: Res<AccumulatedMouseMotion>,
@@ -624,7 +685,9 @@ fn click_pane_in_player_mode(
     }
 
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.physical_cursor_position() else { return };
+    let Some(cursor_pos) = window.physical_cursor_position() else {
+        return;
+    };
     let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
 
     if mouse.just_pressed(MouseButton::Left) {
@@ -639,7 +702,9 @@ fn click_pane_in_player_mode(
     if !mouse.just_released(MouseButton::Left) {
         return;
     }
-    let Some(total_motion) = press_motion.take() else { return };
+    let Some(total_motion) = press_motion.take() else {
+        return;
+    };
     const DRAG_THRESHOLD: f32 = 2.0;
     if total_motion > DRAG_THRESHOLD {
         return;
@@ -663,17 +728,18 @@ fn click_pane_in_player_mode(
     if let Some(pane) = hit_pane {
         // Check for double-click
         const DOUBLE_CLICK_MS: u128 = 400;
-        if let Some((prev_entity, prev_time)) = *last_click {
-            if prev_entity == pane && prev_time.elapsed().as_millis() < DOUBLE_CLICK_MS {
-                // Double-click: exit player mode with animation
-                *last_click = None;
-                camera_state.enabled = false;
-                suppress.0 = false;
-                commands.insert_resource(crate::scene::ModeTransition::new(
-                    crate::scene::TransitionDirection::ExitPlayer,
-                ));
-                return;
-            }
+        if let Some((prev_entity, prev_time)) = *last_click
+            && prev_entity == pane
+            && prev_time.elapsed().as_millis() < DOUBLE_CLICK_MS
+        {
+            // Double-click: exit player mode with animation
+            *last_click = None;
+            camera_state.enabled = false;
+            suppress.0 = false;
+            commands.insert_resource(crate::scene::ModeTransition::new(
+                crate::scene::TransitionDirection::ExitPlayer,
+            ));
+            return;
         }
 
         // Single click: activate pane for keyboard input
@@ -725,8 +791,10 @@ fn pane_gap_drag_resize(
     mut commands: Commands,
 ) {
     let Ok(window) = windows.single() else { return };
-    let Some(cursor_pos) = window.physical_cursor_position() else { return };
-    let cursor = Vec2::new(cursor_pos.x as f32, cursor_pos.y as f32);
+    let Some(cursor_pos) = window.physical_cursor_position() else {
+        return;
+    };
+    let cursor = Vec2::new(cursor_pos.x, cursor_pos.y);
 
     // --- Handle active drag ---
     if let Ok((split_entity, drag, split)) = active_drags.single() {
@@ -735,24 +803,36 @@ fn pane_gap_drag_resize(
                 PaneSplitDirection::Row => cursor.x,
                 PaneSplitDirection::Column => cursor.y,
             };
-            let parent_size = parent_nodes.get(split_entity)
-                .map(|cn| cn.size).unwrap_or(Vec2::ONE);
+            let parent_size = parent_nodes
+                .get(split_entity)
+                .map(|cn| cn.size)
+                .unwrap_or(Vec2::ONE);
             let parent_len = match split.direction {
                 PaneSplitDirection::Row => parent_size.x,
                 PaneSplitDirection::Column => parent_size.y,
-            }.max(1.0);
+            }
+            .max(1.0);
 
             let (pg, sg) = compute_resize(
                 drag.start_prev_grow,
                 drag.start_next_grow,
-                (pos_along - drag.start_pos) / parent_len * (drag.start_prev_grow + drag.start_next_grow),
+                (pos_along - drag.start_pos) / parent_len
+                    * (drag.start_prev_grow + drag.start_next_grow),
                 parent_len,
             );
 
-            if let Ok(mut n) = node_q.get_mut(drag.prev_child) { n.flex_grow = pg; }
-            if let Ok(mut n) = node_q.get_mut(drag.next_child) { n.flex_grow = sg; }
-            if let Ok(mut s) = size_q.get_mut(drag.prev_child) { s.flex_grow = pg; }
-            if let Ok(mut s) = size_q.get_mut(drag.next_child) { s.flex_grow = sg; }
+            if let Ok(mut n) = node_q.get_mut(drag.prev_child) {
+                n.flex_grow = pg;
+            }
+            if let Ok(mut n) = node_q.get_mut(drag.next_child) {
+                n.flex_grow = sg;
+            }
+            if let Ok(mut s) = size_q.get_mut(drag.prev_child) {
+                s.flex_grow = pg;
+            }
+            if let Ok(mut s) = size_q.get_mut(drag.next_child) {
+                s.flex_grow = sg;
+            }
         } else {
             commands.entity(split_entity).remove::<PaneDrag>();
         }
@@ -764,8 +844,12 @@ fn pane_gap_drag_resize(
     'outer: for (split_entity, split, children) in &splits {
         let sibs: Vec<Entity> = children.iter().collect();
         for i in 0..sibs.len().saturating_sub(1) {
-            let Ok((node_a, gt_a)) = child_nodes.get(sibs[i]) else { continue };
-            let Ok((node_b, gt_b)) = child_nodes.get(sibs[i + 1]) else { continue };
+            let Ok((node_a, gt_a)) = child_nodes.get(sibs[i]) else {
+                continue;
+            };
+            let Ok((node_b, gt_b)) = child_nodes.get(sibs[i + 1]) else {
+                continue;
+            };
 
             let center_a = gt_a.transform_point2(Vec2::ZERO);
             let center_b = gt_b.transform_point2(Vec2::ZERO);
@@ -792,8 +876,10 @@ fn pane_gap_drag_resize(
                 PaneSplitDirection::Column => (cursor.y, cursor.x),
             };
 
-            if pos_along >= gap_min && pos_along <= gap_max
-                && pos_cross >= cross_min && pos_cross <= cross_max
+            if pos_along >= gap_min
+                && pos_along <= gap_max
+                && pos_cross >= cross_min
+                && pos_cross <= cross_max
             {
                 if mouse.just_pressed(MouseButton::Left) {
                     let prev_grow = node_q.get(sibs[i]).map(|n| n.flex_grow).unwrap_or(1.0);
@@ -810,8 +896,6 @@ fn pane_gap_drag_resize(
             }
         }
     }
-
-
 }
 
 fn collect_space_leaf_panes(

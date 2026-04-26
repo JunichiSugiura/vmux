@@ -613,9 +613,9 @@ fn accel_to_display(accel: &str) -> String {
 
     for part in &parts {
         match *part {
-            "super" => out.push('\u{2318}'),  // ⌘
-            "shift" => out.push('\u{21e7}'),  // ⇧
-            "alt" => out.push('\u{2325}'),    // ⌥
+            "super" => out.push('\u{2318}'), // ⌘
+            "shift" => out.push('\u{21e7}'), // ⇧
+            "alt" => out.push('\u{2325}'),   // ⌥
             "ctrl" => out.push('^'),
             other => key = other,
         }
@@ -623,11 +623,11 @@ fn accel_to_display(accel: &str) -> String {
 
     // Capitalise the key for display
     match key {
-        "tab" => out.push('\u{21e5}'),     // ⇥
-        "space" => out.push('\u{2423}'),   // ␣
-        "enter" => out.push('\u{21a9}'),   // ↩
+        "tab" => out.push('\u{21e5}'),   // ⇥
+        "space" => out.push('\u{2423}'), // ␣
+        "enter" => out.push('\u{21a9}'), // ↩
         "escape" => out.push_str("Esc"),
-        "delete" => out.push('\u{232b}'),  // ⌫
+        "delete" => out.push('\u{232b}'), // ⌫
         "[" => out.push('['),
         "]" => out.push(']'),
         "=" => out.push('='),

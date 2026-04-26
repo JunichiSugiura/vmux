@@ -1,5 +1,5 @@
-use crate::theme::{ThemeEvent, THEME_EVENT};
 use super::use_event_listener;
+use crate::theme::{THEME_EVENT, ThemeEvent};
 use wasm_bindgen::JsCast;
 
 /// Listens for [`ThemeEvent`] from the Bevy host and applies CSS custom properties.

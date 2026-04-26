@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-lint-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-lint-
+
+      - name: Check formatting
+        run: |
+          # Exclude vendored patches from formatting checks
+          PKGS=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | test("patches") | not) | .name')
+          for pkg in $PKGS; do
+            cargo fmt -p "$pkg" -- --check
+          done
+
+      - name: Install CEF framework
+        run: |
+          cargo install export-cef-dir@145.6.1+145.0.28 --force
+          export-cef-dir --force "$HOME/.local/share"
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
+
+      - name: Clippy
+        run: |
+          PKGS=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | test("patches") | not) | .name')
+          for pkg in $PKGS; do
+            env -u CEF_PATH cargo clippy -p "$pkg" --all-targets -- -D warnings
+          done
+
+  test:
+    name: Test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-test-
+
+      - name: Install CEF framework
+        run: |
+          cargo install export-cef-dir@145.6.1+145.0.28 --force
+          export-cef-dir --force "$HOME/.local/share"
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
+
+      - name: Run tests
+        run: env -u CEF_PATH cargo test --workspace --exclude bevy_cef_core
+
+  website:
+    name: Website Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            website/target
+          key: website-ci-${{ hashFiles('website/Cargo.lock') }}
+          restore-keys: website-ci-
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --locked --version 0.7.4
+
+      - name: Build website
+        working-directory: website
+        run: dx build --platform web --release

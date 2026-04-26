@@ -27,7 +27,7 @@ use bevy_cef::prelude::*;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::{
     io::{Read, Write},
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, Mutex, mpsc},
 };
 use vmux_header::PageMetadata;
 use vmux_history::LastActivatedAt;
@@ -77,10 +77,10 @@ pub(crate) struct VmuxEventProxy {
 
 impl TermEventListener for VmuxEventProxy {
     fn send_event(&self, event: TermEvent) {
-        if let TermEvent::PtyWrite(text) = event {
-            if let Ok(mut writer) = self.pty_writer.lock() {
-                let _ = writer.write_all(text.as_bytes());
-            }
+        if let TermEvent::PtyWrite(text) = event
+            && let Ok(mut writer) = self.pty_writer.lock()
+        {
+            let _ = writer.write_all(text.as_bytes());
         }
     }
 }
@@ -95,10 +95,8 @@ impl Plugin for TerminalInputPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    handle_terminal_keyboard
-                        .run_if(on_message::<KeyboardInput>),
-                    handle_terminal_scroll
-                        .run_if(on_message::<MouseWheel>),
+                    handle_terminal_keyboard.run_if(on_message::<KeyboardInput>),
+                    handle_terminal_scroll.run_if(on_message::<MouseWheel>),
                 )
                     .after(InputSystems),
             )
@@ -163,7 +161,10 @@ impl Terminal {
             cmd.cwd(dir);
         }
 
-        let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("failed to spawn shell");
         let pid = child.process_id().unwrap_or(0);
         let reader = pair
             .master
@@ -227,7 +228,10 @@ impl Terminal {
                 },
                 WebviewSource::new(TERMINAL_WEBVIEW_URL),
                 ResolvedWebviewUri(TERMINAL_WEBVIEW_URL.to_string()),
-                Mesh3d(meshes.add(bevy::math::primitives::Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+                Mesh3d(meshes.add(bevy::math::primitives::Plane3d::new(
+                    Vec3::Z,
+                    Vec2::splat(0.5),
+                ))),
             ),
             (
                 MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
@@ -297,7 +301,10 @@ impl Dimensions for PtyDimensions {
 
 /// Drain PTY output from background thread, feed to alacritty_terminal.
 fn poll_pty_output(
-    mut q: Query<(Entity, &mut TerminalState, &PtyHandle, &ChildOf), (With<Terminal>, Without<PtyExited>)>,
+    mut q: Query<
+        (Entity, &mut TerminalState, &PtyHandle, &ChildOf),
+        (With<Terminal>, Without<PtyExited>),
+    >,
     mut commands: Commands,
     mut writer: MessageWriter<AppCommand>,
 ) {
@@ -305,7 +312,11 @@ fn poll_pty_output(
         let rx = pty.rx.lock().unwrap();
         let mut got_data = false;
         while let Ok(data) = rx.try_recv() {
-            let TerminalState { ref mut term, ref mut processor, .. } = *state;
+            let TerminalState {
+                ref mut term,
+                ref mut processor,
+                ..
+            } = *state;
             processor.advance(term, &data);
             got_data = true;
         }
@@ -314,14 +325,14 @@ fn poll_pty_output(
         }
 
         // Check if the shell process has exited.
-        if let Ok(mut child) = pty.child.lock() {
-            if let Ok(Some(_status)) = child.try_wait() {
-                commands.entity(entity).insert(PtyExited);
-                // Activate the parent tab so TabCommand::Close targets it.
-                let tab = child_of.get();
-                commands.entity(tab).insert(LastActivatedAt::now());
-                writer.write(AppCommand::Tab(TabCommand::Close));
-            }
+        if let Ok(mut child) = pty.child.lock()
+            && let Ok(Some(_status)) = child.try_wait()
+        {
+            commands.entity(entity).insert(PtyExited);
+            // Activate the parent tab so TabCommand::Close targets it.
+            let tab = child_of.get();
+            commands.entity(tab).insert(LastActivatedAt::now());
+            writer.write(AppCommand::Tab(TabCommand::Close));
         }
     }
 }
@@ -458,8 +469,9 @@ fn build_viewport<T: TermEventListener>(term: &Term<T>) -> TermViewportEvent {
 fn color_to_term_color(color: &Color) -> TermColor {
     match color {
         Color::Named(named) => match named {
-            NamedColor::Foreground | NamedColor::DimForeground
-            | NamedColor::BrightForeground => TermColor::Default,
+            NamedColor::Foreground | NamedColor::DimForeground | NamedColor::BrightForeground => {
+                TermColor::Default
+            }
             NamedColor::Background => TermColor::Default,
             NamedColor::Cursor => TermColor::Default,
             other => TermColor::Indexed(named_to_ansi_index(other)),
@@ -633,20 +645,20 @@ fn handle_terminal_keyboard(
                 KeyCode::KeyV => {
                     // Paste: read system clipboard and write to PTY.
                     // Use pbpaste to avoid objc2/NSPasteboard conflicts with CEF.
-                    if let Ok(output) = std::process::Command::new("pbpaste").output() {
-                        if output.status.success() {
-                            let text = String::from_utf8_lossy(&output.stdout);
-                            if !text.is_empty() {
-                                for (pty, state) in &q {
-                                    if let Ok(mut writer) = pty.writer.lock() {
-                                        let bp = state.term.mode().contains(TermMode::BRACKETED_PASTE);
-                                        if bp {
-                                            let _ = writer.write_all(b"\x1b[200~");
-                                        }
-                                        let _ = writer.write_all(text.as_bytes());
-                                        if bp {
-                                            let _ = writer.write_all(b"\x1b[201~");
-                                        }
+                    if let Ok(output) = std::process::Command::new("pbpaste").output()
+                        && output.status.success()
+                    {
+                        let text = String::from_utf8_lossy(&output.stdout);
+                        if !text.is_empty() {
+                            for (pty, state) in &q {
+                                if let Ok(mut writer) = pty.writer.lock() {
+                                    let bp = state.term.mode().contains(TermMode::BRACKETED_PASTE);
+                                    if bp {
+                                        let _ = writer.write_all(b"\x1b[200~");
+                                    }
+                                    let _ = writer.write_all(text.as_bytes());
+                                    if bp {
+                                        let _ = writer.write_all(b"\x1b[201~");
                                     }
                                 }
                             }
@@ -732,8 +744,7 @@ fn handle_terminal_keyboard(
                         Point::new(Line(target_line), cur.column)
                     }
                     KeyCode::PageDown => {
-                        let target_line =
-                            (cur.line.0 + num_lines as i32).min(num_lines as i32 - 1);
+                        let target_line = (cur.line.0 + num_lines as i32).min(num_lines as i32 - 1);
                         Point::new(Line(target_line), cur.column)
                     }
                     _ => cur,
@@ -747,8 +758,7 @@ fn handle_terminal_keyboard(
                     } else {
                         SelectionType::Simple
                     };
-                    state.term.selection =
-                        Some(Selection::new(sel_type, cursor_point, Side::Left));
+                    state.term.selection = Some(Selection::new(sel_type, cursor_point, Side::Left));
                 }
                 if let Some(ref mut sel) = state.term.selection {
                     sel.update(new_point, Side::Left);
@@ -839,19 +849,17 @@ fn visible_text<T: TermEventListener>(term: &Term<T>) -> String {
 fn logical_key_to_bytes(key: &Key, ctrl: bool, alt: bool) -> Vec<u8> {
     match key {
         Key::Character(s) => {
-            if ctrl {
-                if let Some(c) = s.chars().next() {
-                    let code = (c.to_ascii_lowercase() as u8)
-                        .wrapping_sub(b'a')
-                        .wrapping_add(1);
-                    if code <= 26 {
-                        let mut v = Vec::new();
-                        if alt {
-                            v.push(0x1b);
-                        }
-                        v.push(code);
-                        return v;
+            if ctrl && let Some(c) = s.chars().next() {
+                let code = (c.to_ascii_lowercase() as u8)
+                    .wrapping_sub(b'a')
+                    .wrapping_add(1);
+                if code <= 26 {
+                    let mut v = Vec::new();
+                    if alt {
+                        v.push(0x1b);
                     }
+                    v.push(code);
+                    return v;
                 }
             }
             if alt {
@@ -991,10 +999,10 @@ fn on_term_mouse(
                 let now = std::time::Instant::now();
                 let same_pos = mouse_sel
                     .last_click_pos
-                    .map_or(false, |(c, r)| c == event.col && r == event.row);
+                    .is_some_and(|(c, r)| c == event.col && r == event.row);
                 let fast_enough = mouse_sel
                     .last_click_time
-                    .map_or(false, |t| now.duration_since(t).as_millis() < 500);
+                    .is_some_and(|t| now.duration_since(t).as_millis() < 500);
 
                 if same_pos && fast_enough {
                     mouse_sel.click_count = (mouse_sel.click_count + 1).min(3);
@@ -1058,10 +1066,10 @@ fn on_term_mouse(
 
     let seq = sgr_mouse_sequence(button, event.col, event.row, event.modifiers, event.pressed);
 
-    if let Ok(pty) = pty_q.get(entity) {
-        if let Ok(mut w) = pty.writer.lock() {
-            let _ = w.write_all(&seq);
-        }
+    if let Ok(pty) = pty_q.get(entity)
+        && let Ok(mut w) = pty.writer.lock()
+    {
+        let _ = w.write_all(&seq);
     }
 }
 
@@ -1093,8 +1101,16 @@ fn on_term_resize(
 
     // Use viewport dimensions from JS when available (accounts for CEF zoom),
     // otherwise fall back to WebviewSize (DIP).
-    let vw = if event.viewport_width > 0.0 { event.viewport_width } else { webview_size.0.x };
-    let vh = if event.viewport_height > 0.0 { event.viewport_height } else { webview_size.0.y };
+    let vw = if event.viewport_width > 0.0 {
+        event.viewport_width
+    } else {
+        webview_size.0.x
+    };
+    let vh = if event.viewport_height > 0.0 {
+        event.viewport_height
+    } else {
+        webview_size.0.y
+    };
 
     let cols = (vw / event.char_width).floor().max(1.0) as u16;
     let rows = (vh / event.char_height).floor().max(1.0) as u16;
@@ -1132,14 +1148,23 @@ fn sync_terminal_theme(
     };
 
     let theme = terminal_settings.resolve_theme(&terminal_settings.default_theme);
-    let colors = crate::themes::resolve_theme(&theme.color_scheme, &terminal_settings.custom_themes);
+    let colors =
+        crate::themes::resolve_theme(&theme.color_scheme, &terminal_settings.custom_themes);
 
     // Simple hash to detect theme changes
     let hash = {
         let mut h: u64 = 0;
-        for b in &colors.foreground { h = h.wrapping_mul(31).wrapping_add(*b as u64); }
-        for b in &colors.background { h = h.wrapping_mul(31).wrapping_add(*b as u64); }
-        for row in &colors.ansi { for b in row { h = h.wrapping_mul(31).wrapping_add(*b as u64); } }
+        for b in &colors.foreground {
+            h = h.wrapping_mul(31).wrapping_add(*b as u64);
+        }
+        for b in &colors.background {
+            h = h.wrapping_mul(31).wrapping_add(*b as u64);
+        }
+        for row in &colors.ansi {
+            for b in row {
+                h = h.wrapping_mul(31).wrapping_add(*b as u64);
+            }
+        }
         h
     };
 
@@ -1213,7 +1238,10 @@ fn on_restart_pty(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    let child = pair.slave.spawn_command(cmd).expect("failed to spawn shell");
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .expect("failed to spawn shell");
     let pid = child.process_id().unwrap_or(0);
     let reader = pair
         .master

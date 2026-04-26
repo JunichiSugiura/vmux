@@ -1,4 +1,4 @@
-#![allow(clippy::type_complexity)]
+#![allow(clippy::all)]
 
 mod chrome_state;
 mod common;
@@ -12,10 +12,10 @@ mod system_param;
 mod webview;
 mod zoom;
 
+use crate::chrome_state::WebviewChromeStatePlugin;
 use crate::common::{LocalHostPlugin, MessageLoopPlugin, WebviewCoreComponentsPlugin};
 use crate::cursor_icon::SystemCursorIconPlugin;
 use crate::keyboard::KeyboardPlugin;
-use crate::chrome_state::WebviewChromeStatePlugin;
 use crate::loading_state::WebviewLoadingStatePlugin;
 use crate::mute::AudioMutePlugin;
 use crate::popup_state::WebviewPopupPlugin;

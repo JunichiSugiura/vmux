@@ -159,8 +159,8 @@ pub fn create_cef_key_events(
     let native_key_code = to_native_key_code(&key_event.key_code) as _;
     let vk_code = keycode_to_windows_vk(key_event.key_code);
 
-    let is_character_key_press = key_event.state == ButtonState::Pressed
-        && !is_not_character_key_code(&key_event.key_code);
+    let is_character_key_press =
+        key_event.state == ButtonState::Pressed && !is_not_character_key_code(&key_event.key_code);
 
     if is_character_key_press {
         let character = resolved_utf16_char(key_event, input);
@@ -219,14 +219,14 @@ pub fn create_cef_key_events(
 #[cfg(target_os = "macos")]
 fn emacs_nav_key(key: KeyCode) -> Option<(i32, KeyCode)> {
     match key {
-        KeyCode::KeyA => Some((0x24, KeyCode::Home)),       // beginning of line
-        KeyCode::KeyE => Some((0x23, KeyCode::End)),        // end of line
+        KeyCode::KeyA => Some((0x24, KeyCode::Home)), // beginning of line
+        KeyCode::KeyE => Some((0x23, KeyCode::End)),  // end of line
         KeyCode::KeyF => Some((0x27, KeyCode::ArrowRight)), // forward char
-        KeyCode::KeyB => Some((0x25, KeyCode::ArrowLeft)),  // backward char
-        KeyCode::KeyN => Some((0x28, KeyCode::ArrowDown)),  // next line
-        KeyCode::KeyP => Some((0x26, KeyCode::ArrowUp)),    // previous line
-        KeyCode::KeyD => Some((0x2E, KeyCode::Delete)),     // delete forward
-        KeyCode::KeyH => Some((0x08, KeyCode::Backspace)),  // delete backward
+        KeyCode::KeyB => Some((0x25, KeyCode::ArrowLeft)), // backward char
+        KeyCode::KeyN => Some((0x28, KeyCode::ArrowDown)), // next line
+        KeyCode::KeyP => Some((0x26, KeyCode::ArrowUp)), // previous line
+        KeyCode::KeyD => Some((0x2E, KeyCode::Delete)), // delete forward
+        KeyCode::KeyH => Some((0x08, KeyCode::Backspace)), // delete backward
         _ => None,
     }
 }
@@ -715,7 +715,10 @@ mod tests {
         assert_eq!(events[1].type_, KeyEventType::CHAR);
         assert_eq!(events[1].character, u16::from(b'l'));
         assert_eq!(events[1].windows_key_code, u16::from(b'l') as i32);
-        assert_ne!(events[1].focus_on_editable_field, 0, "CHAR must mark editable for OSR");
+        assert_ne!(
+            events[1].focus_on_editable_field, 0,
+            "CHAR must mark editable for OSR"
+        );
     }
 
     /// Simulates macOS after delete-repeat: no text, logical not yet Character.

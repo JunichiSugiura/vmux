@@ -14,10 +14,8 @@ pub struct OsMenuPlugin;
 
 impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            forward_menu_events.in_set(WriteAppCommands),
-        );
+        app.add_systems(Startup, setup)
+            .add_systems(Update, forward_menu_events.in_set(WriteAppCommands));
     }
 }
 

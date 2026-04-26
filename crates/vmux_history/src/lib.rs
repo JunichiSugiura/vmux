@@ -1,7 +1,7 @@
 pub mod event;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use vmux_core::{now_millis, CreatedAt, LastActivatedAt, Visit};
+pub use vmux_core::{CreatedAt, LastActivatedAt, Visit, now_millis};
 
 #[cfg(not(target_arch = "wasm32"))]
 use bevy::prelude::*;

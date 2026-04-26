@@ -1,18 +1,17 @@
 use crate::{
     command::{AppCommand, BrowserCommand, ReadAppCommands},
     layout::{
+        pane::{Pane, PaneHoverIntent, PaneSplit, first_leaf_descendant, first_tab_in_pane},
+        side_sheet::SideSheet,
+        space::Space,
+        tab::{Tab, active_tab_in_pane, collect_leaf_panes, focused_tab, tab_bundle},
         window::{
             Modal, VmuxWindow, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN,
             WEBVIEW_Z_MODAL, WEBVIEW_Z_SIDE_SHEET,
         },
-        pane::{Pane, PaneHoverIntent, PaneSplit, first_leaf_descendant, first_tab_in_pane},
-        side_sheet::SideSheet,
-        space::Space,
-        tab::{Tab, tab_bundle, focused_tab,
-              active_tab_in_pane, collect_leaf_panes},
     },
     settings::AppSettings,
-    terminal::{Terminal, RestartPty},
+    terminal::{RestartPty, Terminal},
 };
 use bevy::{
     ecs::{message::Messages, relationship::Relationship},
@@ -31,13 +30,10 @@ use vmux_header::{
 };
 use vmux_history::{CreatedAt, LastActivatedAt, Visit};
 use vmux_side_sheet::event::{
-    PANE_TREE_EVENT, PaneNode, PaneTreeEvent, SideSheetCommandEvent,
-    TabNode,
+    PANE_TREE_EVENT, PaneNode, PaneTreeEvent, SideSheetCommandEvent, TabNode,
 };
-use vmux_ui::theme::{ThemeEvent, THEME_EVENT};
+use vmux_ui::theme::{THEME_EVENT, ThemeEvent};
 use vmux_webview_app::{UiReady, WebviewAppRegistry};
-
-
 
 pub(crate) struct BrowserPlugin;
 
@@ -47,56 +43,53 @@ impl Plugin for BrowserPlugin {
             .world()
             .resource::<WebviewAppRegistry>()
             .embedded_hosts();
-        app.configure_sets(
-            Update,
-            CefSystems::CreateAndResize.after(ReadAppCommands),
-        )
-        .add_plugins(CefPlugin {
-            root_cache_path: cef_root_cache_path(),
-            embedded_hosts,
-            ..default()
-        })
-        .add_plugins(JsEmitEventPlugin::<HeaderCommandEvent>::default())
-        .add_plugins(JsEmitEventPlugin::<SideSheetCommandEvent>::default())
-        .add_observer(on_webview_ready_send_theme)
-        .add_observer(on_header_command_emit)
-        .add_observer(on_side_sheet_command_emit)
-        .add_observer(on_reload_notify_header)
-        .add_observer(on_hard_reload_notify_header)
-        .add_systems(
-            Update,
-            (
-                handle_browser_commands.in_set(ReadAppCommands),
-                drain_loading_state,
-                spawn_popup_tabs,
-            ),
-        )
-        .add_systems(
-            Update,
-            (sync_page_metadata_to_tab, spawn_visit_on_navigation)
-                .chain()
-                .after(vmux_header::system::apply_chrome_state_from_cef),
-        )
-        .add_systems(
-            Update,
-            (push_tabs_host_emit, push_pane_tree_emit)
-                .after(vmux_header::system::apply_chrome_state_from_cef)
-                .after(crate::layout::tab::ComputeFocusSet),
-        )
-        .add_systems(
-            PostUpdate,
-            (
-                sync_keyboard_target,
-                sync_children_to_ui,
-                sync_cef_webview_resize_after_ui,
-                sync_webview_pane_corner_clip,
-                sync_osr_webview_focus,
-                flush_pending_osr_textures,
+        app.configure_sets(Update, CefSystems::CreateAndResize.after(ReadAppCommands))
+            .add_plugins(CefPlugin {
+                root_cache_path: cef_root_cache_path(),
+                embedded_hosts,
+                ..default()
+            })
+            .add_plugins(JsEmitEventPlugin::<HeaderCommandEvent>::default())
+            .add_plugins(JsEmitEventPlugin::<SideSheetCommandEvent>::default())
+            .add_observer(on_webview_ready_send_theme)
+            .add_observer(on_header_command_emit)
+            .add_observer(on_side_sheet_command_emit)
+            .add_observer(on_reload_notify_header)
+            .add_observer(on_hard_reload_notify_header)
+            .add_systems(
+                Update,
+                (
+                    handle_browser_commands.in_set(ReadAppCommands),
+                    drain_loading_state,
+                    spawn_popup_tabs,
+                ),
             )
-                .chain()
-                .after(UiSystems::Layout)
-                .before(render_standard_materials),
-        );
+            .add_systems(
+                Update,
+                (sync_page_metadata_to_tab, spawn_visit_on_navigation)
+                    .chain()
+                    .after(vmux_header::system::apply_chrome_state_from_cef),
+            )
+            .add_systems(
+                Update,
+                (push_tabs_host_emit, push_pane_tree_emit)
+                    .after(vmux_header::system::apply_chrome_state_from_cef)
+                    .after(crate::layout::tab::ComputeFocusSet),
+            )
+            .add_systems(
+                PostUpdate,
+                (
+                    sync_keyboard_target,
+                    sync_children_to_ui,
+                    sync_cef_webview_resize_after_ui,
+                    sync_webview_pane_corner_clip,
+                    sync_osr_webview_focus,
+                    flush_pending_osr_textures,
+                )
+                    .chain()
+                    .after(UiSystems::Layout)
+                    .before(render_standard_materials),
+            );
     }
 }
 
@@ -130,35 +123,35 @@ impl Browser {
     ) -> impl Bundle {
         (
             Self,
-        vmux_header::PageMetadata {
-            title: url.to_string(),
-            url: url.to_string(),
-            favicon_url: String::new(),
-        },
-        WebviewSource::new(url),
-        ResolvedWebviewUri(url.to_string()),
-        Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-        MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
-            base: StandardMaterial {
-                unlit: true,
-                alpha_mode: AlphaMode::Blend,
-                depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
+            vmux_header::PageMetadata {
+                title: url.to_string(),
+                url: url.to_string(),
+                favicon_url: String::new(),
+            },
+            WebviewSource::new(url),
+            ResolvedWebviewUri(url.to_string()),
+            Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+            MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+                base: StandardMaterial {
+                    unlit: true,
+                    alpha_mode: AlphaMode::Blend,
+                    depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
+                    ..default()
+                },
+                ..default()
+            })),
+            WebviewSize(Vec2::new(1280.0, 720.0)),
+            Transform::default(),
+            GlobalTransform::default(),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(0.0),
+                right: Val::Px(0.0),
+                top: Val::Px(0.0),
+                bottom: Val::Px(0.0),
                 ..default()
             },
-            ..default()
-        })),
-        WebviewSize(Vec2::new(1280.0, 720.0)),
-        Transform::default(),
-        GlobalTransform::default(),
-        Node {
-            position_type: PositionType::Absolute,
-            left: Val::Px(0.0),
-            right: Val::Px(0.0),
-            top: Val::Px(0.0),
-            bottom: Val::Px(0.0),
-            ..default()
-        },
-        Visibility::Inherited,
+            Visibility::Inherited,
             Pickable::default(),
         )
     }
@@ -182,9 +175,9 @@ fn sync_keyboard_target(
     // In Roaming (no CefKeyboardTarget on any pane browser), skip sync to prevent
     // re-assigning the target to the previously active pane.
     if *mode == crate::scene::InteractionMode::Player {
-        let has_pane_target = content_q.iter().any(|(e, has_kb)| {
-            has_kb && !status_q.contains(e) && !side_sheet_q.contains(e)
-        });
+        let has_pane_target = content_q
+            .iter()
+            .any(|(e, has_kb)| has_kb && !status_q.contains(e) && !side_sheet_q.contains(e));
         if !has_pane_target {
             return;
         }
@@ -240,14 +233,19 @@ fn sync_children_to_ui(
     let pad = glass_node.padding;
     let glass_size_px = glass_node.size + pad.min_inset + pad.max_inset;
 
-    for (mut tf, self_computed, self_ui_gt, child_of, mut webview_size, status, side_sheet, modal) in
-        browser_q.iter_mut()
+    for (
+        mut tf,
+        self_computed,
+        self_ui_gt,
+        child_of,
+        mut webview_size,
+        status,
+        side_sheet,
+        modal,
+    ) in browser_q.iter_mut()
     {
         let parent = child_of.get();
-        let pane_entity = child_of_q
-            .get(parent)
-            .map(|co| co.get())
-            .unwrap_or(parent);
+        let pane_entity = child_of_q.get(parent).map(|co| co.get()).unwrap_or(parent);
         let (computed, ui_gt) = match pane_rect.get(pane_entity) {
             Ok((cn, gt)) => (cn, gt),
             Err(_) => (self_computed, self_ui_gt),
@@ -269,10 +267,8 @@ fn sync_children_to_ui(
             true
         };
 
-        let is_inactive_tab = parent != glass_entity
-            && status.is_none()
-            && side_sheet.is_none()
-            && !is_active_tab;
+        let is_inactive_tab =
+            parent != glass_entity && status.is_none() && side_sheet.is_none() && !is_active_tab;
 
         let sx = size_px.x / glass_size_px.x;
         let sy = size_px.y / glass_size_px.y;
@@ -281,8 +277,15 @@ fn sync_children_to_ui(
         } else {
             Vec3::new(sx, sy, 1.0)
         };
-        if parent != glass_entity && status.is_none() && side_sheet.is_none() && (tf.scale - new_scale).length() > 0.01 {
-            info!("[ui] browser child_of={:?} scale {:?} -> {:?} (inactive={})", parent, tf.scale, new_scale, is_inactive_tab);
+        if parent != glass_entity
+            && status.is_none()
+            && side_sheet.is_none()
+            && (tf.scale - new_scale).length() > 0.01
+        {
+            info!(
+                "[ui] browser child_of={:?} scale {:?} -> {:?} (inactive={})",
+                parent, tf.scale, new_scale, is_inactive_tab
+            );
         }
         tf.scale = new_scale;
 
@@ -336,7 +339,7 @@ fn sync_cef_webview_resize_after_ui(
             .or_else(|| primary_window.single().ok());
         let device_scale_factor = window_entity
             .and_then(|e| windows.get(e).ok())
-            .map(|w| w.resolution.scale_factor() as f32)
+            .map(|w| w.resolution.scale_factor())
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         if last_entries
@@ -413,9 +416,10 @@ fn sync_osr_webview_focus(
     let active_tab_opt = focus.tab;
     let active = active_tab_opt
         .and_then(|tab| {
-            ready.iter().copied().find(|&b| {
-                child_of_q.get(b).ok().map(|co| co.get()) == Some(tab)
-            })
+            ready
+                .iter()
+                .copied()
+                .find(|&b| child_of_q.get(b).ok().map(|co| co.get()) == Some(tab))
         })
         .unwrap_or(ready[0]);
 
@@ -453,10 +457,7 @@ fn sync_osr_webview_focus(
     }
 }
 
-fn drain_loading_state(
-    receiver: Res<WebviewLoadingStateReceiver>,
-    mut commands: Commands,
-) {
+fn drain_loading_state(receiver: Res<WebviewLoadingStateReceiver>, mut commands: Commands) {
     while let Ok(ev) = receiver.0.try_recv() {
         let Ok(mut ecmds) = commands.get_entity(ev.webview) else {
             continue;
@@ -538,9 +539,7 @@ fn push_tabs_host_emit(
     let mut rows: Vec<TabRow> = Vec::new();
     let mut can_go_back = false;
     let mut can_go_forward = false;
-    if active_tab_opt.is_none() {
-
-    }
+    let _ = active_tab_opt.is_none();
     if let Some(active_tab_entity) = active_tab_opt {
         for (meta, child_of, nav_state) in &browser_q {
             let tab_entity = child_of.get();
@@ -549,11 +548,9 @@ fn push_tabs_host_emit(
                 continue;
             }
             let is_active = tab_entity == active_tab_entity;
-            if is_active {
-                if let Some(ns) = nav_state {
-                    can_go_back = ns.can_go_back;
-                    can_go_forward = ns.can_go_forward;
-                }
+            if is_active && let Some(ns) = nav_state {
+                can_go_back = ns.can_go_back;
+                can_go_forward = ns.can_go_forward;
             }
             rows.push(TabRow {
                 title: meta.title.clone(),
@@ -564,22 +561,31 @@ fn push_tabs_host_emit(
         }
     }
     // If the active tab is an empty new-tab, add a placeholder row
-    if let Some(empty_tab) = new_tab_ctx.tab {
-        if active_tab_opt == Some(empty_tab) && !rows.iter().any(|r| r.is_active) {
-            rows.push(TabRow {
-                title: "New tab".to_string(),
-                url: String::new(),
-                favicon_url: String::new(),
-                is_active: true,
-            });
-        }
+    if let Some(empty_tab) = new_tab_ctx.tab
+        && active_tab_opt == Some(empty_tab)
+        && !rows.iter().any(|r| r.is_active)
+    {
+        rows.push(TabRow {
+            title: "New tab".to_string(),
+            url: String::new(),
+            favicon_url: String::new(),
+            is_active: true,
+        });
     }
-    let payload = TabsHostEvent { tabs: rows, can_go_back, can_go_forward };
+    let payload = TabsHostEvent {
+        tabs: rows,
+        can_go_back,
+        can_go_forward,
+    };
     let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
     if ron_body.as_str() == last.as_str() {
         return;
     }
-    warn!("[tabs-debug] emitting TabsHostEvent: {} tabs, ron_len={}", payload.tabs.len(), ron_body.len());
+    warn!(
+        "[tabs-debug] emitting TabsHostEvent: {} tabs, ron_len={}",
+        payload.tabs.len(),
+        ron_body.len()
+    );
     commands.trigger(HostEmitEvent::new(status_e, TABS_EVENT, &ron_body));
     *last = ron_body;
 }
@@ -688,7 +694,12 @@ fn handle_browser_commands(
             continue;
         };
         let (_, _, active_tab_opt) = focused_tab(
-            &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+            &spaces,
+            &all_children,
+            &leaf_panes,
+            &pane_ts,
+            &pane_children,
+            &tab_ts,
         );
         let Some(active) = active_tab_opt else {
             continue;
@@ -823,10 +834,7 @@ fn on_side_sheet_command_emit(
     let Ok(children) = pane_children.get(target_pane) else {
         return;
     };
-    let tab_entities: Vec<Entity> = children
-        .iter()
-        .filter(|&e| tab_q.contains(e))
-        .collect();
+    let tab_entities: Vec<Entity> = children.iter().filter(|&e| tab_q.contains(e)).collect();
 
     match evt.command.as_str() {
         "activate_tab" => {
@@ -852,10 +860,15 @@ fn on_side_sheet_command_emit(
             };
 
             if tab_entities.len() > 1 {
-                let is_active = active_tab_in_pane(target_pane, &pane_children, &tab_ts) == Some(target_tab);
+                let is_active =
+                    active_tab_in_pane(target_pane, &pane_children, &tab_ts) == Some(target_tab);
                 commands.entity(target_tab).despawn();
                 if is_active {
-                    let next = tab_entities.iter().copied().find(|&e| e != target_tab).unwrap();
+                    let next = tab_entities
+                        .iter()
+                        .copied()
+                        .find(|&e| e != target_tab)
+                        .unwrap();
                     commands.entity(next).insert(LastActivatedAt::now());
                 }
             } else if leaf_panes.iter().count() <= 1 {
@@ -876,8 +889,7 @@ fn on_side_sheet_command_emit(
                 let Ok(parent_children) = pane_children.get(parent) else {
                     return;
                 };
-                let is_pane =
-                    |e: Entity| leaf_panes.contains(e) || split_q.contains(e);
+                let is_pane = |e: Entity| leaf_panes.contains(e) || split_q.contains(e);
                 let Some(sibling) = parent_children
                     .iter()
                     .find(|&e| e != target_pane && is_pane(e))
@@ -886,7 +898,12 @@ fn on_side_sheet_command_emit(
                 };
 
                 let (_, current_active_pane, _) = focused_tab(
-                    &spaces, &all_children, &leaf_panes, &pane_ts, &pane_children, &tab_ts,
+                    &spaces,
+                    &all_children,
+                    &leaf_panes,
+                    &pane_ts,
+                    &pane_children,
+                    &tab_ts,
                 );
                 let target_pane_is_active = current_active_pane == Some(target_pane);
                 let sibling_is_active = current_active_pane == Some(sibling);
@@ -901,16 +918,9 @@ fn on_side_sheet_command_emit(
 
                 let (new_active_pane, tab_to_activate);
                 if split_q.contains(sibling) {
-                    new_active_pane =
-                        first_leaf_descendant(sibling, &pane_children, &leaf_panes);
-                    tab_to_activate = active_tab_in_pane(
-                        new_active_pane,
-                        &pane_children,
-                        &tab_ts,
-                    )
-                    .or_else(|| {
-                        first_tab_in_pane(new_active_pane, &pane_children, &tab_q)
-                    });
+                    new_active_pane = first_leaf_descendant(sibling, &pane_children, &leaf_panes);
+                    tab_to_activate = active_tab_in_pane(new_active_pane, &pane_children, &tab_ts)
+                        .or_else(|| first_tab_in_pane(new_active_pane, &pane_children, &tab_q));
                     commands.entity(sibling).remove::<ChildOf>();
                     commands.queue(move |world: &mut World| {
                         world.despawn(sibling);
@@ -920,9 +930,7 @@ fn on_side_sheet_command_emit(
                     tab_to_activate = sibling_children
                         .iter()
                         .copied()
-                        .find(|&e| {
-                            tab_ts.get(e).is_ok()
-                        })
+                        .find(|&e| tab_ts.get(e).is_ok())
                         .or_else(|| {
                             sibling_children
                                 .iter()
@@ -943,7 +951,9 @@ fn on_side_sheet_command_emit(
                 commands.entity(target_pane).despawn();
 
                 if target_pane_is_active || sibling_is_active {
-                    commands.entity(new_active_pane).insert(LastActivatedAt::now());
+                    commands
+                        .entity(new_active_pane)
+                        .insert(LastActivatedAt::now());
                     if let Some(tab) = tab_to_activate {
                         commands.entity(tab).insert(LastActivatedAt::now());
                     }
@@ -975,11 +985,7 @@ fn spawn_visit_on_navigation(
 
         if is_new {
             last_urls.insert(key, meta.url.clone());
-            commands.spawn((
-                Visit,
-                meta.clone(),
-                CreatedAt::now(),
-            ));
+            commands.spawn((Visit, meta.clone(), CreatedAt::now()));
         }
     }
 }

@@ -1,14 +1,14 @@
 #![allow(non_snake_case)]
 
-use dioxus::html::input_data::MouseButton;
 use dioxus::html::Modifiers;
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use unicode_width::UnicodeWidthChar;
 use vmux_terminal::event::*;
 use vmux_ui::cef_bridge::try_cef_emit_keyed;
 use vmux_ui::hooks::{use_event_listener, use_theme};
-use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::prelude::*;
 
 // Tailwind safelist -- these classes are generated dynamically via format!() and
 // must appear as literal strings for Tailwind's content scanner to detect them.
@@ -36,19 +36,13 @@ pub fn App() -> Element {
     let mut viewport = use_signal(TermViewportEvent::default);
     let mut theme = use_signal(|| None::<TermThemeEvent>);
 
-    let _listener = use_event_listener::<TermViewportEvent, _>(
-        TERM_VIEWPORT_EVENT,
-        move |data| {
-            viewport.set(data);
-        },
-    );
+    let _listener = use_event_listener::<TermViewportEvent, _>(TERM_VIEWPORT_EVENT, move |data| {
+        viewport.set(data);
+    });
 
-    let _theme_listener = use_event_listener::<TermThemeEvent, _>(
-        TERM_THEME_EVENT,
-        move |data| {
-            theme.set(Some(data));
-        },
-    );
+    let _theme_listener = use_event_listener::<TermThemeEvent, _>(TERM_THEME_EVENT, move |data| {
+        theme.set(Some(data));
+    });
 
     let vp = viewport();
 
@@ -234,9 +228,7 @@ fn setup_measurement(cell_dims: Signal<(f64, f64)>) {
         do_measure(cell_dims);
     }) as Box<dyn FnMut(JsValue)>);
 
-    if let Ok(observer) =
-        web_sys::ResizeObserver::new(callback.as_ref().unchecked_ref())
-    {
+    if let Ok(observer) = web_sys::ResizeObserver::new(callback.as_ref().unchecked_ref()) {
         observer.observe(&container);
         observer.observe(&measure);
         // Keep observer alive for the lifetime of the page.
@@ -322,11 +314,7 @@ fn parse_px(cs: &web_sys::CssStyleDeclaration, prop: &str) -> f64 {
 // ---------------------------------------------------------------------------
 
 /// Convert mouse client coordinates to terminal grid (col, row).
-fn mouse_to_cell(
-    e: &Event<MouseData>,
-    padding: f64,
-    (cw, ch): (f64, f64),
-) -> Option<(u16, u16)> {
+fn mouse_to_cell(e: &Event<MouseData>, padding: f64, (cw, ch): (f64, f64)) -> Option<(u16, u16)> {
     if cw <= 0.0 || ch <= 0.0 {
         return None;
     }
@@ -519,21 +507,18 @@ fn render_span(
         rsx! {
             if !before.is_empty() {
                 span {
-                    key: "{span_idx}-pre",
                     class: "{classes}",
                     style: "{style}",
                     "{before}"
                 }
             }
             span {
-                key: "{span_idx}-cur",
                 class: "{cursor_cls}",
                 style: "{color_css}{blink_css}",
                 "{cursor_ch}"
             }
             if !after.is_empty() {
                 span {
-                    key: "{span_idx}-post",
                     class: "{classes}",
                     style: "{style}",
                     "{after}"

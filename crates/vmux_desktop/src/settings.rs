@@ -437,10 +437,10 @@ pub fn load_settings(mut commands: Commands) {
         let (tx, rx) = mpsc::channel();
         let watch_path = path.clone();
         match notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-            if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() {
-                    let _ = tx.send(());
-                }
+            if let Ok(event) = res
+                && (event.kind.is_modify() || event.kind.is_create())
+            {
+                let _ = tx.send(());
             }
         }) {
             Ok(mut watcher) => {

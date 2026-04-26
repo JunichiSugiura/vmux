@@ -38,12 +38,15 @@ fn filter_results(
     tabs: &[CommandBarTab],
     commands: &[CommandBarCommandEntry],
     new_tab: bool,
+    current_url: &str,
 ) -> Vec<ResultItem> {
+    let current_is_terminal = current_url.starts_with("vmux://terminal");
+    let show_terminal = new_tab || !current_is_terminal;
     let q = query.trim();
     if q.is_empty() {
         let mut items: Vec<ResultItem> = Vec::new();
         items.push(ResultItem::Navigate { url: String::new() });
-        if new_tab {
+        if show_terminal {
             items.push(ResultItem::Terminal {
                 path: String::new(),
             });
@@ -76,7 +79,7 @@ fn filter_results(
         });
     }
 
-    if !starts_with_cmd && !is_path && "terminal".contains(&search_lower) {
+    if !starts_with_cmd && !is_path && show_terminal && "terminal".contains(&search_lower) {
         items.push(ResultItem::Terminal {
             path: String::new(),
         });
@@ -194,7 +197,7 @@ pub fn App() -> Element {
     });
 
     let CommandBarOpenEvent {
-        url: _,
+        url: current_url,
         tabs,
         commands,
         new_tab: _,
@@ -202,7 +205,7 @@ pub fn App() -> Element {
     let q = query();
     let is_new_tab = new_tab();
     let results = {
-        let mut r = filter_results(&q, &tabs, &commands, is_new_tab);
+        let mut r = filter_results(&q, &tabs, &commands, is_new_tab, &current_url);
         let completions = path_completions();
         if !completions.is_empty() {
             let path_items: Vec<ResultItem> = completions
@@ -454,9 +457,9 @@ pub fn App() -> Element {
                                             span { class: "shrink-0 text-base text-muted-foreground", ">_" }
                                             if path.is_empty() {
                                                 if is_new_tab {
-                                                    span { class: "text-base text-foreground", "Open Terminal in New Tab" }
-                                                } else {
                                                     span { class: "text-base text-foreground", "Open Terminal" }
+                                                } else {
+                                                    span { class: "text-base text-foreground", "Open Terminal in New Tab" }
                                                 }
                                             } else {
                                                 span { class: "text-base text-foreground", "Open in Terminal" }

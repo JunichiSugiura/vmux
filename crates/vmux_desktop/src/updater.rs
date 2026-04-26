@@ -1,28 +1,33 @@
-mod apply;
-mod download;
-mod github;
-mod stage;
-
 use bevy::prelude::*;
 use std::sync::{mpsc, Mutex};
 use std::time::Duration;
 
 use crate::settings::AppSettings;
 
-/// Auto-updater for Vmux. Checks GitHub Releases for new versions,
-/// downloads the signed .app bundle, and applies on next launch.
+const DEFAULT_ENDPOINT: &str =
+    "https://github.com/vmux-ai/vmux/releases/latest/download/update-manifest.json";
+
+// TODO: Replace with real minisign public key once generated via
+//   `cargo packager signer generate -w vmux-update.key`
+// The corresponding private key goes into the VMUX_UPDATE_PRIVATE_KEY GitHub secret.
+const DEFAULT_PUBKEY: &str = "PLACEHOLDER_PUBKEY";
+
+/// Auto-updater for Vmux. Checks a remote endpoint for new versions,
+/// downloads the signed `.app` bundle, and replaces the current one in-place.
+/// The update takes effect on the next launch.
 ///
 /// ```rust,ignore
 /// let updater = VmuxUpdater::builder()
-///     .repo("vmux-ai", "vmux")
+///     .endpoint("https://example.com/updates.json")
+///     .pubkey("<minisign-public-key>")
 ///     .initial_delay(Duration::from_secs(5))
 ///     .poll_interval(Duration::from_secs(3600))
 ///     .build();
 /// ```
 #[derive(Clone, Debug)]
 pub struct VmuxUpdater {
-    repo_owner: String,
-    repo_name: String,
+    endpoint: String,
+    pubkey: String,
     initial_delay: Duration,
     poll_interval: Duration,
 }
@@ -30,18 +35,6 @@ pub struct VmuxUpdater {
 impl VmuxUpdater {
     pub fn builder() -> VmuxUpdaterBuilder {
         VmuxUpdaterBuilder::default()
-    }
-
-    /// Check for a staged update and apply it if valid.
-    /// Call this in main() before Bevy starts.
-    /// Returns `true` if the process should re-exec.
-    pub fn apply_staged_update(&self) -> bool {
-        apply::apply_staged_update()
-    }
-
-    /// Re-exec the current binary (replaces the current process).
-    pub fn re_exec(&self) -> ! {
-        apply::re_exec()
     }
 
     /// Convert into a Bevy plugin.
@@ -52,8 +45,8 @@ impl VmuxUpdater {
 
 #[derive(Clone, Debug)]
 pub struct VmuxUpdaterBuilder {
-    repo_owner: String,
-    repo_name: String,
+    endpoint: String,
+    pubkey: String,
     initial_delay: Duration,
     poll_interval: Duration,
 }
@@ -61,8 +54,8 @@ pub struct VmuxUpdaterBuilder {
 impl Default for VmuxUpdaterBuilder {
     fn default() -> Self {
         Self {
-            repo_owner: "vmux-ai".to_string(),
-            repo_name: "vmux".to_string(),
+            endpoint: DEFAULT_ENDPOINT.to_string(),
+            pubkey: DEFAULT_PUBKEY.to_string(),
             initial_delay: Duration::from_secs(5),
             poll_interval: Duration::from_secs(3600),
         }
@@ -70,9 +63,13 @@ impl Default for VmuxUpdaterBuilder {
 }
 
 impl VmuxUpdaterBuilder {
-    pub fn repo(mut self, owner: &str, name: &str) -> Self {
-        self.repo_owner = owner.to_string();
-        self.repo_name = name.to_string();
+    pub fn endpoint(mut self, url: &str) -> Self {
+        self.endpoint = url.to_string();
+        self
+    }
+
+    pub fn pubkey(mut self, key: &str) -> Self {
+        self.pubkey = key.to_string();
         self
     }
 
@@ -88,8 +85,8 @@ impl VmuxUpdaterBuilder {
 
     pub fn build(self) -> VmuxUpdater {
         VmuxUpdater {
-            repo_owner: self.repo_owner,
-            repo_name: self.repo_name,
+            endpoint: self.endpoint,
+            pubkey: self.pubkey,
             initial_delay: self.initial_delay,
             poll_interval: self.poll_interval,
         }
@@ -105,8 +102,8 @@ pub struct UpdatePlugin {
 impl Plugin for UpdatePlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(UpdateConfig {
-            repo_owner: self.updater.repo_owner.clone(),
-            repo_name: self.updater.repo_name.clone(),
+            endpoint: self.updater.endpoint.clone(),
+            pubkey: self.updater.pubkey.clone(),
             initial_delay: self.updater.initial_delay,
             poll_interval: self.updater.poll_interval,
         });
@@ -117,8 +114,8 @@ impl Plugin for UpdatePlugin {
 
 #[derive(Resource)]
 struct UpdateConfig {
-    repo_owner: String,
-    repo_name: String,
+    endpoint: String,
+    pubkey: String,
     initial_delay: Duration,
     poll_interval: Duration,
 }
@@ -135,7 +132,7 @@ struct UpdateChecker {
 
 enum UpdateResult {
     NoUpdate,
-    Staged { version: String },
+    Installed { version: String },
     Failed(String),
 }
 
@@ -175,8 +172,8 @@ fn poll_update_result(
             UpdateResult::NoUpdate => {
                 bevy::log::debug!("no update available");
             }
-            UpdateResult::Staged { version } => {
-                bevy::log::info!("update v{version} staged, will apply on next launch");
+            UpdateResult::Installed { version } => {
+                bevy::log::info!("update v{version} installed, will take effect on next launch");
                 checker.done = true;
                 return;
             }
@@ -187,12 +184,6 @@ fn poll_update_result(
     }
 
     if !settings.auto_update {
-        return;
-    }
-
-    if stage::has_staged_update() {
-        checker.done = true;
-        bevy::log::debug!("staged update already present, skipping check");
         return;
     }
 
@@ -208,52 +199,51 @@ fn poll_update_result(
 
     if !checker.started {
         checker.started = true;
-        checker.timer = Timer::from_seconds(config.poll_interval.as_secs_f32(), TimerMode::Repeating);
+        checker
+            .timer
+            .set_duration(config.poll_interval);
+        checker.timer.set_mode(TimerMode::Repeating);
+        checker.timer.reset();
     }
 
     let tx = checker.tx.clone();
-    let owner = config.repo_owner.clone();
-    let name = config.repo_name.clone();
+    let endpoint = config.endpoint.clone();
+    let pubkey = config.pubkey.clone();
     checker.in_flight = true;
 
     std::thread::spawn(move || {
-        let result = run_update_check(&owner, &name);
+        let result = run_update_check(&endpoint, &pubkey);
         let _ = tx.send(result);
     });
 }
 
-fn run_update_check(repo_owner: &str, repo_name: &str) -> UpdateResult {
-    let current = match semver::Version::parse(env!("CARGO_PKG_VERSION")) {
+fn run_update_check(endpoint: &str, pubkey: &str) -> UpdateResult {
+    let current: semver::Version = match env!("CARGO_PKG_VERSION").parse() {
         Ok(v) => v,
         Err(e) => return UpdateResult::Failed(format!("bad current version: {e}")),
     };
 
-    let release = match github::check_for_update(&current, repo_owner, repo_name) {
-        Ok(Some(r)) => r,
+    let url = match endpoint.parse() {
+        Ok(u) => u,
+        Err(e) => return UpdateResult::Failed(format!("bad endpoint URL: {e}")),
+    };
+
+    let config = cargo_packager_updater::Config {
+        endpoints: vec![url],
+        pubkey: pubkey.to_string(),
+        ..Default::default()
+    };
+
+    let update = match cargo_packager_updater::check_update(current, config) {
+        Ok(Some(u)) => u,
         Ok(None) => return UpdateResult::NoUpdate,
-        Err(e) => return UpdateResult::Failed(format!("check failed: {e}")),
+        Err(e) => return UpdateResult::Failed(format!("{e}")),
     };
 
-    let download_dir = match stage::downloading_dir() {
-        Some(d) => d,
-        None => return UpdateResult::Failed("no cache dir".to_string()),
-    };
+    let version = update.version.clone();
 
-    let (tarball, sha256) = match download::download_and_verify(
-        &release.tarball_url,
-        &release.sha256_url,
-        &download_dir,
-    ) {
-        Ok(result) => result,
-        Err(e) => return UpdateResult::Failed(format!("download failed: {e}")),
-    };
-
-    let version_str = release.version.to_string();
-    if let Err(e) = stage::stage_update(&tarball, &version_str, &sha256) {
-        return UpdateResult::Failed(format!("staging failed: {e}"));
-    }
-
-    UpdateResult::Staged {
-        version: version_str,
+    match update.download_and_install() {
+        Ok(()) => UpdateResult::Installed { version },
+        Err(e) => UpdateResult::Failed(format!("install failed: {e}")),
     }
 }

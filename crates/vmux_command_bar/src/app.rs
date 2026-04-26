@@ -228,7 +228,7 @@ pub fn App() -> Element {
             r.retain(|item| !matches!(item, ResultItem::Terminal { path } if !path.is_empty()));
             let mut combined = Vec::new();
             if let Some(ref entry) = typed_terminal {
-                if let ResultItem::Terminal { path: ref tp } = entry {
+                if let ResultItem::Terminal { path: tp } = entry {
                     if !path_items
                         .iter()
                         .any(|item| matches!(item, ResultItem::Terminal { path } if path == tp))

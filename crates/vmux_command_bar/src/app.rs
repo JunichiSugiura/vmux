@@ -147,10 +147,11 @@ fn filter_results(
     items
 }
 
-fn emit_action(action: &str, value: &str) {
+fn emit_action(action: &str, value: &str, new_tab: bool) {
     let _ = try_cef_emit_serde(&CommandBarActionEvent {
         action: action.to_string(),
         value: value.to_string(),
+        new_tab,
     });
 }
 
@@ -288,21 +289,22 @@ pub fn App() -> Element {
 
     let mut execute = move |item: &ResultItem| {
         is_open.set(false);
+        let nt = new_tab();
         match item {
             ResultItem::Terminal { path } => {
-                emit_action("terminal", path);
+                emit_action("terminal", path, nt);
             }
             ResultItem::Tab {
                 pane_id, tab_index, ..
             } => {
-                emit_action("switch_tab", &format!("{pane_id}:{tab_index}"));
+                emit_action("switch_tab", &format!("{pane_id}:{tab_index}"), nt);
             }
             ResultItem::Command { id, .. } => {
-                emit_action("command", id);
+                emit_action("command", id, nt);
             }
             ResultItem::Navigate { url } => {
                 if !url.is_empty() {
-                    emit_action("navigate", url);
+                    emit_action("navigate", url, nt);
                 }
             }
         }
@@ -315,7 +317,7 @@ pub fn App() -> Element {
     rsx! {
         div {
             class: "flex h-full w-full items-start justify-center pt-[15%]",
-            onclick: move |_| { is_open.set(false); emit_action("dismiss", ""); },
+            onclick: move |_| { is_open.set(false); emit_action("dismiss", "", new_tab()); },
             div {
                 class: "relative flex w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white/10 shadow-2xl backdrop-blur-2xl backdrop-saturate-150",
                 onclick: move |e| { e.stop_propagation(); },
@@ -427,12 +429,12 @@ pub fn App() -> Element {
                                         nav_mode.set(true);
                                     } else if e.key() == Key::Escape {
                                         is_open.set(false);
-                                        emit_action("dismiss", "");
+                                        emit_action("dismiss", "", new_tab());
                                     } else if e.key() == Key::Enter {
                                         if let Some(item) = results.get(sel) {
                                             execute(item);
                                         } else if !q.is_empty() {
-                                            emit_action("navigate", &q);
+                                            emit_action("navigate", &q, new_tab());
                                         }
                                     }
                                 },

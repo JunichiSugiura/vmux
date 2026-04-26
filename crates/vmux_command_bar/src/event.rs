@@ -28,6 +28,7 @@ pub struct CommandBarCommandEntry {
 pub struct CommandBarActionEvent {
     pub action: String,
     pub value: String,
+    pub new_tab: bool,
 }
 
 pub const PATH_COMPLETE_REQUEST: &str = "path-complete-request";

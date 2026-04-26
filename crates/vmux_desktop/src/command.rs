@@ -90,7 +90,11 @@ pub enum TabCommand {
     #[menu(id = "tab_mute", label = "Mute Tab\t<leader> m", hidden)]
     #[shortcut(chord = "Ctrl+g, m")]
     Mute,
-    #[menu(id = "tab_move_to_pane", label = "Move Tab to Pane\t<leader> !", hidden)]
+    #[menu(
+        id = "tab_move_to_pane",
+        label = "Move Tab to Pane\t<leader> !",
+        hidden
+    )]
     #[shortcut(chord = "Ctrl+g, !")]
     MoveToPane,
     #[menu(id = "tab_swap_prev", label = "Move Tab Left\t<leader> <")]
@@ -222,10 +226,18 @@ pub enum PaneCommand {
     #[menu(id = "swap_pane_next", label = "Swap Pane Next\t<leader> }")]
     #[shortcut(chord = "Ctrl+g, }")]
     SwapNext,
-    #[menu(id = "rotate_forward", label = "Rotate Forward\t<leader> ctrl+o", hidden)]
+    #[menu(
+        id = "rotate_forward",
+        label = "Rotate Forward\t<leader> ctrl+o",
+        hidden
+    )]
     #[shortcut(chord = "Ctrl+g, Ctrl+o")]
     RotateForward,
-    #[menu(id = "rotate_backward", label = "Rotate Backward\t<leader> alt+o", hidden)]
+    #[menu(
+        id = "rotate_backward",
+        label = "Rotate Backward\t<leader> alt+o",
+        hidden
+    )]
     #[shortcut(chord = "Ctrl+g, Alt+o")]
     RotateBackward,
     #[menu(id = "equalize_pane_size", label = "Equalize Pane Size\t<leader> =")]
@@ -318,7 +330,12 @@ pub enum WindowCommand {
     #[default]
     #[menu(id = "new_window", label = "New Window", accel = "super+n", hidden)]
     NewWindow,
-    #[menu(id = "close_window", label = "Close Window", accel = "super+shift+w", hidden)]
+    #[menu(
+        id = "close_window",
+        label = "Close Window",
+        accel = "super+shift+w",
+        hidden
+    )]
     CloseWindow,
     #[menu(id = "minimize_window", label = "Minimize", accel = "super+m", hidden)]
     Minimize,

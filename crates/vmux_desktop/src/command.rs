@@ -106,6 +106,13 @@ pub enum TerminalCommand {
     #[menu(id = "terminal_new", label = "New Terminal", accel = "ctrl+`")]
     #[shortcut(direct = "Ctrl+`")]
     New,
+    #[menu(
+        id = "terminal_new_in_tab",
+        label = "New Terminal in Tab",
+        accel = "ctrl+shift+`"
+    )]
+    #[shortcut(direct = "Ctrl+Shift+`")]
+    NewInTab,
     #[menu(id = "terminal_close", label = "Close Terminal")]
     Close,
     #[menu(id = "terminal_next", label = "Next Terminal")]

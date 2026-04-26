@@ -76,7 +76,7 @@ fn filter_results(
         });
     }
 
-    if !starts_with_cmd && !is_path && new_tab && "terminal".contains(&search_lower) {
+    if !starts_with_cmd && !is_path && "terminal".contains(&search_lower) {
         items.push(ResultItem::Terminal {
             path: String::new(),
         });
@@ -453,7 +453,11 @@ pub fn App() -> Element {
                                         div { class: "flex items-center gap-2",
                                             span { class: "shrink-0 text-base text-muted-foreground", ">_" }
                                             if path.is_empty() {
-                                                span { class: "text-base text-foreground", "Terminal" }
+                                                if is_new_tab {
+                                                    span { class: "text-base text-foreground", "Open Terminal in New Tab" }
+                                                } else {
+                                                    span { class: "text-base text-foreground", "Open Terminal" }
+                                                }
                                             } else {
                                                 span { class: "text-base text-foreground", "Open in Terminal" }
                                                 span { class: "ml-1 text-sm text-muted-foreground", "{path}" }

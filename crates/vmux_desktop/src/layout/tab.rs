@@ -178,7 +178,7 @@ fn handle_tab_commands(
         let (tab_cmd, terminal_mode) = match *cmd {
             AppCommand::Tab(t) => (t, None),
             AppCommand::Terminal(TerminalCommand::New) => (TabCommand::New, Some(false)),
-            AppCommand::Terminal(TerminalCommand::NewInTab) => (TabCommand::New, Some(true)),
+            AppCommand::Terminal(TerminalCommand::NewTab) => (TabCommand::New, Some(true)),
             _ => continue,
         };
 

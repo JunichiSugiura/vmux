@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use std::sync::{mpsc, Mutex};
+use std::sync::{Mutex, mpsc};
 use std::time::Duration;
 
 use crate::settings::AppSettings;
@@ -199,9 +199,7 @@ fn poll_update_result(
 
     if !checker.started {
         checker.started = true;
-        checker
-            .timer
-            .set_duration(config.poll_interval);
+        checker.timer.set_duration(config.poll_interval);
         checker.timer.set_mode(TimerMode::Repeating);
         checker.timer.reset();
     }

@@ -18,7 +18,7 @@ fn main() {
         };
         let info = NSProcessInfo::processInfo();
         let ns_name = NSString::from_str(&name);
-        unsafe { info.setProcessName(&ns_name) };
+        info.setProcessName(&ns_name);
     }
 
     println!(

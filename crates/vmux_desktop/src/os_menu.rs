@@ -24,7 +24,31 @@ fn setup(world: &mut World) {
     AppCommand::build_native_root_menu(&mut menu).unwrap();
 
     #[cfg(target_os = "macos")]
-    menu.init_for_nsapp();
+    {
+        menu.init_for_nsapp();
+
+        // macOS overrides the first menu item's title with the executable
+        // name. Rename it after init_for_nsapp() to show the profile name.
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::NSApplication;
+        use objc2_foundation::NSString;
+        let app_name = match env!("VMUX_PROFILE") {
+            "release" => "Vmux".to_string(),
+            "local" => format!("Vmux ({})", env!("VMUX_GIT_HASH")),
+            "dev" => format!("Vmux Dev ({})", env!("VMUX_GIT_HASH")),
+            other => format!("Vmux ({})", other),
+        };
+        let mtm = MainThreadMarker::new().expect("must be on main thread");
+        let ns_app = NSApplication::sharedApplication(mtm);
+        if let Some(main_menu) = ns_app.mainMenu() {
+            if let Some(first_item) = main_menu.itemAtIndex(0) {
+                if let Some(submenu) = first_item.submenu() {
+                    submenu.setTitle(&NSString::from_str(&app_name));
+                }
+                first_item.setTitle(&NSString::from_str(&app_name));
+            }
+        }
+    }
 
     MenuEvent::set_event_handler(Some(|event: MenuEvent| {
         PENDING_MENU_EVENTS.lock().push(event.id.0.clone());

@@ -12,11 +12,6 @@ debug = ["bevy_cef/debug"]
 name = "Vmux"
 path = "src/main.rs"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSProcessInfo", "NSString"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSMenu", "NSMenuItem"] }
-
 [dependencies]
 bevy = { workspace = true, features = [
     "bevy_camera_controller",

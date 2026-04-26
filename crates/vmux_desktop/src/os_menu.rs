@@ -5,12 +5,6 @@ use muda::{Menu, MenuEvent};
 use parking_lot::Mutex;
 use std::sync::LazyLock;
 
-#[cfg(target_os = "macos")]
-use std::sync::atomic::{AtomicBool, Ordering};
-
-#[cfg(target_os = "macos")]
-static APP_MENU_RENAMED: AtomicBool = AtomicBool::new(false);
-
 static PENDING_MENU_EVENTS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[allow(dead_code)]
@@ -22,9 +16,6 @@ impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
             .add_systems(Update, forward_menu_events.in_set(WriteAppCommands));
-
-        #[cfg(target_os = "macos")]
-        app.add_systems(Update, rename_app_menu);
     }
 }
 
@@ -57,39 +48,5 @@ fn forward_menu_events(world: &mut World) {
         } else {
             warn!(len = event_id.len(), "unknown native menu item");
         }
-    }
-}
-
-/// Rename the macOS application menu after the event loop has started.
-///
-/// macOS/winit overwrites the first menu item's title with the executable
-/// name during event loop init, so we must re-apply our profile-based name
-/// in an Update system (runs once, then stops via atomic flag).
-#[cfg(target_os = "macos")]
-fn rename_app_menu() {
-    if APP_MENU_RENAMED.swap(true, Ordering::Relaxed) {
-        return;
-    }
-
-    use objc2::MainThreadMarker;
-    use objc2_app_kit::NSApplication;
-    use objc2_foundation::NSString;
-
-    let app_name = match env!("VMUX_PROFILE") {
-        "release" => "Vmux".to_string(),
-        "local" => format!("Vmux ({})", env!("VMUX_GIT_HASH")),
-        "dev" => format!("Vmux Dev ({})", env!("VMUX_GIT_HASH")),
-        other => format!("Vmux ({})", other),
-    };
-
-    let mtm = MainThreadMarker::new().expect("must be on main thread");
-    let ns_app = NSApplication::sharedApplication(mtm);
-    if let Some(main_menu) = ns_app.mainMenu()
-        && let Some(first_item) = main_menu.itemAtIndex(0)
-    {
-        if let Some(submenu) = first_item.submenu() {
-            submenu.setTitle(&NSString::from_str(&app_name));
-        }
-        first_item.setTitle(&NSString::from_str(&app_name));
     }
 }

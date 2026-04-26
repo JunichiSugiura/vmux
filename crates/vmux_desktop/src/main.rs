@@ -5,22 +5,6 @@ fn main() {
     #[cfg(not(target_os = "macos"))]
     early_exit_if_subprocess();
 
-    // Set macOS process name so the application menu shows the correct
-    // profile-based name instead of the binary name "Vmux".
-    #[cfg(target_os = "macos")]
-    {
-        use objc2_foundation::{NSProcessInfo, NSString};
-        let name = match env!("VMUX_PROFILE") {
-            "release" => "Vmux".to_string(),
-            "local" => format!("Vmux ({})", env!("VMUX_GIT_HASH")),
-            "dev" => format!("Vmux Dev ({})", env!("VMUX_GIT_HASH")),
-            other => format!("Vmux ({})", other),
-        };
-        let info = NSProcessInfo::processInfo();
-        let ns_name = NSString::from_str(&name);
-        info.setProcessName(&ns_name);
-    }
-
     println!(
         "\n\
          \x1b[36m \x1b[1m\\              /\x1b[0m\x1b[36m  |\\            /|  |        |  \\      /\x1b[0m\n\

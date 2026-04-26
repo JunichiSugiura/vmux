@@ -103,9 +103,11 @@ pub enum TabCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TerminalCommand {
     #[default]
-    #[menu(id = "terminal_new", label = "New Terminal", accel = "ctrl+`")]
-    #[shortcut(direct = "Ctrl+`")]
+    #[menu(id = "terminal_new", label = "New Terminal")]
     New,
+    #[menu(id = "terminal_new_tab", label = "New Terminal Tab", accel = "ctrl+`")]
+    #[shortcut(direct = "Ctrl+`")]
+    NewTab,
     #[menu(id = "terminal_close", label = "Close Terminal")]
     Close,
     #[menu(id = "terminal_next", label = "Next Terminal")]

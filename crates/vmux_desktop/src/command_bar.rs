@@ -478,6 +478,32 @@ fn on_command_bar_action(
                             commands.entity(term_e).insert(CefKeyboardTarget);
                             custom_keyboard_restore = true;
                         }
+                    } else if let Some(pane_e) = active_pane {
+                        let new_tab_e = commands
+                            .spawn((
+                                crate::layout::tab::tab_bundle(),
+                                LastActivatedAt::now(),
+                                ChildOf(pane_e),
+                            ))
+                            .id();
+                        commands.entity(new_tab_e).insert(PageMetadata {
+                            url: TERMINAL_WEBVIEW_URL.to_string(),
+                            title: format!("Terminal ({})", dir.display()),
+                            ..default()
+                        });
+                        let term_e = commands
+                            .spawn((
+                                Terminal::new_with_cwd(
+                                    &mut meshes,
+                                    &mut webview_mt,
+                                    &settings,
+                                    Some(dir),
+                                ),
+                                ChildOf(new_tab_e),
+                            ))
+                            .id();
+                        commands.entity(term_e).insert(CefKeyboardTarget);
+                        custom_keyboard_restore = true;
                     }
                 }
             } else {
@@ -581,6 +607,37 @@ fn on_command_bar_action(
                             commands.entity(browser_e).insert(CefKeyboardTarget);
                             custom_keyboard_restore = true;
                         }
+                    } else if let Some(pane_e) = active_pane {
+                        let new_tab_e = commands
+                            .spawn((
+                                crate::layout::tab::tab_bundle(),
+                                LastActivatedAt::now(),
+                                ChildOf(pane_e),
+                            ))
+                            .id();
+                        if url.starts_with("vmux://terminal") {
+                            commands.entity(new_tab_e).insert(PageMetadata {
+                                url: TERMINAL_WEBVIEW_URL.to_string(),
+                                title: "Terminal (Session: -)".to_string(),
+                                ..default()
+                            });
+                            let term_e = commands
+                                .spawn((
+                                    Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                                    ChildOf(new_tab_e),
+                                ))
+                                .id();
+                            commands.entity(term_e).insert(CefKeyboardTarget);
+                        } else {
+                            let browser_e = commands
+                                .spawn((
+                                    Browser::new(&mut meshes, &mut webview_mt, &url),
+                                    ChildOf(new_tab_e),
+                                ))
+                                .id();
+                            commands.entity(browser_e).insert(CefKeyboardTarget);
+                        }
+                        custom_keyboard_restore = true;
                     }
                 }
             }
@@ -677,6 +734,32 @@ fn on_command_bar_action(
                         commands.entity(term_e).insert(CefKeyboardTarget);
                         custom_keyboard_restore = true;
                     }
+                } else if let Some(pane_e) = active_pane {
+                    let new_tab_e = commands
+                        .spawn((
+                            crate::layout::tab::tab_bundle(),
+                            LastActivatedAt::now(),
+                            ChildOf(pane_e),
+                        ))
+                        .id();
+                    commands.entity(new_tab_e).insert(PageMetadata {
+                        url: TERMINAL_WEBVIEW_URL.to_string(),
+                        title: "Terminal (Session: -)".to_string(),
+                        ..default()
+                    });
+                    let term_e = commands
+                        .spawn((
+                            Terminal::new_with_cwd(
+                                &mut meshes,
+                                &mut webview_mt,
+                                &settings,
+                                cwd.as_deref(),
+                            ),
+                            ChildOf(new_tab_e),
+                        ))
+                        .id();
+                    commands.entity(term_e).insert(CefKeyboardTarget);
+                    custom_keyboard_restore = true;
                 }
             }
         }

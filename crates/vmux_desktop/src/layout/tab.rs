@@ -350,8 +350,7 @@ fn handle_tab_commands(
                 } else {
                     active_tab
                 };
-                let Some(current) =
-                    flat.iter().position(|&(_, t)| Some(t) == effective_current)
+                let Some(current) = flat.iter().position(|&(_, t)| Some(t) == effective_current)
                 else {
                     continue;
                 };

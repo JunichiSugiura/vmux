@@ -1,6 +1,8 @@
 use crate::{
     browser::Browser,
-    command::{AppCommand, BrowserCommand, PaneCommand, ReadAppCommands, TabCommand, TerminalCommand},
+    command::{
+        AppCommand, BrowserCommand, PaneCommand, ReadAppCommands, TabCommand, TerminalCommand,
+    },
     layout::{
         pane::{Pane, PaneSplit},
         side_sheet::SideSheet,
@@ -693,16 +695,16 @@ fn deferred_dismiss_modal(
         return;
     }
     new_tab_ctx.dismiss_modal = false;
-    if let Ok((modal_e, mut modal_node, mut modal_vis)) = modal_q.single_mut() {
-        if modal_node.display != Display::None {
-            modal_node.display = Display::None;
-            *modal_vis = Visibility::Hidden;
-            commands
-                .entity(modal_e)
-                .remove::<CefKeyboardTarget>()
-                .remove::<CefPointerTarget>()
-                .remove::<PendingCommandBarReveal>();
-        }
+    if let Ok((modal_e, mut modal_node, mut modal_vis)) = modal_q.single_mut()
+        && modal_node.display != Display::None
+    {
+        modal_node.display = Display::None;
+        *modal_vis = Visibility::Hidden;
+        commands
+            .entity(modal_e)
+            .remove::<CefKeyboardTarget>()
+            .remove::<CefPointerTarget>()
+            .remove::<PendingCommandBarReveal>();
     }
 }
 

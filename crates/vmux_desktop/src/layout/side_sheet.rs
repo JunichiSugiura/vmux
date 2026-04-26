@@ -10,7 +10,7 @@ pub(crate) struct SideSheetLayoutPlugin;
 
 impl Plugin for SideSheetLayoutPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(SideSheetOpen(true))
+        app.insert_resource(SideSheetOpen(false))
             .insert_resource(SideSheetWidth(0.0)) // set from settings on first sync
             .add_systems(Update, handle_side_sheet_toggle.in_set(ReadAppCommands))
             .add_systems(Update, side_sheet_drag_resize)

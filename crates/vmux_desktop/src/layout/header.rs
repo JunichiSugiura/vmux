@@ -6,7 +6,7 @@ pub(crate) struct HeaderLayoutPlugin;
 
 impl Plugin for HeaderLayoutPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(HeaderOpen(true))
+        app.insert_resource(HeaderOpen(false))
             .add_systems(Update, handle_header_toggle.in_set(ReadAppCommands))
             .add_systems(
                 PostUpdate,

@@ -5,6 +5,7 @@ use crate::terminal::{PtyExited, Terminal};
 use bevy::app::AppExit;
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
+use bevy::window::{ClosingWindow, WindowCloseRequested};
 use muda::{Menu, MenuEvent};
 use parking_lot::Mutex;
 use std::sync::LazyLock;
@@ -19,7 +20,13 @@ pub struct OsMenuPlugin;
 impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-            .add_systems(Update, forward_menu_events.in_set(WriteAppCommands));
+            .add_systems(
+                Update,
+                (
+                    forward_menu_events.in_set(WriteAppCommands),
+                    close_with_confirmation,
+                ),
+            );
     }
 }
 
@@ -73,4 +80,35 @@ fn handle_quit_request(world: &mut World) {
     }
 
     world.resource_mut::<Messages<AppExit>>().write(AppExit::Success);
+}
+
+/// Replacement for bevy's `close_when_requested` that shows a confirmation
+/// dialog when terminals are still running.
+fn close_with_confirmation(
+    mut commands: Commands,
+    mut closed: MessageReader<WindowCloseRequested>,
+    closing: Query<Entity, With<ClosingWindow>>,
+    settings: Res<AppSettings>,
+    live_terminals: Query<(), (With<Terminal>, Without<PtyExited>)>,
+) {
+    // Despawn windows that were marked as closing on the previous frame.
+    for window in closing.iter() {
+        commands.entity(window).despawn();
+    }
+    // Process new close requests with confirmation.
+    for event in closed.read() {
+        let should_confirm = settings
+            .terminal
+            .as_ref()
+            .map_or(true, |t| t.confirm_close);
+
+        if should_confirm {
+            let count = live_terminals.iter().count();
+            if count > 0 && !confirm_close::confirm_quit_dialog(count) {
+                continue;
+            }
+        }
+
+        commands.entity(event.window).try_insert(ClosingWindow);
+    }
 }

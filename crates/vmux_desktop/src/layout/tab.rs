@@ -50,7 +50,7 @@ impl Plugin for TabPlugin {
                     .in_set(ComputeFocusSet)
                     .after(ReadAppCommands),
             )
-            .add_systems(Update, open_command_bar_if_no_tabs)
+
             .add_systems(PostUpdate, sync_tab_picking);
     }
 }
@@ -584,20 +584,14 @@ fn activate_space_for(world: &mut World, entity: Entity) {
         }
     }
 
-fn open_command_bar_if_no_tabs(
+}
+
+pub(crate) fn open_command_bar_if_no_tabs(
     tab_q: Query<(), With<Tab>>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
     mut new_tab_ctx: ResMut<NewTabContext>,
-    mut fired: Local<bool>,
     mut commands: Commands,
 ) {
-    if *fired {
-        return;
-    }
-    if leaf_panes.is_empty() {
-        return;
-    }
-    *fired = true;
     if !tab_q.is_empty() {
         return;
     }

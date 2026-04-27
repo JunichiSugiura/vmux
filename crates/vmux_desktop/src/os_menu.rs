@@ -1,4 +1,8 @@
 use crate::command::{AppCommand, WriteAppCommands};
+use crate::confirm_close;
+use crate::settings::AppSettings;
+use crate::terminal::{PtyExited, Terminal};
+use bevy::app::AppExit;
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
 use muda::{Menu, MenuEvent};
@@ -43,10 +47,30 @@ fn forward_menu_events(world: &mut World) {
     };
 
     for event_id in drained {
-        if let Some(cmd) = AppCommand::from_menu_id(event_id.as_str()) {
+        if event_id == "app_quit" {
+            handle_quit_request(world);
+        } else if let Some(cmd) = AppCommand::from_menu_id(event_id.as_str()) {
             world.resource_mut::<Messages<AppCommand>>().write(cmd);
         } else {
             warn!(len = event_id.len(), "unknown native menu item");
         }
     }
+}
+
+fn handle_quit_request(world: &mut World) {
+    let should_confirm = world
+        .get_resource::<AppSettings>()
+        .and_then(|s| s.terminal.as_ref())
+        .map_or(true, |t| t.confirm_close);
+
+    if should_confirm {
+        let mut query = world.query_filtered::<(), (With<Terminal>, Without<PtyExited>)>();
+        let count = query.iter(world).count();
+
+        if count > 0 && !confirm_close::confirm_quit_dialog(count) {
+            return;
+        }
+    }
+
+    world.resource_mut::<Messages<AppExit>>().write(AppExit::Success);
 }

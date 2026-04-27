@@ -68,7 +68,7 @@ fn handle_quit_request(world: &mut World) {
     let should_confirm = world
         .get_resource::<AppSettings>()
         .and_then(|s| s.terminal.as_ref())
-        .map_or(true, |t| t.confirm_close);
+        .is_none_or(|t| t.confirm_close);
 
     if should_confirm {
         let mut query = world.query_filtered::<(), (With<Terminal>, Without<PtyExited>)>();
@@ -100,7 +100,7 @@ fn close_with_confirmation(
         let should_confirm = settings
             .terminal
             .as_ref()
-            .map_or(true, |t| t.confirm_close);
+            .is_none_or(|t| t.confirm_close);
 
         if should_confirm {
             let count = live_terminals.iter().count();

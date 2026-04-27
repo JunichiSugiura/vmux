@@ -8,7 +8,7 @@ pub fn should_confirm(settings: &AppSettings) -> bool {
     settings
         .terminal
         .as_ref()
-        .map_or(true, |t| t.confirm_close)
+        .is_none_or(|t| t.confirm_close)
 }
 
 /// Check if a tab entity has any child terminal that is still running.

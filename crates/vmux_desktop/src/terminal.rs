@@ -40,7 +40,7 @@ pub(crate) struct Terminal;
 
 /// Marker: PTY child process has exited; tab close is pending.
 #[derive(Component)]
-struct PtyExited;
+pub(crate) struct PtyExited;
 
 /// Holds the alacritty_terminal state for a terminal instance.
 #[derive(Component)]

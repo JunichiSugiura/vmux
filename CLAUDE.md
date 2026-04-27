@@ -3,6 +3,10 @@
 - Do not add comments to code.
 - Do not use mod.rs files. Use the filename-based module pattern (e.g. `layout.rs` + `layout/` directory).
 
+## Linear
+
+When taking a Linear issue (e.g. "take VMX-XX"), immediately move it to **In Progress** before doing anything else — before creating a worktree, before reading code, before submitting a PR.
+
 ## Worktrees
 
 **Never edit files on the main worktree.** All changes must happen inside a feature worktree. Before writing any code for a Linear issue:

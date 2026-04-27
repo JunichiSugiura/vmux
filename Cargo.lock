@@ -8926,6 +8926,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "tokio",
  "vmux_command_bar",
  "vmux_core",
  "vmux_daemon",

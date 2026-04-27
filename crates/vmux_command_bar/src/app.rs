@@ -31,7 +31,7 @@ enum ResultItem {
     },
 }
 
-use vmux_command_bar::event::looks_like_path;
+use vmux_command_bar::event::{looks_like_path, looks_like_url};
 
 fn filter_results(
     query: &str,
@@ -336,7 +336,7 @@ pub fn App() -> Element {
                                     Some(ResultItem::Terminal { .. }) => (false, true, false),
                                     Some(ResultItem::Tab { .. }) => (false, false, true),
                                     Some(ResultItem::Navigate { url }) => {
-                                        let is_u = url.contains("://") || (url.contains('.') && !url.contains(' '));
+                                        let is_u = looks_like_url(url);
                                         (false, false, is_u)
                                     }
                                     None => (false, false, false),
@@ -344,8 +344,8 @@ pub fn App() -> Element {
                             } else {
                                 let trimmed = q.trim();
                                 let cmd = trimmed.starts_with('>');
-                                let pth = !cmd && (trimmed.starts_with('/') || trimmed.starts_with('~'));
-                                let url = !cmd && !pth && (trimmed.contains("://") || (trimmed.contains('.') && !trimmed.contains(' ')));
+                                let url = !cmd && looks_like_url(trimmed);
+                                let pth = !cmd && !url && (trimmed.starts_with('/') || trimmed.starts_with('~'));
                                 (cmd, pth, url)
                             };
                             if is_command {

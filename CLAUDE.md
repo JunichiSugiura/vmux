@@ -7,7 +7,7 @@
 
 When working on a Linear issue, always use a git worktree for isolation:
 
-1. Create worktree: `git worktree add .worktrees/<short-name> -b <branch-name>`
+1. Create worktree: `git worktree add .worktrees/vmx-<number> -b <branch-name>` — always name the worktree directory using the `vmx-<number>` convention matching the Linear issue (e.g., `.worktrees/vmx-88`).
 2. Work inside the worktree directory.
 3. When done, merge to main, then remove: `git worktree remove .worktrees/<short-name>`
 4. Remember: if the worktree is deleted while your shell is inside it, `cd` back to the repo root — `../..` won't work.

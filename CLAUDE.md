@@ -5,12 +5,13 @@
 
 ## Worktrees
 
-When working on a Linear issue, always use a git worktree for isolation:
+**Never edit files on the main worktree.** All changes must happen inside a feature worktree. Before writing any code for a Linear issue:
 
-1. Create worktree: `git worktree add .worktrees/vmx-<number> -b <branch-name>` — always name the worktree directory using the `vmx-<number>` convention matching the Linear issue (e.g., `.worktrees/vmx-88`).
-2. Work inside the worktree directory.
-3. When done, merge to main, then remove: `git worktree remove .worktrees/<short-name>`
-4. Remember: if the worktree is deleted while your shell is inside it, `cd` back to the repo root — `../..` won't work.
+1. Check if a worktree already exists: `git worktree list`
+2. Create worktree if needed: `git worktree add .worktrees/vmx-<number> -b <branch-name>` — always name the worktree directory using the `vmx-<number>` convention matching the Linear issue (e.g., `.worktrees/vmx-88`).
+3. `cd` into the worktree directory and make all edits there.
+4. When done, merge to main, then remove: `git worktree remove .worktrees/<short-name>`
+5. Remember: if the worktree is deleted while your shell is inside it, `cd` back to the repo root — `../..` won't work.
 
 Worktree directory: `.worktrees/` (already in `.gitignore`).
 

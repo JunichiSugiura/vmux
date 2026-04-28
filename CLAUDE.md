@@ -25,11 +25,18 @@ Worktree directory: `.worktrees/` (already in `.gitignore`).
 - Save implementation plans to `docs/plans/YYYY-MM-DD-<feature-name>.md` (not `docs/superpowers/plans/`).
 - Delete the plan file once the plan is fully implemented.
 
-## Before Pushing
+## Git
 
-Always run lint and test before pushing to catch CI failures locally:
+Always prefer `git rebase` over `git merge` when updating branches. Use `git push --force-with-lease` after rebasing.
+
+## Before Pushing / Opening PRs
+
+**Mandatory**: Run `make lint` and `make test` before every `git push` or PR creation. Do not push or open a PR if either command fails. Fix all errors first.
 
 ```sh
-make lint  # runs fmt --check + clippy -D warnings
-make test  # runs cargo test --workspace
+make lint      # fmt --check + clippy -D warnings (excludes vendored patches)
+make test      # cargo test --workspace (excludes bevy_cef_core)
+make lint-fix  # auto-fix: runs fmt + clippy --fix
 ```
+
+If `make lint` fails with formatting errors, run `make lint-fix` to auto-format, then verify with `make lint` again.

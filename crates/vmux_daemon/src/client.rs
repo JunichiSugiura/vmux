@@ -46,9 +46,26 @@ pub struct DaemonHandle {
 }
 
 impl DaemonHandle {
-    /// Check if the daemon socket exists (quick pre-check).
+    /// Check if the daemon process is actually alive.
     pub fn daemon_running() -> bool {
-        socket_path().exists()
+        let sock = socket_path();
+        if !sock.exists() {
+            return false;
+        }
+        // Check if the PID file references a live process
+        let pid_file = crate::pid_path();
+        if let Ok(pid_str) = std::fs::read_to_string(&pid_file) {
+            if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                // kill(pid, 0) checks if process exists without sending a signal
+                if unsafe { libc::kill(pid, 0) } != 0 {
+                    // Process is dead — clean up stale files
+                    let _ = std::fs::remove_file(&sock);
+                    let _ = std::fs::remove_file(&pid_file);
+                    return false;
+                }
+            }
+        }
+        true
     }
 
     /// Connect to the daemon synchronously.

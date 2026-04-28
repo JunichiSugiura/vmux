@@ -237,7 +237,6 @@ fn handle_open_command_bar(
     }
 
     if new_tab_ctx.needs_open {
-        info!("[handle_open_command_bar] needs_open=true, will open");
         should_open = true;
         new_tab_ctx.needs_open = false;
     }
@@ -256,9 +255,7 @@ fn handle_open_command_bar(
         return;
     }
 
-    info!("[handle_open_command_bar] opening modal");
     let Ok((modal_e, mut modal_node, _)) = modal_q.single_mut() else {
-        info!("[handle_open_command_bar] no modal entity found!");
         return;
     };
 

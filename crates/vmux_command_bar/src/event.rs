@@ -54,15 +54,31 @@ pub struct PathCompleteResponse {
     pub query_is_dir: bool,
 }
 
+pub fn looks_like_url(s: &str) -> bool {
+    if s.contains("://") {
+        return true;
+    }
+    if s.contains(' ')
+        || s.starts_with('/')
+        || s.starts_with("~/")
+        || s.starts_with("./")
+        || s.starts_with("../")
+    {
+        return false;
+    }
+    let before_slash = s.split('/').next().unwrap_or(s);
+    before_slash.contains('.')
+}
+
 pub fn looks_like_path(s: &str) -> bool {
+    if looks_like_url(s) {
+        return false;
+    }
     s.starts_with('/')
         || s.starts_with("~/")
         || s.starts_with("./")
         || s.starts_with("../")
-        || s.contains('/')
-            && !s.contains(' ')
-            && !s.starts_with("http://")
-            && !s.starts_with("https://")
+        || (s.contains('/') && !s.contains(' '))
 }
 
 pub fn looks_like_explicit_path(s: &str) -> bool {
@@ -101,6 +117,34 @@ mod tests {
     fn looks_like_path_rejects_urls() {
         assert!(!looks_like_path("http://example.com/path"));
         assert!(!looks_like_path("https://example.com/path"));
+        assert!(!looks_like_path("google.com/maps"));
+        assert!(!looks_like_path("example.com"));
+    }
+
+    #[test]
+    fn looks_like_url_protocols() {
+        assert!(looks_like_url("http://example.com"));
+        assert!(looks_like_url("https://example.com/path"));
+    }
+
+    #[test]
+    fn looks_like_url_domain_like() {
+        assert!(looks_like_url("google.com"));
+        assert!(looks_like_url("google.com/maps"));
+        assert!(looks_like_url("example.co.uk/page"));
+    }
+
+    #[test]
+    fn looks_like_url_rejects_file_paths() {
+        assert!(!looks_like_url("src/main.rs"));
+        assert!(!looks_like_url("/usr/bin"));
+        assert!(!looks_like_url("foo/bar"));
+    }
+
+    #[test]
+    fn looks_like_url_rejects_spaces() {
+        assert!(!looks_like_url("search query"));
+        assert!(!looks_like_url("hello world.txt"));
     }
 
     #[test]

@@ -245,6 +245,14 @@ jobs:
       - name: Install cargo-packager
         run: command -v cargo-packager >/dev/null 2>&1 || cargo install cargo-packager --locked
 
+      - name: Install tailwindcss
+        run: |
+          if ! command -v tailwindcss >/dev/null 2>&1; then
+            curl -sLO https://github.com/tailwindlabs/tailwindcss/releases/download/v3.4.19/tailwindcss-macos-arm64
+            chmod +x tailwindcss-macos-arm64
+            sudo mv tailwindcss-macos-arm64 /usr/local/bin/tailwindcss
+          fi
+
       - name: Strip signing config for CI
         run: |
           sed -i '' '/signing-identity/d' crates/vmux_desktop/Cargo.toml

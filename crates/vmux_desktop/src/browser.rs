@@ -586,7 +586,7 @@ fn push_tabs_host_emit(
     {
         rows.retain(|r| !r.is_active);
         rows.push(TabRow {
-            title: "New tab".to_string(),
+            title: "+ New Tab".to_string(),
             url: String::new(),
             favicon_url: String::new(),
             is_active: true,
@@ -614,6 +614,7 @@ fn push_pane_tree_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
     side_sheet: Option<Single<Entity, (With<SideSheet>, With<UiReady>)>>,
+    new_tab_ctx: Res<crate::command_bar::NewTabContext>,
     focus: Res<crate::layout::tab::FocusedTab>,
     all_children: Query<&Children>,
     leaf_pane_q: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
@@ -656,10 +657,12 @@ fn push_pane_tree_emit(
                 if let Ok(tab_kids) = tab_children.get(child) {
                     for browser_e in tab_kids.iter() {
                         if let Ok((meta, loading)) = browser_meta.get(browser_e) {
+                            let is_new_tab = new_tab_ctx.tab == Some(child)
+                                && (meta.url.is_empty() || meta.url == "about:blank");
                             tabs.push(TabNode {
-                                title: meta.title.clone(),
-                                url: meta.url.clone(),
-                                favicon_url: meta.favicon_url.clone(),
+                                title: if is_new_tab { "+ New Tab".to_string() } else { meta.title.clone() },
+                                url: if is_new_tab { String::new() } else { meta.url.clone() },
+                                favicon_url: if is_new_tab { String::new() } else { meta.favicon_url.clone() },
                                 is_active: tab_is_active,
                                 tab_index,
                                 is_loading: loading,

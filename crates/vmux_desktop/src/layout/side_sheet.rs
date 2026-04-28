@@ -4,7 +4,10 @@ use crate::{
     layout::window::Main,
     settings::AppSettings,
 };
-use bevy::{ecs::system::NonSendMarker, prelude::*, ui::UiSystems, window::PrimaryWindow, winit::WINIT_WINDOWS};
+use bevy::{
+    ecs::system::NonSendMarker, prelude::*, ui::UiSystems, window::PrimaryWindow,
+    winit::WINIT_WINDOWS,
+};
 use vmux_header::Header;
 
 pub(crate) struct SideSheetLayoutPlugin;
@@ -296,18 +299,13 @@ fn sync_window_buttons_visibility(
                 *const libc::c_void,
                 u64,
             ) -> *mut libc::c_void;
-            type MsgSendBool = unsafe extern "C" fn(
-                *mut libc::c_void,
-                *const libc::c_void,
-                libc::c_schar,
-            );
+            type MsgSendBool =
+                unsafe extern "C" fn(*mut libc::c_void, *const libc::c_void, libc::c_schar);
 
             let send_no_args: MsgSendNoArgs =
                 std::mem::transmute(objc_ffi::objc_msgSend as *const ());
-            let send_u64: MsgSendU64 =
-                std::mem::transmute(objc_ffi::objc_msgSend as *const ());
-            let send_bool: MsgSendBool =
-                std::mem::transmute(objc_ffi::objc_msgSend as *const ());
+            let send_u64: MsgSendU64 = std::mem::transmute(objc_ffi::objc_msgSend as *const ());
+            let send_bool: MsgSendBool = std::mem::transmute(objc_ffi::objc_msgSend as *const ());
 
             let ns_window = send_no_args(ns_view, sel("window"));
             if ns_window.is_null() {

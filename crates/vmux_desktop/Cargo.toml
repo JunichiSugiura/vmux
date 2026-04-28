@@ -41,6 +41,7 @@ vmux_ui = { path = "../vmux_ui", default-features = false }
 tokio = { workspace = true }
 uuid = { workspace = true }
 vmux_daemon = { path = "../vmux_daemon" }
+vmux_sessions = { path = "../vmux_sessions" }
 vmux_terminal = { path = "../vmux_terminal" }
 vmux_webview_app = { path = "../vmux_webview_app" }
 

@@ -406,10 +406,15 @@ fn poll_daemon_messages(
                     }
                 }
             }
+            DaemonMessage::SessionList { sessions } => {
+                commands.insert_resource(crate::sessions_monitor::DaemonSessionList {
+                    sessions,
+                });
+            }
             DaemonMessage::Error { message } => {
                 warn!("Daemon error: {message}");
             }
-            _ => {} // SessionList, SessionOutput handled elsewhere if needed
+            _ => {} // SessionOutput handled elsewhere if needed
         }
     }
 }

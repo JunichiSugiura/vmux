@@ -22,6 +22,7 @@ use crate::{
 };
 use vmux_daemon::protocol::SessionId;
 use vmux_header::PageMetadata;
+use vmux_sessions::event::SESSIONS_WEBVIEW_URL;
 use vmux_terminal::event::TERMINAL_WEBVIEW_URL;
 
 pub(crate) struct PersistencePlugin;
@@ -272,6 +273,17 @@ pub(crate) fn rebuild_session_views(
 
         if !has_browser {
             if meta
+                .url
+                .starts_with(SESSIONS_WEBVIEW_URL.trim_end_matches('/'))
+            {
+                commands.spawn((
+                    crate::sessions_monitor::SessionsMonitor::new(
+                        &mut meshes,
+                        &mut webview_mt,
+                    ),
+                    ChildOf(entity),
+                ));
+            } else if meta
                 .url
                 .starts_with(TERMINAL_WEBVIEW_URL.trim_end_matches('/'))
             {

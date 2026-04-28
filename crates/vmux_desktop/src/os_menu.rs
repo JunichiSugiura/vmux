@@ -1,7 +1,6 @@
 use crate::command::{AppCommand, WriteAppCommands};
-use crate::confirm_close::{self, PendingWindowClose};
 use crate::settings::AppSettings;
-use crate::terminal::{PtyExited, Terminal};
+use crate::terminal::{self, PtyExited, Terminal};
 use bevy::app::AppExit;
 use bevy::ecs::message::Messages;
 use bevy::prelude::*;
@@ -9,6 +8,12 @@ use bevy::window::{ClosingWindow, WindowCloseRequested};
 use muda::{Menu, MenuEvent};
 use parking_lot::Mutex;
 use std::sync::LazyLock;
+
+/// Resource: window entity awaiting quit confirmation dialog.
+#[derive(Resource, Default)]
+pub(crate) struct PendingWindowClose {
+    pub window: Option<Entity>,
+}
 
 static PENDING_MENU_EVENTS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -19,13 +24,16 @@ pub struct OsMenuPlugin;
 
 impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            (
-                forward_menu_events.in_set(WriteAppCommands),
-                close_with_confirmation,
-            ),
-        );
+        app.init_resource::<PendingWindowClose>()
+            .add_systems(Startup, setup)
+            .add_systems(
+                Update,
+                (
+                    forward_menu_events.in_set(WriteAppCommands),
+                    close_with_confirmation,
+                    process_pending_window_close,
+                ),
+            );
     }
 }
 
@@ -73,7 +81,7 @@ fn handle_quit_request(world: &mut World) {
         let mut query = world.query_filtered::<(), (With<Terminal>, Without<PtyExited>)>();
         let count = query.iter(world).count();
 
-        if count > 0 && !confirm_close::confirm_quit_dialog(count) {
+        if count > 0 && !terminal::confirm_quit_dialog(count) {
             return;
         }
     }
@@ -100,12 +108,32 @@ fn close_with_confirmation(
     }
     // Process new close requests.
     for event in closed.read() {
-        let should_confirm = confirm_close::should_confirm(&settings);
+        let should_confirm = terminal::should_confirm_close(&settings);
         if should_confirm && live_terminals.iter().count() > 0 {
             // Defer dialog to exclusive system
             pending.window = Some(event.window);
         } else {
             commands.entity(event.window).try_insert(ClosingWindow);
         }
+    }
+}
+
+/// Exclusive system: processes pending window close confirmation by showing
+/// a native dialog on the main thread.
+fn process_pending_window_close(world: &mut World) {
+    let window = world.resource::<PendingWindowClose>().window;
+    let Some(window) = window else {
+        return;
+    };
+
+    world.resource_mut::<PendingWindowClose>().window = None;
+
+    let mut query = world.query_filtered::<(), (With<Terminal>, Without<PtyExited>)>();
+    let count = query.iter(world).count();
+
+    if (count == 0 || terminal::confirm_quit_dialog(count))
+        && let Ok(mut entity_mut) = world.get_entity_mut(window)
+    {
+        entity_mut.insert(ClosingWindow);
     }
 }

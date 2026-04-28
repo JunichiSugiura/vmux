@@ -8,7 +8,6 @@
 mod browser;
 mod command;
 mod command_bar;
-mod confirm_close;
 mod layout;
 mod os_menu;
 mod persistence;
@@ -101,7 +100,6 @@ impl Plugin for VmuxPlugin {
             PersistencePlugin,
             ProfilePlugin,
             LayoutPlugin,
-            confirm_close::ConfirmClosePlugin,
             updater::VmuxUpdater::builder().build().plugin(),
         ));
     }

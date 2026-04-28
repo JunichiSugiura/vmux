@@ -1,18 +1,20 @@
 use crate::{
     command::{AppCommand, BrowserCommand, ReadAppCommands},
-    confirm_close::{self, CloseConfirmed, PendingTabClose},
     layout::{
         pane::{Pane, PaneHoverIntent, PaneSplit, first_leaf_descendant, first_tab_in_pane},
         side_sheet::SideSheet,
         space::Space,
-        tab::{Tab, active_tab_in_pane, collect_leaf_panes, focused_tab, tab_bundle},
+        tab::{
+            CloseConfirmed, PendingTabClose, Tab, active_tab_in_pane, collect_leaf_panes,
+            focused_tab, tab_bundle,
+        },
         window::{
             Modal, VmuxWindow, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN,
             WEBVIEW_Z_MODAL, WEBVIEW_Z_SIDE_SHEET,
         },
     },
     settings::AppSettings,
-    terminal::{PtyExited, RestartPty, Terminal},
+    terminal::{self, PtyExited, RestartPty, Terminal},
 };
 use bevy::{
     ecs::{message::Messages, relationship::Relationship},
@@ -866,8 +868,8 @@ fn on_side_sheet_command_emit(
             };
 
             // Confirm close if terminal is still running
-            let needs_confirm = confirm_close::should_confirm(&settings)
-                && confirm_close::has_live_terminal(target_tab, &all_children, &close_extra.p2());
+            let needs_confirm = terminal::should_confirm_close(&settings)
+                && terminal::has_live_terminal(target_tab, &all_children, &close_extra.p2());
             if needs_confirm {
                 if close_extra.p3().contains(target_tab) {
                     commands.entity(target_tab).remove::<CloseConfirmed>();

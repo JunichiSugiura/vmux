@@ -1,6 +1,7 @@
 /target
 .DS_Store
 *.app
+*.bak
 .claude/
 
 # Tailwind output (run `npm run build:css` in crates/vmux_header)

@@ -45,6 +45,7 @@ impl Plugin for WindowPlugin {
                 crate::persistence::rebuild_session_views,
                 crate::persistence::ensure_layout_state_entities,
                 crate::persistence::apply_persisted_layout_state,
+                crate::layout::tab::open_command_bar_if_no_tabs,
                 fit_window_to_screen,
             )
                 .chain()

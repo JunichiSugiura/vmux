@@ -117,7 +117,12 @@ fn TabRow(tab: TabNode, pane_id: u64) -> Element {
                     tab_index,
                 });
             },
-            if tab.url.starts_with("vmux://terminal") {
+            if tab.url.is_empty() {
+                Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
+                    path { d: "M5 12h14" }
+                    path { d: "M12 5v14" }
+                }
+            } else if tab.url.starts_with("vmux://terminal") {
                 Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
                     path { d: "M4 17 10 11 4 5" }
                     path { d: "M12 19h8" }

@@ -249,8 +249,6 @@ fn handle_open_command_bar(
         if !is_open {
             should_open = true;
         }
-        // If already open, do nothing — the shortcut should not close the bar.
-        // Users can dismiss with Escape or click-outside.
     }
 
     if !should_open {

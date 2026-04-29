@@ -104,7 +104,13 @@ pub fn App() -> Element {
                                     });
                                 },
                                 if let Some(tab) = active_row.as_ref() {
-                                    if !tab.url.is_empty() {
+                                    if tab.url.is_empty() {
+                                Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
+                                    path { d: "M5 12h14" }
+                                    path { d: "M12 5v14" }
+                                }
+                                span { class: "min-w-0 truncate text-sm text-muted-foreground", "New tab" }
+                            } else {
                                 if tab.url.starts_with("vmux://terminal") {
                                     Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
                                         path { d: "M4 17 10 11 4 5" }

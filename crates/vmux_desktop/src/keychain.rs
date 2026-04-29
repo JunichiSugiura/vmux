@@ -130,6 +130,17 @@ unsafe extern "C" {
 /// builds with the same Developer ID identity inherit access without
 /// prompting the user.
 pub fn ensure_chromium_safe_storage_acl() {
+    // Only manage the ACL when running from an installed `.app` bundle.
+    // In dev (`make run-mac`) the binary lives under `target/`, so the
+    // trusted-app list would only contain `/Applications/Vmux.app` —
+    // locking the dev binary out and triggering a prompt for every CEF
+    // helper subprocess on every launch. Letting CEF use its default
+    // cdhash-based ACL means a one-time "Always Allow" per helper that
+    // sticks until the dev binary is rebuilt.
+    if running_app_bundle().is_none() {
+        eprintln!("vmux: keychain ACL fixup skipped (dev binary, no .app bundle)");
+        return;
+    }
     if let Err(e) = ensure_inner() {
         eprintln!("vmux: keychain ACL fixup skipped: {e}");
     }

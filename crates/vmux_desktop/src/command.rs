@@ -125,6 +125,9 @@ pub enum TerminalCommand {
     Previous,
     #[menu(id = "terminal_clear", label = "Clear Terminal")]
     Clear,
+    #[menu(id = "terminal_copy_mode", label = "Copy Mode\t<leader> [", hidden)]
+    #[shortcut(chord = "Ctrl+g, [")]
+    CopyMode,
 }
 
 #[allow(dead_code)]

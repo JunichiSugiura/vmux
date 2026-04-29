@@ -67,6 +67,11 @@ pub struct Session {
     /// Broadcasts viewport patches to all attached GUI clients.
     patch_tx: broadcast::Sender<DaemonMessage>,
     line_hashes: Vec<u64>,
+    /// Last broadcast cursor position (col, row). Used to broadcast a patch
+    /// when only the cursor moves (e.g. typing space over already-blank
+    /// cells produces no line-content change but the screen cursor must
+    /// still update).
+    last_cursor: Option<(u16, u16)>,
 }
 
 impl Session {
@@ -169,6 +174,7 @@ impl Session {
             pty_rx,
             patch_tx,
             line_hashes: Vec::new(),
+            last_cursor: None,
         })
     }
 
@@ -237,11 +243,17 @@ impl Session {
                 changed_lines.push((row_idx as u16, build_line(&self.term, row_idx, offset)));
             }
         }
-        if changed_lines.is_empty() && !full {
-            return;
-        }
 
         let cursor_point = grid.cursor.point;
+        let cursor_pos = (cursor_point.column.0 as u16, cursor_point.line.0 as u16);
+        let cursor_moved = self.last_cursor != Some(cursor_pos);
+
+        // Skip broadcast only when neither line content nor cursor changed.
+        if changed_lines.is_empty() && !full && !cursor_moved {
+            return;
+        }
+        self.last_cursor = Some(cursor_pos);
+
         let scrolled_back = offset > 0;
         let cursor_char = {
             let cursor_row = &grid[cursor_point.line];

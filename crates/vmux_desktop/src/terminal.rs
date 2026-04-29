@@ -115,7 +115,6 @@ pub(crate) struct TerminalModeMap {
 }
 
 #[derive(Default, Clone, Copy, Debug)]
-#[allow(dead_code)] // fields read by Task 5 (mouse) and Task 9 (copy mode keymap)
 pub(crate) struct TerminalModeFlags {
     pub mouse_capture: bool,
     pub copy_mode: bool,
@@ -169,6 +168,7 @@ impl Plugin for TerminalInputPlugin {
                 (
                     try_connect_service.run_if(resource_exists::<ServiceConnectRetry>),
                     poll_service_messages.in_set(WriteAppCommands),
+                    handle_terminal_copy_mode_command.in_set(crate::command::ReadAppCommands),
                     sync_terminal_theme,
                 )
                     .chain(),
@@ -636,6 +636,7 @@ fn handle_terminal_keyboard(
     input: Res<ButtonInput<KeyCode>>,
     chord_state: Res<crate::shortcut::ChordState>,
     service: Option<Res<ServiceClient>>,
+    mode_map: Res<TerminalModeMap>,
 ) {
     if q.is_empty() {
         return;
@@ -653,6 +654,14 @@ fn handle_terminal_keyboard(
     let shift = input.pressed(KeyCode::ShiftLeft) || input.pressed(KeyCode::ShiftRight);
     let super_key = input.pressed(KeyCode::SuperLeft) || input.pressed(KeyCode::SuperRight);
 
+    let copy_mode_active = q.iter().any(|h| {
+        mode_map
+            .modes
+            .get(&h.process_id)
+            .map(|m| m.copy_mode)
+            .unwrap_or(false)
+    });
+
     let mut seen_keys: Vec<KeyCode> = Vec::new();
     for event in er.read() {
         if event.state != ButtonState::Pressed {
@@ -666,6 +675,40 @@ fn handle_terminal_keyboard(
             if !input.just_pressed(event.key_code) {
                 continue;
             }
+        }
+
+        if copy_mode_active {
+            use vmux_service::protocol::CopyModeKey as K;
+            let k = match (&event.logical_key, ctrl) {
+                (Key::Character(s), false) if s.as_str() == "h" => Some(K::Left),
+                (Key::Character(s), false) if s.as_str() == "j" => Some(K::Down),
+                (Key::Character(s), false) if s.as_str() == "k" => Some(K::Up),
+                (Key::Character(s), false) if s.as_str() == "l" => Some(K::Right),
+                (Key::Character(s), false) if s.as_str() == "0" => Some(K::LineStart),
+                (Key::Character(s), false) if s.as_str() == "$" => Some(K::LineEnd),
+                (Key::Character(s), true) if s.as_str() == "u" => Some(K::PageUp),
+                (Key::Character(s), true) if s.as_str() == "d" => Some(K::PageDown),
+                (Key::Character(s), false) if s.as_str() == "v" => Some(K::StartSelection),
+                (Key::Character(s), false) if s.as_str() == "y" => Some(K::Copy),
+                (Key::Enter, _) => Some(K::Copy),
+                (Key::Character(s), false) if s.as_str() == "q" => Some(K::Exit),
+                (Key::Escape, _) => Some(K::Exit),
+                (Key::ArrowLeft, _) => Some(K::Left),
+                (Key::ArrowRight, _) => Some(K::Right),
+                (Key::ArrowUp, _) => Some(K::Up),
+                (Key::ArrowDown, _) => Some(K::Down),
+                _ => None,
+            };
+            if let Some(k) = k {
+                for handle in &q {
+                    service.0.send(ClientMessage::CopyModeKey {
+                        process_id: handle.process_id,
+                        key: k,
+                    });
+                }
+            }
+            // While in copy mode, swallow ALL keys — never forward to PTY.
+            continue;
         }
 
         if super_key {
@@ -1136,6 +1179,31 @@ fn on_restart_pty(
     handle.process_id = new_id;
     meta.url = format!("{}{}", TERMINAL_WEBVIEW_URL, new_id);
     meta.title = format!("Terminal ({})", &new_id.to_string()[..8]);
+}
+
+/// Consume `AppCommand::Terminal::CopyMode` and ask the service to enter copy mode
+/// for every focused terminal process.
+fn handle_terminal_copy_mode_command(
+    mut er: MessageReader<AppCommand>,
+    q: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    service: Option<Res<ServiceClient>>,
+) {
+    let Some(service) = service else {
+        for _ in er.read() {}
+        return;
+    };
+    for cmd in er.read() {
+        if matches!(
+            cmd,
+            AppCommand::Terminal(crate::command::TerminalCommand::CopyMode)
+        ) {
+            for handle in &q {
+                service.0.send(ClientMessage::EnterCopyMode {
+                    process_id: handle.process_id,
+                });
+            }
+        }
+    }
 }
 
 /// Write text to the macOS pasteboard via `pbcopy`.

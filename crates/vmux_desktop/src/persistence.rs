@@ -51,11 +51,11 @@ pub(crate) fn session_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         let home = std::env::var_os("HOME").expect("HOME not set");
-        PathBuf::from(home).join("Library/Application Support/ai.vmux.desktop/session.ron")
+        PathBuf::from(home).join("Library/Application Support/Vmux/session.ron")
     }
     #[cfg(not(target_os = "macos"))]
     {
-        std::env::temp_dir().join("ai.vmux.desktop/session.ron")
+        std::env::temp_dir().join("Vmux/session.ron")
     }
 }
 
@@ -277,10 +277,7 @@ pub(crate) fn rebuild_session_views(
                 .starts_with(SESSIONS_WEBVIEW_URL.trim_end_matches('/'))
             {
                 commands.spawn((
-                    crate::sessions_monitor::SessionsMonitor::new(
-                        &mut meshes,
-                        &mut webview_mt,
-                    ),
+                    crate::sessions_monitor::SessionsMonitor::new(&mut meshes, &mut webview_mt),
                     ChildOf(entity),
                 ));
             } else if meta
@@ -288,7 +285,8 @@ pub(crate) fn rebuild_session_views(
                 .starts_with(TERMINAL_WEBVIEW_URL.trim_end_matches('/'))
             {
                 // Try to extract session UUID from URL for reattach
-                let session_id = meta.url
+                let session_id = meta
+                    .url
                     .strip_prefix(TERMINAL_WEBVIEW_URL)
                     .and_then(|rest| rest.strip_prefix("session/"))
                     .and_then(|uuid_str| uuid_str.parse::<uuid::Uuid>().ok())

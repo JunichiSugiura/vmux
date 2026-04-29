@@ -9,8 +9,7 @@ use std::path::PathBuf;
 /// Directory for daemon runtime files (socket, pid, log).
 pub fn daemon_dir() -> PathBuf {
     let home = std::env::var_os("HOME").expect("HOME not set");
-    PathBuf::from(home)
-        .join("Library/Application Support/ai.vmux.desktop/services")
+    PathBuf::from(home).join("Library/Application Support/Vmux/services")
 }
 
 /// Path to the Unix domain socket.

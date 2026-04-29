@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use directories::ProjectDirs;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use std::sync::{Mutex, mpsc};
@@ -413,10 +412,23 @@ struct SettingsWatcher {
     _watcher: RecommendedWatcher,
 }
 
+/// Returns the Vmux data directory (~/Library/Application Support/Vmux on macOS).
+/// Matches the paths used by persistence, browser profiles, and the daemon.
+fn data_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME")
+            .map(|home| std::path::PathBuf::from(home).join("Library/Application Support/Vmux"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Some(std::env::temp_dir().join("Vmux"))
+    }
+}
+
 pub fn load_settings(mut commands: Commands) {
-    let (settings, config_path) = if let Some(proj) = ProjectDirs::from("ai", "vmux", "desktop") {
-        let dir = proj.config_dir();
-        if std::fs::create_dir_all(dir).is_err() {
+    let (settings, config_path) = if let Some(dir) = data_dir() {
+        if std::fs::create_dir_all(&dir).is_err() {
             (load_embedded_settings(), None)
         } else {
             let path = dir.join("settings.ron");

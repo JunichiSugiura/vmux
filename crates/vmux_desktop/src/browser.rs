@@ -169,6 +169,8 @@ fn sync_keyboard_target(
     side_sheet_q: Query<(), With<SideSheet>>,
     modal_q: Query<&Node, With<Modal>>,
     content_q: Query<(Entity, Has<CefKeyboardTarget>), With<Browser>>,
+    terminal_q: Query<(), With<crate::terminal::Terminal>>,
+    mut suppress: ResMut<bevy_cef::prelude::CefSuppressKeyboardInput>,
     mut commands: Commands,
 ) {
     if crate::command_bar::is_command_bar_open(&modal_q) {
@@ -205,10 +207,11 @@ fn sync_keyboard_target(
             if !has_kb {
                 commands.entity(browser_e).insert(CefKeyboardTarget);
             }
-        } else {
-            if has_kb {
-                commands.entity(browser_e).remove::<CefKeyboardTarget>();
-            }
+            // Suppress CEF keyboard forwarding when a terminal is focused —
+            // terminals receive input via the daemon, not CEF key events.
+            suppress.0 = terminal_q.contains(browser_e);
+        } else if has_kb {
+            commands.entity(browser_e).remove::<CefKeyboardTarget>();
         }
     }
 }
@@ -274,8 +277,7 @@ fn sync_children_to_ui(
 
         // Keep rendering the previous tab behind while a new empty tab
         // (without CEF content) is pending in the command bar flow.
-        let is_previous_tab = new_tab_ctx.tab.is_some()
-            && new_tab_ctx.previous_tab == Some(parent);
+        let is_previous_tab = new_tab_ctx.tab.is_some() && new_tab_ctx.previous_tab == Some(parent);
 
         let is_inactive_tab = parent != glass_entity
             && status.is_none()
@@ -466,8 +468,7 @@ fn sync_osr_webview_focus(
         let is_active = active_tab_in_pane(pane, &pane_children_q, &tab_ts) == Some(parent);
         // Keep previous tab's webview visible while an empty new tab is
         // pending (user is picking content in the command bar).
-        let is_prev = new_tab_ctx.tab.is_some()
-            && new_tab_ctx.previous_tab == Some(parent);
+        let is_prev = new_tab_ctx.tab.is_some() && new_tab_ctx.previous_tab == Some(parent);
         if is_active || is_prev {
             browsers.set_osr_not_hidden(&e);
         } else {
@@ -660,9 +661,21 @@ fn push_pane_tree_emit(
                             let is_new_tab = new_tab_ctx.tab == Some(child)
                                 && (meta.url.is_empty() || meta.url == "about:blank");
                             tabs.push(TabNode {
-                                title: if is_new_tab { "New Tab".to_string() } else { meta.title.clone() },
-                                url: if is_new_tab { String::new() } else { meta.url.clone() },
-                                favicon_url: if is_new_tab { String::new() } else { meta.favicon_url.clone() },
+                                title: if is_new_tab {
+                                    "New Tab".to_string()
+                                } else {
+                                    meta.title.clone()
+                                },
+                                url: if is_new_tab {
+                                    String::new()
+                                } else {
+                                    meta.url.clone()
+                                },
+                                favicon_url: if is_new_tab {
+                                    String::new()
+                                } else {
+                                    meta.favicon_url.clone()
+                                },
                                 is_active: tab_is_active,
                                 tab_index,
                                 is_loading: loading,
@@ -1055,7 +1068,7 @@ fn cef_root_cache_path() -> Option<String> {
     {
         std::env::var_os("HOME").map(|home| {
             PathBuf::from(home)
-                .join("Library/Application Support/ai.vmux.desktop/profiles/default")
+                .join("Library/Application Support/Vmux/profiles/default")
                 .to_string_lossy()
                 .into_owned()
         })
@@ -1064,6 +1077,6 @@ fn cef_root_cache_path() -> Option<String> {
     {
         std::env::temp_dir()
             .to_str()
-            .map(|p| format!("{p}/ai.vmux.desktop/profiles/default"))
+            .map(|p| format!("{p}/Vmux/profiles/default"))
     }
 }

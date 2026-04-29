@@ -584,7 +584,15 @@ fn poll_service_messages(
                     },
                 );
             }
-            _ => {} // ProcessOutput / SelectionText handled elsewhere if needed
+            ServiceMessage::SelectionText {
+                process_id: _,
+                text,
+            } => {
+                if !text.is_empty() {
+                    write_to_pasteboard(&text);
+                }
+            }
+            _ => {} // ProcessOutput handled elsewhere if needed
         }
     }
 }
@@ -685,8 +693,12 @@ fn handle_terminal_keyboard(
                     continue;
                 }
                 KeyCode::KeyC => {
-                    // Copy: in service mode we can't access selection, so skip
-                    // TODO: implement copy via service snapshot
+                    // Round-trip selection through the service, then copy to pasteboard.
+                    for handle in &q {
+                        service.0.send(ClientMessage::GetSelectionText {
+                            process_id: handle.process_id,
+                        });
+                    }
                     continue;
                 }
                 _ => continue,
@@ -1124,4 +1136,19 @@ fn on_restart_pty(
     handle.process_id = new_id;
     meta.url = format!("{}{}", TERMINAL_WEBVIEW_URL, new_id);
     meta.title = format!("Terminal ({})", &new_id.to_string()[..8]);
+}
+
+/// Write text to the macOS pasteboard via `pbcopy`.
+fn write_to_pasteboard(text: &str) {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    match Command::new("pbcopy").stdin(Stdio::piped()).spawn() {
+        Ok(mut child) => {
+            if let Some(stdin) = child.stdin.as_mut() {
+                let _ = stdin.write_all(text.as_bytes());
+            }
+            let _ = child.wait();
+        }
+        Err(e) => warn!("pbcopy failed: {e}"),
+    }
 }

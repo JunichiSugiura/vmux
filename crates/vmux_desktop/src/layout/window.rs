@@ -56,7 +56,10 @@ impl Plugin for WindowPlugin {
         .add_systems(PostUpdate, (fit_window_to_screen, sync_glass_pane_clip))
         .add_systems(
             Update,
-            maximize_window_to_screen.run_if(not(resource_exists::<ScreenMaximized>)),
+            (
+                maximize_window_to_screen.run_if(not(resource_exists::<ScreenMaximized>)),
+                crate::layout::tab::open_command_bar_if_no_tabs,
+            ),
         );
     }
 }

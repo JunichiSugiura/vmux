@@ -72,6 +72,10 @@ pub struct Process {
     /// cells produces no line-content change but the screen cursor must
     /// still update).
     last_cursor: Option<(u16, u16)>,
+    /// Currently selected range (in viewport coords). None when no selection.
+    selection: Option<TermSelectionRange>,
+    /// Stable hash of the last broadcast selection, so toggles re-trigger sync.
+    last_selection_signature: u64,
 }
 
 impl Process {
@@ -175,6 +179,8 @@ impl Process {
             patch_tx,
             line_hashes: Vec::new(),
             last_cursor: None,
+            selection: None,
+            last_selection_signature: 0,
         })
     }
 
@@ -248,11 +254,15 @@ impl Process {
         let cursor_pos = (cursor_point.column.0 as u16, cursor_point.line.0 as u16);
         let cursor_moved = self.last_cursor != Some(cursor_pos);
 
-        // Skip broadcast only when neither line content nor cursor changed.
-        if changed_lines.is_empty() && !full && !cursor_moved {
+        let selection_sig = selection_signature(&self.selection);
+        let selection_changed = selection_sig != self.last_selection_signature;
+
+        // Skip broadcast only when neither line content, cursor, nor selection changed.
+        if changed_lines.is_empty() && !full && !cursor_moved && !selection_changed {
             return;
         }
         self.last_cursor = Some(cursor_pos);
+        self.last_selection_signature = selection_sig;
 
         let scrolled_back = offset > 0;
         let cursor_char = {
@@ -273,7 +283,7 @@ impl Process {
             },
             cols: num_cols as u16,
             rows: num_lines as u16,
-            selection: None,
+            selection: self.selection.clone(),
             full,
         };
         let _ = self.patch_tx.send(patch);
@@ -385,6 +395,23 @@ impl ProcessManager {
 }
 
 // --- Grid helpers ---
+
+fn selection_signature(sel: &Option<TermSelectionRange>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    match sel {
+        None => 0u8.hash(&mut h),
+        Some(r) => {
+            1u8.hash(&mut h);
+            r.start_col.hash(&mut h);
+            r.start_row.hash(&mut h);
+            r.end_col.hash(&mut h);
+            r.end_row.hash(&mut h);
+            r.is_block.hash(&mut h);
+        }
+    }
+    h.finish()
+}
 
 fn hash_grid_row<T: TermEventListener>(term: &Term<T>, row_idx: usize, offset: i32) -> u64 {
     use std::hash::{Hash, Hasher};

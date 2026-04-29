@@ -347,7 +347,7 @@ pub enum WindowCommand {
         hidden
     )]
     CloseWindow,
-    #[menu(id = "minimize_window", label = "Minimize", accel = "super+m", hidden)]
+    #[menu(id = "minimize_window", label = "Minimize", accel = "super+m")]
     Minimize,
     #[menu(
         id = "toggle_fullscreen",

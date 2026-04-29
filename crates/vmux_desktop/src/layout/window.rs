@@ -1,5 +1,6 @@
 use crate::{
     browser::Browser,
+    command::{AppCommand, ReadAppCommands, WindowCommand},
     layout::glass::{GlassCorners, GlassMaterial},
     layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
     layout::side_sheet::{SideSheet, SideSheetPosition},
@@ -60,7 +61,25 @@ impl Plugin for WindowPlugin {
                 maximize_window_to_screen.run_if(not(resource_exists::<ScreenMaximized>)),
                 crate::layout::tab::open_command_bar_if_no_tabs,
             ),
-        );
+        )
+        .add_systems(Update, handle_window_commands.in_set(ReadAppCommands));
+    }
+}
+
+/// Handle `WindowCommand` events (e.g. minimize via Cmd+M).
+fn handle_window_commands(
+    mut reader: MessageReader<AppCommand>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
+) {
+    for cmd in reader.read() {
+        if let AppCommand::Window(WindowCommand::Minimize) = cmd {
+            let entity = *primary_window;
+            WINIT_WINDOWS.with_borrow(|winit_windows| {
+                if let Some(winit_win) = winit_windows.get_window(entity) {
+                    winit_win.set_minimized(true);
+                }
+            });
+        }
     }
 }
 

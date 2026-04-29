@@ -110,7 +110,7 @@ For commands with chord bindings but no `accel`, the chord is embedded in the me
 |---------|---------|-------|-------|--------------|------|---------|
 | NewWindow | new_window | New Window | super+n | New Window  Cmd+N | | 🔲 |
 | CloseWindow | close_window | Close Window | super+shift+w | Close Window  Cmd+Shift+W | | 🔲 |
-| Minimize | minimize_window | Minimize | super+m | Minimize  Cmd+M | | 🔲 |
+| Minimize | minimize_window | Minimize | super+m | Minimize  Cmd+M | | ✅ |
 | ToggleFullscreen | toggle_fullscreen | Toggle Fullscreen | ctrl+super+f | Toggle Fullscreen  Ctrl+Cmd+F | | 🔲 |
 | Settings | open_settings | Settings | super+, | Settings  Cmd+, | | 🔲 |
 

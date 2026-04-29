@@ -394,9 +394,10 @@ fn try_connect_daemon(
                 // Check daemon log for clues
                 let log_path = vmux_daemon::daemon_dir().join("daemon.log");
                 if let Ok(log) = std::fs::read_to_string(&log_path)
-                    && !log.is_empty() {
-                        eprintln!("vmux: daemon log:\n{log}");
-                    }
+                    && !log.is_empty()
+                {
+                    eprintln!("vmux: daemon log:\n{log}");
+                }
                 commands.remove_resource::<DaemonConnectRetry>();
             }
         }

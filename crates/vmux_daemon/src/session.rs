@@ -25,9 +25,10 @@ struct DaemonEventProxy {
 impl TermEventListener for DaemonEventProxy {
     fn send_event(&self, event: TermEvent) {
         if let TermEvent::PtyWrite(text) = event
-            && let Ok(mut writer) = self.pty_writer.lock() {
-                let _ = writer.write_all(text.as_bytes());
-            }
+            && let Ok(mut writer) = self.pty_writer.lock()
+        {
+            let _ = writer.write_all(text.as_bytes());
+        }
     }
 }
 
@@ -116,12 +117,14 @@ impl Session {
         ));
         drop(pair.slave);
 
-        if !cwd.is_empty() && cwd_path.exists()
-            && let Ok(mut w) = writer.lock() {
-                let cd_cmd = format!("cd {}\n", cwd);
-                let _ = w.write_all(cd_cmd.as_bytes());
-                let _ = w.flush();
-            }
+        if !cwd.is_empty()
+            && cwd_path.exists()
+            && let Ok(mut w) = writer.lock()
+        {
+            let cd_cmd = format!("cd {}\n", cwd);
+            let _ = w.write_all(cd_cmd.as_bytes());
+            let _ = w.flush();
+        }
 
         let (pty_tx, pty_rx) = mpsc::unbounded_channel();
         std::thread::Builder::new()

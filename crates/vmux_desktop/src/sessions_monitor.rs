@@ -117,9 +117,10 @@ fn request_session_list(
     }
     timer.0.tick(time.delta());
     if timer.0.just_finished()
-        && let Some(daemon) = daemon {
-            daemon.0.send(ClientMessage::ListSessions);
-        }
+        && let Some(daemon) = daemon
+    {
+        daemon.0.send(ClientMessage::ListSessions);
+    }
 }
 
 /// Broadcast the cached session list to all sessions monitor webviews.

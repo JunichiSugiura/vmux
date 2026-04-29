@@ -13,7 +13,7 @@ pub mod keychain;
 mod layout;
 mod os_menu;
 mod persistence;
-mod profile;
+pub mod profile;
 mod scene;
 mod sessions_monitor;
 mod settings;

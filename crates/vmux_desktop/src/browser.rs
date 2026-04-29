@@ -27,7 +27,6 @@ use bevy::{
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::RenderTextureMessage;
 #[cfg(target_os = "macos")]
-use std::path::PathBuf;
 use vmux_header::{
     Header, NavigationState, PageMetadata,
     event::{HeaderCommandEvent, RELOAD_EVENT, TABS_EVENT, TabRow, TabsHostEvent},
@@ -1064,19 +1063,5 @@ fn sync_page_metadata_to_tab(
 }
 
 fn cef_root_cache_path() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        std::env::var_os("HOME").map(|home| {
-            PathBuf::from(home)
-                .join("Library/Application Support/Vmux/profiles/default")
-                .to_string_lossy()
-                .into_owned()
-        })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        std::env::temp_dir()
-            .to_str()
-            .map(|p| format!("{p}/Vmux/profiles/default"))
-    }
+    crate::profile::cef_cache_path()
 }

@@ -48,15 +48,7 @@ struct AutoSave {
 }
 
 pub(crate) fn session_path() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var_os("HOME").expect("HOME not set");
-        PathBuf::from(home).join("Library/Application Support/Vmux/session.ron")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        std::env::temp_dir().join("Vmux/session.ron")
-    }
+    crate::profile::session_path()
 }
 
 fn mark_dirty_on_change(

@@ -72,6 +72,27 @@ pub enum ClientMessage {
     RequestSnapshot {
         process_id: ProcessId,
     },
+    SetSelection {
+        session_id: SessionId,
+        range: Option<TermSelectionRange>,
+    },
+    ExtendSelectionTo {
+        session_id: SessionId,
+        col: u16,
+        row: u16,
+    },
+    SelectWordAt {
+        session_id: SessionId,
+        col: u16,
+        row: u16,
+    },
+    SelectLineAt {
+        session_id: SessionId,
+        row: u16,
+    },
+    GetSelectionText {
+        session_id: SessionId,
+    },
     Shutdown,
 }
 
@@ -110,6 +131,10 @@ pub enum ServiceMessage {
     },
     Error {
         message: String,
+    },
+    SelectionText {
+        session_id: SessionId,
+        text: String,
     },
 }
 

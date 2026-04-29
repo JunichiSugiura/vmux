@@ -194,6 +194,152 @@ impl Process {
         }
     }
 
+    /// Replace the selection. None clears it.
+    pub fn set_selection(&mut self, range: Option<TermSelectionRange>) {
+        self.selection = range;
+        self.sync_viewport();
+    }
+
+    /// Extend the current selection's end point to (col, row). If no
+    /// selection exists, anchor at (col, row).
+    pub fn extend_selection_to(&mut self, col: u16, row: u16) {
+        let range = match self.selection.take() {
+            Some(mut r) => {
+                r.end_col = col;
+                r.end_row = row;
+                r
+            }
+            None => TermSelectionRange {
+                start_col: col,
+                start_row: row,
+                end_col: col,
+                end_row: row,
+                is_block: false,
+            },
+        };
+        self.selection = Some(range);
+        self.sync_viewport();
+    }
+
+    /// Select the word at (col, row). A "word" is a maximal run of
+    /// `[A-Za-z0-9_./-]` characters.
+    pub fn select_word_at(&mut self, col: u16, row: u16) {
+        let grid = self.term.grid();
+        let num_cols = grid.columns();
+        let num_lines = grid.screen_lines();
+        if (row as usize) >= num_lines || (col as usize) >= num_cols {
+            return;
+        }
+        let offset = grid.display_offset() as i32;
+        let line = &grid[Line(row as i32 - offset)];
+        let is_word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-');
+        if !is_word(line[Column(col as usize)].c) {
+            self.selection = Some(TermSelectionRange {
+                start_col: col,
+                start_row: row,
+                end_col: col,
+                end_row: row,
+                is_block: false,
+            });
+            self.sync_viewport();
+            return;
+        }
+        let mut start = col as usize;
+        let mut end = col as usize;
+        while start > 0 && is_word(line[Column(start - 1)].c) {
+            start -= 1;
+        }
+        while end + 1 < num_cols && is_word(line[Column(end + 1)].c) {
+            end += 1;
+        }
+        self.selection = Some(TermSelectionRange {
+            start_col: start as u16,
+            start_row: row,
+            end_col: end as u16,
+            end_row: row,
+            is_block: false,
+        });
+        self.sync_viewport();
+    }
+
+    /// Select the entire row from col 0 to the last non-blank cell.
+    pub fn select_line_at(&mut self, row: u16) {
+        let grid = self.term.grid();
+        let num_cols = grid.columns();
+        let num_lines = grid.screen_lines();
+        if (row as usize) >= num_lines {
+            return;
+        }
+        let offset = grid.display_offset() as i32;
+        let line = &grid[Line(row as i32 - offset)];
+        let mut end = 0usize;
+        for c in 0..num_cols {
+            if !line[Column(c)].c.is_whitespace() {
+                end = c;
+            }
+        }
+        self.selection = Some(TermSelectionRange {
+            start_col: 0,
+            start_row: row,
+            end_col: end as u16,
+            end_row: row,
+            is_block: false,
+        });
+        self.sync_viewport();
+    }
+
+    /// Extract selected text. Lines joined by `\n`, trailing spaces stripped per line.
+    pub fn selection_text(&self) -> Option<String> {
+        let sel = self.selection.as_ref()?;
+        let grid = self.term.grid();
+        let num_cols = grid.columns();
+        let num_lines = grid.screen_lines();
+        let offset = grid.display_offset() as i32;
+
+        // Normalize so (start_row, start_col) <= (end_row, end_col) row-major.
+        let (sr, sc, er, ec) = if (sel.start_row, sel.start_col) <= (sel.end_row, sel.end_col) {
+            (sel.start_row, sel.start_col, sel.end_row, sel.end_col)
+        } else {
+            (sel.end_row, sel.end_col, sel.start_row, sel.start_col)
+        };
+
+        let max_col = num_cols.saturating_sub(1);
+        let mut lines: Vec<String> = Vec::new();
+        for row_idx in sr..=er {
+            if (row_idx as usize) >= num_lines {
+                break;
+            }
+            let line = &grid[Line(row_idx as i32 - offset)];
+            let (lo, hi) = if sel.is_block || sr == er {
+                (sc as usize, ec as usize)
+            } else if row_idx == sr {
+                (sc as usize, max_col)
+            } else if row_idx == er {
+                (0, ec as usize)
+            } else {
+                (0, max_col)
+            };
+            let hi = hi.min(max_col);
+            if lo > hi {
+                lines.push(String::new());
+                continue;
+            }
+            let mut s = String::new();
+            for c in lo..=hi {
+                s.push(line[Column(c)].c);
+            }
+            while s.ends_with(' ') {
+                s.pop();
+            }
+            lines.push(s);
+        }
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
+    }
+
     pub fn resize(&mut self, cols: u16, rows: u16) {
         self.cols = cols;
         self.rows = rows;

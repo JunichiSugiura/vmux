@@ -180,6 +180,54 @@ async fn handle_client(
                 }
             }
 
+            ClientMessage::SetSelection { session_id, range } => {
+                let mut mgr = manager.lock().await;
+                if let Some(s) = mgr.sessions.get_mut(&session_id) {
+                    s.set_selection(range);
+                }
+            }
+
+            ClientMessage::ExtendSelectionTo {
+                session_id,
+                col,
+                row,
+            } => {
+                let mut mgr = manager.lock().await;
+                if let Some(s) = mgr.sessions.get_mut(&session_id) {
+                    s.extend_selection_to(col, row);
+                }
+            }
+
+            ClientMessage::SelectWordAt {
+                session_id,
+                col,
+                row,
+            } => {
+                let mut mgr = manager.lock().await;
+                if let Some(s) = mgr.sessions.get_mut(&session_id) {
+                    s.select_word_at(col, row);
+                }
+            }
+
+            ClientMessage::SelectLineAt { session_id, row } => {
+                let mut mgr = manager.lock().await;
+                if let Some(s) = mgr.sessions.get_mut(&session_id) {
+                    s.select_line_at(row);
+                }
+            }
+
+            ClientMessage::GetSelectionText { session_id } => {
+                let mgr = manager.lock().await;
+                let text = mgr
+                    .sessions
+                    .get(&session_id)
+                    .and_then(|s| s.selection_text())
+                    .unwrap_or_default();
+                let resp = DaemonMessage::SelectionText { session_id, text };
+                let mut w = writer.lock().await;
+                write_message!(&mut *w, &resp)?;
+            }
+
             ClientMessage::Shutdown => {
                 let mut mgr = manager.lock().await;
                 mgr.shutdown();

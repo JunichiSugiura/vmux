@@ -22,7 +22,7 @@ use bevy::{
     prelude::*,
     render::alpha::AlphaMode,
     ui::{UiGlobalTransform, UiSystems},
-    window::PrimaryWindow,
+    window::{PrimaryWindow, WindowResized},
 };
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::RenderTextureMessage;
@@ -340,7 +340,15 @@ fn sync_cef_webview_resize_after_ui(
     windows: Query<&Window>,
     primary_window: Query<Entity, With<PrimaryWindow>>,
     mut last_entries: Local<Vec<(u64, Vec2, f32)>>,
+    mut window_resized: MessageReader<WindowResized>,
 ) {
+    // Force-resize all CEF browsers (tabs, terminals, side sheets, modals) on
+    // window resize so backgrounded surfaces also repaint at the new size
+    // instead of showing a stale frame until they become active.
+    let force = window_resized.read().count() > 0;
+    if force {
+        last_entries.clear();
+    }
     for (entity, size) in webviews.iter() {
         if !browsers.has_browser(entity) {
             continue;

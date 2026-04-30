@@ -82,9 +82,21 @@ pub struct Process {
     copy_mode: Option<CopyModeState>,
 }
 
+/// Per-process state held while the user is in copy mode.
 struct CopyModeState {
+    /// Cursor position in viewport coords (col, row).
     cursor: (u16, u16),
+    /// Selection anchor in viewport coords. `None` means no selection
+    /// range is active yet — only the cursor moves on arrows. Once an
+    /// anchor is set (via `StartSelection`), movement extends a selection
+    /// from anchor to cursor.
     anchor: Option<(u16, u16)>,
+}
+
+/// Word-character class for double-click word selection and tmux-style
+/// copy-mode word motions. A "word" is a maximal run of these characters.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-')
 }
 
 impl Process {
@@ -263,8 +275,7 @@ impl Process {
         }
         let offset = grid.display_offset() as i32;
         let line = &grid[Line(row as i32 - offset)];
-        let is_word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '.' | '/' | '-');
-        if !is_word(line[Column(col as usize)].c) {
+        if !is_word_char(line[Column(col as usize)].c) {
             self.selection = Some(TermSelectionRange {
                 start_col: col,
                 start_row: row,
@@ -277,10 +288,10 @@ impl Process {
         }
         let mut start = col as usize;
         let mut end = col as usize;
-        while start > 0 && is_word(line[Column(start - 1)].c) {
+        while start > 0 && is_word_char(line[Column(start - 1)].c) {
             start -= 1;
         }
-        while end + 1 < num_cols && is_word(line[Column(end + 1)].c) {
+        while end + 1 < num_cols && is_word_char(line[Column(end + 1)].c) {
             end += 1;
         }
         self.selection = Some(TermSelectionRange {

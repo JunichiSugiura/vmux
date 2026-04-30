@@ -106,18 +106,35 @@ pub enum ClientMessage {
     Shutdown,
 }
 
+/// Tmux-style copy-mode action sent by the GUI to the service.
+///
+/// All movement keys (Left/Right/Up/Down/LineStart/LineEnd/PageUp/PageDown)
+/// reposition the copy-mode cursor; if a selection anchor is active they
+/// also extend the selection to the new cursor position.
 #[derive(Debug, Clone, Copy, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum CopyModeKey {
+    /// Move cursor one cell left (clamped to col 0).
     Left,
+    /// Move cursor one cell right (clamped to last column).
     Right,
+    /// Move cursor one row up (clamped to row 0).
     Up,
+    /// Move cursor one row down (clamped to last row).
     Down,
+    /// Jump cursor to column 0 of the current row.
     LineStart,
+    /// Jump cursor to the last column of the current row.
     LineEnd,
+    /// Move cursor up by half a screen.
     PageUp,
+    /// Move cursor down by half a screen.
     PageDown,
+    /// Anchor a new selection at the current cursor position. Subsequent
+    /// movement keys extend the selection from this anchor.
     StartSelection,
+    /// Return the current selection text and exit copy mode.
     Copy,
+    /// Discard any selection and exit copy mode.
     Exit,
 }
 

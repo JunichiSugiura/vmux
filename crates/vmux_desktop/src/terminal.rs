@@ -630,6 +630,12 @@ fn is_non_character_key(key: KeyCode) -> bool {
 }
 
 /// Handle keyboard input directly from Bevy, bypassing CEF round-trip.
+///
+/// Only routes input to the single focused terminal (CefKeyboardTarget is
+/// expected to mark exactly one entity). If multiple terminals are
+/// keyboard-targeted simultaneously, only the first is used and the rest
+/// are ignored — copy-mode and Cmd+C decisions are per-terminal so we
+/// must not broadcast them.
 fn handle_terminal_keyboard(
     mut er: MessageReader<KeyboardInput>,
     q: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
@@ -638,9 +644,10 @@ fn handle_terminal_keyboard(
     service: Option<Res<ServiceClient>>,
     mode_map: Res<TerminalModeMap>,
 ) {
-    if q.is_empty() {
+    let Some(active_handle) = q.iter().next() else {
         return;
-    }
+    };
+    let active_process_id = active_handle.process_id;
     let Some(service) = service else {
         for _ in er.read() {}
         return;
@@ -654,13 +661,11 @@ fn handle_terminal_keyboard(
     let shift = input.pressed(KeyCode::ShiftLeft) || input.pressed(KeyCode::ShiftRight);
     let super_key = input.pressed(KeyCode::SuperLeft) || input.pressed(KeyCode::SuperRight);
 
-    let copy_mode_active = q.iter().any(|h| {
-        mode_map
-            .modes
-            .get(&h.process_id)
-            .map(|m| m.copy_mode)
-            .unwrap_or(false)
-    });
+    let copy_mode_active = mode_map
+        .modes
+        .get(&active_process_id)
+        .map(|m| m.copy_mode)
+        .unwrap_or(false);
 
     let mut seen_keys: Vec<KeyCode> = Vec::new();
     for event in er.read() {
@@ -700,12 +705,10 @@ fn handle_terminal_keyboard(
                 _ => None,
             };
             if let Some(k) = k {
-                for handle in &q {
-                    service.0.send(ClientMessage::CopyModeKey {
-                        process_id: handle.process_id,
-                        key: k,
-                    });
-                }
+                service.0.send(ClientMessage::CopyModeKey {
+                    process_id: active_process_id,
+                    key: k,
+                });
             }
             // While in copy mode, swallow ALL keys — never forward to PTY.
             continue;
@@ -723,22 +726,18 @@ fn handle_terminal_keyboard(
                         data.extend_from_slice(b"\x1b[200~");
                         data.extend_from_slice(text.as_bytes());
                         data.extend_from_slice(b"\x1b[201~");
-                        for handle in &q {
-                            service.0.send(ClientMessage::ProcessInput {
-                                process_id: handle.process_id,
-                                data: data.clone(),
-                            });
-                        }
+                        service.0.send(ClientMessage::ProcessInput {
+                            process_id: active_process_id,
+                            data,
+                        });
                     }
                     continue;
                 }
                 KeyCode::KeyC => {
                     // Round-trip selection through the service, then copy to pasteboard.
-                    for handle in &q {
-                        service.0.send(ClientMessage::GetSelectionText {
-                            process_id: handle.process_id,
-                        });
-                    }
+                    service.0.send(ClientMessage::GetSelectionText {
+                        process_id: active_process_id,
+                    });
                     continue;
                 }
                 _ => continue,
@@ -766,12 +765,10 @@ fn handle_terminal_keyboard(
         if bytes.is_empty() {
             continue;
         }
-        for handle in &q {
-            service.0.send(ClientMessage::ProcessInput {
-                process_id: handle.process_id,
-                data: bytes.clone(),
-            });
-        }
+        service.0.send(ClientMessage::ProcessInput {
+            process_id: active_process_id,
+            data: bytes,
+        });
     }
 }
 
@@ -1188,7 +1185,7 @@ fn on_restart_pty(
 }
 
 /// Consume `AppCommand::Terminal::CopyMode` and ask the service to enter copy mode
-/// for every focused terminal process.
+/// for the currently focused terminal process.
 fn handle_terminal_copy_mode_command(
     mut er: MessageReader<AppCommand>,
     q: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
@@ -1198,16 +1195,14 @@ fn handle_terminal_copy_mode_command(
         for _ in er.read() {}
         return;
     };
+    let active_process_id = q.iter().next().map(|h| h.process_id);
     for cmd in er.read() {
         if matches!(
             cmd,
             AppCommand::Terminal(crate::command::TerminalCommand::CopyMode)
-        ) {
-            for handle in &q {
-                service.0.send(ClientMessage::EnterCopyMode {
-                    process_id: handle.process_id,
-                });
-            }
+        ) && let Some(process_id) = active_process_id
+        {
+            service.0.send(ClientMessage::EnterCopyMode { process_id });
         }
     }
 }

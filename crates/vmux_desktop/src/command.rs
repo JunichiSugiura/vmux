@@ -27,6 +27,9 @@ pub enum AppCommand {
     #[menu(label = "Header")]
     Header(HeaderCommand),
 
+    #[menu(label = "Footer")]
+    Footer(FooterCommand),
+
     #[menu(label = "Side Sheet")]
     SideSheet(SideSheetCommand),
 
@@ -271,19 +274,19 @@ pub enum PaneCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SpaceCommand {
     #[default]
-    #[menu(id = "new_space", label = "New Space\t<leader> c", hidden)]
+    #[menu(id = "new_space", label = "New Space\t<leader> c")]
     #[shortcut(chord = "Ctrl+g, c")]
     New,
-    #[menu(id = "close_space", label = "Close Space\t<leader> &", hidden)]
+    #[menu(id = "close_space", label = "Close Space\t<leader> &")]
     #[shortcut(chord = "Ctrl+g, &")]
     Close,
-    #[menu(id = "next_space", label = "Next Space\t<leader> n", hidden)]
+    #[menu(id = "next_space", label = "Next Space\t<leader> n")]
     #[shortcut(chord = "Ctrl+g, n")]
     Next,
-    #[menu(id = "prev_space", label = "Previous Space\t<leader> p", hidden)]
+    #[menu(id = "prev_space", label = "Previous Space\t<leader> p")]
     #[shortcut(chord = "Ctrl+g, p")]
     Previous,
-    #[menu(id = "rename_space", label = "Rename Space\t<leader> ,", hidden)]
+    #[menu(id = "rename_space", label = "Rename Space\t<leader> ,")]
     #[shortcut(chord = "Ctrl+g, Comma")]
     Rename,
     #[menu(id = "swap_space_prev", label = "Move Space Left", hidden)]
@@ -331,6 +334,13 @@ pub enum SceneCommand {
 pub enum HeaderCommand {
     #[default]
     #[menu(id = "toggle_header", label = "Toggle Header", accel = "super+shift+h")]
+    Toggle,
+}
+
+#[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FooterCommand {
+    #[default]
+    #[menu(id = "toggle_footer", label = "Toggle Footer", accel = "super+shift+f")]
     Toggle,
 }
 

@@ -5,9 +5,10 @@
     layout: (
         window: (
             padding: 8.0,
+            padding_top: Some(28.0),
         ),
         pane: (
-            gap: 4.0,
+            gap: 8.0,
             radius: 8.0,
         ),
         side_sheet: (

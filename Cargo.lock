@@ -8916,6 +8916,7 @@ dependencies = [
  "uuid",
  "vmux_command_bar",
  "vmux_core",
+ "vmux_footer",
  "vmux_header",
  "vmux_history",
  "vmux_macro",
@@ -8925,6 +8926,22 @@ dependencies = [
  "vmux_terminal",
  "vmux_ui",
  "vmux_webview_app",
+]
+
+[[package]]
+name = "vmux_footer"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_cef",
+ "bevy_ecs",
+ "bevy_reflect",
+ "dioxus",
+ "moonshine-save",
+ "serde",
+ "vmux_ui",
+ "vmux_webview_app",
+ "wasm-bindgen",
 ]
 
 [[package]]

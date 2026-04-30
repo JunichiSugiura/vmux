@@ -3,7 +3,7 @@ use crate::{
     command::{AppCommand, ReadAppCommands, WindowCommand},
     layout::glass::{GlassCorners, GlassMaterial},
     layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
-    layout::side_sheet::{SideSheet, SideSheetPosition},
+    layout::side_sheet::{SideSheet, SideSheetPosition, SideSheetWidth},
     layout::space::space_bundle,
     layout::tab::tab_bundle,
     profile::Profile,
@@ -21,6 +21,7 @@ use bevy::{
 };
 use bevy_cef::prelude::*;
 use vmux_command_bar::COMMAND_BAR_WEBVIEW_URL;
+use vmux_footer::{FOOTER_HEIGHT_PX, FOOTER_WEBVIEW_URL, Footer, FooterBundle};
 use vmux_header::{HEADER_HEIGHT_PX, HEADER_WEBVIEW_URL, Header, HeaderBundle};
 use vmux_history::{CreatedAt, LastActivatedAt};
 use vmux_webview_app::WebviewAppEmbedSet;
@@ -54,7 +55,14 @@ impl Plugin for WindowPlugin {
                 .after(crate::scene::setup)
                 .after(WebviewAppEmbedSet),
         )
-        .add_systems(PostUpdate, (fit_window_to_screen, sync_glass_pane_clip))
+        .add_systems(
+            PostUpdate,
+            (
+                fit_window_to_screen,
+                sync_glass_pane_clip,
+                sync_window_layout_to_settings,
+            ),
+        )
         .add_systems(
             Update,
             (
@@ -130,8 +138,12 @@ pub(crate) struct VmuxWindow;
 #[derive(Component)]
 pub(crate) struct Main;
 
+/// Vertical stack inside the root flex-row that owns the Header, Main pane
+/// area, and Footer. Sits next to the (left) SideSheet so opening the sheet
+/// naturally shrinks this column via flex layout — no manual margin pushing
+/// is required on the inner panels.
 #[derive(Component)]
-pub(crate) struct BottomBar;
+pub(crate) struct MainColumn;
 
 #[derive(Component)]
 pub(crate) struct Modal;
@@ -155,8 +167,8 @@ fn setup(
     let m = window.meters();
     let pw = *primary_window;
 
-    commands.spawn((
-        WindowBundle {
+    let root = commands
+        .spawn(WindowBundle {
             marker: VmuxWindow,
             mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
             material: MeshMaterial3d(materials.add(GlassMaterial {
@@ -185,151 +197,204 @@ fn setup(
                 width: Val::Percent(100.0),
                 height: Val::Percent(100.0),
                 position_type: PositionType::Relative,
-                flex_direction: FlexDirection::Column,
-                padding: UiRect::all(Val::Px(settings.layout.window.padding)),
-                row_gap: Val::Px(settings.layout.pane.gap),
+                flex_direction: FlexDirection::Row,
+                padding: UiRect {
+                    top: Val::Px(settings.layout.window.pad_top()),
+                    right: Val::Px(settings.layout.window.pad_right()),
+                    bottom: Val::Px(settings.layout.window.pad_bottom()),
+                    left: Val::Px(settings.layout.window.pad_left()),
+                },
+                column_gap: Val::Px(settings.layout.pane.gap),
                 ..default()
             },
             ui_target: UiTargetCamera(*main_camera),
+        })
+        .id();
+
+    // Left side sheet: flex child of root. Hidden via `display: None` until
+    // opened; when visible it naturally pushes the MainColumn via flex layout.
+    commands.spawn((
+        SideSheet,
+        SideSheetPosition::Left,
+        HostWindow(pw),
+        Browser,
+        WebviewTransparent,
+        Node {
+            width: Val::Px(settings.layout.side_sheet.width),
+            flex_shrink: 0.0,
+            display: Display::None,
+            ..default()
         },
-        children![
-            (
-                SideSheet,
-                SideSheetPosition::Left,
-                HostWindow(pw),
-                Browser,
-                WebviewTransparent,
-                Node {
-                    width: Val::Px(settings.layout.side_sheet.width),
-                    flex_shrink: 0.0,
-                    display: Display::None,
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(settings.layout.window.padding),
-                    top: Val::Px(settings.layout.window.padding),
-                    bottom: Val::Px(settings.layout.window.padding),
+        ZIndex(2),
+        WebviewSource::new("vmux://side-sheet/"),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+        MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+            base: StandardMaterial {
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
+                ..default()
+            },
+            ..default()
+        })),
+        WebviewSize(Vec2::new(settings.layout.side_sheet.width, 720.0)),
+        Transform::default(),
+        GlobalTransform::default(),
+        Visibility::Hidden,
+        ChildOf(root),
+    ));
+
+    // Vertical stack: Header / Main pane area / Footer.
+    let main_column = commands
+        .spawn((
+            MainColumn,
+            Transform::default(),
+            GlobalTransform::default(),
+            Node {
+                flex_grow: 1.0,
+                flex_basis: Val::Px(0.0),
+                min_width: Val::Px(0.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(settings.layout.pane.gap),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+
+    commands.spawn((
+        ZIndex(1),
+        HostWindow(pw),
+        Browser,
+        WebviewTransparent,
+        Visibility::Hidden,
+        Node {
+            height: Val::Px(0.0),
+            flex_shrink: 0.0,
+            display: Display::None,
+            ..default()
+        },
+        HeaderBundle {
+            marker: Header,
+            source: WebviewSource::new(HEADER_WEBVIEW_URL),
+            mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+            material: MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+                base: StandardMaterial {
+                    unlit: true,
+                    alpha_mode: AlphaMode::Blend,
+                    depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
                     ..default()
                 },
-                ZIndex(2),
-                WebviewSource::new("vmux://side-sheet/"),
-                Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-                MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
-                    base: StandardMaterial {
-                        unlit: true,
-                        alpha_mode: AlphaMode::Blend,
-                        depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
-                        ..default()
-                    },
-                    ..default()
-                })),
-                WebviewSize(Vec2::new(settings.layout.side_sheet.width, 720.0)),
-                Transform::default(),
-                GlobalTransform::default(),
-                Visibility::Hidden,
-            ),
-            (
-                ZIndex(1),
-                HostWindow(pw),
-                Browser,
-                WebviewTransparent,
-                Visibility::Hidden,
-                Node {
-                    height: Val::Px(0.0),
-                    flex_shrink: 0.0,
-                    display: Display::None,
-                    ..default()
-                },
-                HeaderBundle {
-                    marker: Header,
-                    source: WebviewSource::new(HEADER_WEBVIEW_URL),
-                    mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-                    material: MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
-                        base: StandardMaterial {
-                            unlit: true,
-                            alpha_mode: AlphaMode::Blend,
-                            depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
-                            ..default()
-                        },
-                        ..default()
-                    },)),
-                    webview_size: WebviewSize(Vec2::new(1280.0, HEADER_HEIGHT_PX)),
-                },
-            ),
-            (
-                Main,
-                Transform::default(),
-                GlobalTransform::default(),
-                Node {
-                    flex_grow: 1.0,
-                    min_height: Val::Px(0.0),
+                ..default()
+            })),
+            webview_size: WebviewSize(Vec2::new(1280.0, HEADER_HEIGHT_PX)),
+        },
+        ChildOf(main_column),
+    ));
+
+    commands.spawn((
+        Main,
+        Transform::default(),
+        GlobalTransform::default(),
+        Node {
+            flex_grow: 1.0,
+            min_height: Val::Px(0.0),
+            ..default()
+        },
+        ChildOf(main_column),
+    ));
+
+    commands.spawn((
+        ZIndex(1),
+        HostWindow(pw),
+        Browser,
+        WebviewTransparent,
+        Node {
+            height: Val::Px(FOOTER_HEIGHT_PX),
+            flex_shrink: 0.0,
+            ..default()
+        },
+        FooterBundle {
+            marker: Footer,
+            source: WebviewSource::new(FOOTER_WEBVIEW_URL),
+            mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+            material: MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+                base: StandardMaterial {
+                    unlit: true,
+                    alpha_mode: AlphaMode::Blend,
+                    depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
                     ..default()
                 },
-            ),
-            (
-                BottomBar,
-                Node {
-                    height: Val::Px(0.0),
-                    display: Display::None,
-                    ..default()
-                },
-            ),
-            (
-                SideSheet,
-                SideSheetPosition::Right,
-                Node {
-                    width: Val::Px(280.0),
-                    position_type: PositionType::Absolute,
-                    right: Val::Px(settings.layout.window.padding),
-                    top: Val::Px(settings.layout.window.padding),
-                    bottom: Val::Px(settings.layout.window.padding),
-                    display: Display::None,
-                    ..default()
-                },
-            ),
-            (
-                SideSheet,
-                SideSheetPosition::Bottom,
-                Node {
-                    height: Val::Px(200.0),
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(settings.layout.window.padding),
-                    right: Val::Px(settings.layout.window.padding),
-                    bottom: Val::Px(settings.layout.window.padding),
-                    display: Display::None,
-                    ..default()
-                },
-            ),
-            (
-                Modal,
-                HostWindow(pw),
-                Browser,
-                WebviewTransparent,
-                Node {
-                    width: Val::Percent(100.0),
-                    height: Val::Percent(100.0),
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(0.0),
-                    top: Val::Px(0.0),
-                    display: Display::None,
-                    ..default()
-                },
-                ZIndex(3),
-                WebviewSource::new(COMMAND_BAR_WEBVIEW_URL),
-                Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-                MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
-                    base: StandardMaterial {
-                        unlit: true,
-                        alpha_mode: AlphaMode::Blend,
-                        depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
-                        ..default()
-                    },
-                    ..default()
-                })),
-                WebviewSize(Vec2::new(800.0, 600.0)),
-                Transform::default(),
-                GlobalTransform::default(),
-                Visibility::Hidden,
-            ),
-        ],
+                ..default()
+            })),
+            webview_size: WebviewSize(Vec2::new(1280.0, FOOTER_HEIGHT_PX)),
+        },
+        ChildOf(main_column),
+    ));
+
+    // Right & Bottom side sheets remain absolute overlays (slide-in semantics);
+    // they're not part of the natural flex layout.
+    commands.spawn((
+        SideSheet,
+        SideSheetPosition::Right,
+        Node {
+            width: Val::Px(280.0),
+            position_type: PositionType::Absolute,
+            right: Val::Px(settings.layout.window.pad_right()),
+            top: Val::Px(settings.layout.window.pad_top()),
+            bottom: Val::Px(settings.layout.window.pad_bottom()),
+            display: Display::None,
+            ..default()
+        },
+        ChildOf(root),
+    ));
+
+    commands.spawn((
+        SideSheet,
+        SideSheetPosition::Bottom,
+        Node {
+            height: Val::Px(200.0),
+            position_type: PositionType::Absolute,
+            left: Val::Px(settings.layout.window.pad_left()),
+            right: Val::Px(settings.layout.window.pad_right()),
+            bottom: Val::Px(settings.layout.window.pad_bottom()),
+            display: Display::None,
+            ..default()
+        },
+        ChildOf(root),
+    ));
+
+    commands.spawn((
+        Modal,
+        HostWindow(pw),
+        Browser,
+        WebviewTransparent,
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            position_type: PositionType::Absolute,
+            left: Val::Px(0.0),
+            top: Val::Px(0.0),
+            display: Display::None,
+            ..default()
+        },
+        ZIndex(3),
+        WebviewSource::new(COMMAND_BAR_WEBVIEW_URL),
+        Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
+        MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
+            base: StandardMaterial {
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
+                ..default()
+            },
+            ..default()
+        })),
+        WebviewSize(Vec2::new(800.0, 600.0)),
+        Transform::default(),
+        GlobalTransform::default(),
+        Visibility::Hidden,
+        ChildOf(root),
     ));
 }
 
@@ -445,9 +510,10 @@ fn spawn_glass_child(
     ));
 }
 
-/// Spawns a glass mesh child behind each overlay panel (Header, SideSheet Left, Modal).
+/// Spawns a glass mesh child behind each overlay panel (Header, Footer, SideSheet Left, Modal).
 fn spawn_glass_panes(
     header_q: Query<Entity, With<Header>>,
+    footer_q: Query<Entity, With<vmux_footer::Footer>>,
     side_sheet_q: Query<(Entity, &SideSheetPosition), (With<SideSheet>, With<Browser>)>,
     _modal_q: Query<Entity, With<Modal>>,
     settings: Res<AppSettings>,
@@ -459,6 +525,9 @@ fn spawn_glass_panes(
     let plane = meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)));
 
     for entity in &header_q {
+        spawn_glass_child(&mut commands, plane.clone(), &mut materials, r, entity);
+    }
+    for entity in &footer_q {
         spawn_glass_child(&mut commands, plane.clone(), &mut materials, r, entity);
     }
     for (entity, pos) in &side_sheet_q {
@@ -495,6 +564,79 @@ fn sync_glass_pane_clip(
                 || (clip.z - h_m).abs() > 0.01
             {
                 *clip = Vec4::new(r, w_m, h_m, PIXELS_PER_METER);
+            }
+        }
+    }
+}
+
+/// Re-applies layout-affecting settings (window padding, row gap, side sheet
+/// insets and width) to existing nodes whenever `AppSettings` changes (e.g.
+/// after settings.ron hot-reload). Without this, edits to the file produce a
+/// "Settings reloaded" log but no visual change because `setup` only reads
+/// settings once at Startup.
+fn sync_window_layout_to_settings(
+    settings: Res<AppSettings>,
+    mut window_q: Query<&mut Node, (With<VmuxWindow>, Without<SideSheet>, Without<MainColumn>)>,
+    mut main_column_q: Query<
+        &mut Node,
+        (With<MainColumn>, Without<VmuxWindow>, Without<SideSheet>),
+    >,
+    mut sheet_q: Query<
+        (&SideSheetPosition, &mut Node),
+        (With<SideSheet>, Without<VmuxWindow>, Without<MainColumn>),
+    >,
+    mut sheet_width: ResMut<SideSheetWidth>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+
+    let pad_top = settings.layout.window.pad_top();
+    let pad_right = settings.layout.window.pad_right();
+    let pad_bottom = settings.layout.window.pad_bottom();
+    let pad_left = settings.layout.window.pad_left();
+    let gap = settings.layout.pane.gap;
+    let cfg_width = settings.layout.side_sheet.width;
+
+    // Root window: padding + flex-row column gap.
+    if let Ok(mut node) = window_q.single_mut() {
+        node.padding = UiRect {
+            top: Val::Px(pad_top),
+            right: Val::Px(pad_right),
+            bottom: Val::Px(pad_bottom),
+            left: Val::Px(pad_left),
+        };
+        node.column_gap = Val::Px(gap);
+    }
+
+    // MainColumn (Header / Main / Footer stack) row gap.
+    if let Ok(mut node) = main_column_q.single_mut() {
+        node.row_gap = Val::Px(gap);
+    }
+
+    // Side sheet width resource: initialise from settings on first run.
+    if sheet_width.0 <= 0.0 {
+        sheet_width.0 = cfg_width;
+    }
+    let live_width = sheet_width.0;
+
+    // Left sheet is a flex child — only its width tracks settings.
+    // Right & Bottom sheets remain absolute overlays — their insets follow
+    // the window padding.
+    for (pos, mut node) in &mut sheet_q {
+        match pos {
+            SideSheetPosition::Left => {
+                node.width = Val::Px(live_width);
+            }
+            SideSheetPosition::Right => {
+                node.right = Val::Px(pad_right);
+                node.top = Val::Px(pad_top);
+                node.bottom = Val::Px(pad_bottom);
+            }
+            SideSheetPosition::Bottom => {
+                node.left = Val::Px(pad_left);
+                node.right = Val::Px(pad_right);
+                node.bottom = Val::Px(pad_bottom);
             }
         }
     }

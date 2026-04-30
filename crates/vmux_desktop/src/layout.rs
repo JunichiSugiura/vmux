@@ -1,7 +1,9 @@
 mod focus_ring;
+mod footer;
 pub(crate) mod glass;
 mod header;
 pub(crate) mod tab;
+mod webview_reveal;
 
 #[allow(dead_code)]
 pub(crate) mod drag;
@@ -14,6 +16,7 @@ pub(crate) mod window;
 
 use bevy::prelude::*;
 use focus_ring::FocusRingPlugin;
+use footer::FooterLayoutPlugin;
 use glass::GlassMaterialPlugin;
 use header::HeaderLayoutPlugin;
 use moonshine_save::prelude::*;
@@ -22,6 +25,7 @@ use side_sheet::SideSheetLayoutPlugin;
 use space::SpacePlugin;
 use tab::TabPlugin;
 use vmux_webview_app::JsEmitUiReadyPlugin;
+use webview_reveal::WebviewRevealPlugin;
 use window::WindowPlugin;
 pub(crate) use window::fit_window_to_screen;
 
@@ -60,6 +64,8 @@ impl Plugin for LayoutPlugin {
             GlassMaterialPlugin,
             SideSheetLayoutPlugin,
             HeaderLayoutPlugin,
+            FooterLayoutPlugin,
+            WebviewRevealPlugin,
         ));
     }
 }

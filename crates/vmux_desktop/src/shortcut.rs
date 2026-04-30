@@ -50,6 +50,32 @@ fn init_shortcuts(mut commands: Commands, settings: Option<Res<AppSettings>>) {
         chord_timeout_ms: 1000,
     };
 
+    // Extra default chord bindings that the macro can't express
+    // (multiple shortcuts per variant). Prefix is replaced with the
+    // configured leader below.
+    let placeholder_prefix = KeyCombo {
+        key: KeyCode::KeyG,
+        modifiers: Modifiers {
+            ctrl: true,
+            ..Default::default()
+        },
+    };
+    for (key, menu_id) in [
+        (KeyCode::ArrowLeft, "prev_space"),
+        (KeyCode::ArrowRight, "next_space"),
+    ] {
+        map.bindings.push((
+            Shortcut::Chord(
+                placeholder_prefix.clone(),
+                KeyCombo {
+                    key,
+                    modifiers: Modifiers::default(),
+                },
+            ),
+            menu_id.to_string(),
+        ));
+    }
+
     if let Some(settings) = settings {
         map.chord_timeout_ms = settings.shortcuts.chord_timeout_ms;
 

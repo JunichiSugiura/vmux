@@ -281,6 +281,29 @@ fn default_side_sheet_width() -> f32 {
 #[derive(Clone, Debug, Deserialize)]
 pub struct WindowSettings {
     pub padding: f32,
+    #[serde(default)]
+    pub padding_top: Option<f32>,
+    #[serde(default)]
+    pub padding_right: Option<f32>,
+    #[serde(default)]
+    pub padding_bottom: Option<f32>,
+    #[serde(default)]
+    pub padding_left: Option<f32>,
+}
+
+impl WindowSettings {
+    pub fn pad_top(&self) -> f32 {
+        self.padding_top.unwrap_or(self.padding)
+    }
+    pub fn pad_right(&self) -> f32 {
+        self.padding_right.unwrap_or(self.padding)
+    }
+    pub fn pad_bottom(&self) -> f32 {
+        self.padding_bottom.unwrap_or(self.padding)
+    }
+    pub fn pad_left(&self) -> f32 {
+        self.padding_left.unwrap_or(self.padding)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -26,6 +26,7 @@ use bevy::{
 };
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::RenderTextureMessage;
+use vmux_footer::Footer;
 #[cfg(target_os = "macos")]
 use vmux_header::{
     Header, NavigationState, PageMetadata,
@@ -224,6 +225,7 @@ fn sync_children_to_ui(
             &ChildOf,
             &mut WebviewSize,
             Option<&Header>,
+            Option<&Footer>,
             Option<&SideSheet>,
             Option<&Modal>,
         ),
@@ -247,6 +249,7 @@ fn sync_children_to_ui(
         child_of,
         mut webview_size,
         status,
+        footer,
         side_sheet,
         modal,
     ) in browser_q.iter_mut()
@@ -267,8 +270,15 @@ fn sync_children_to_ui(
             continue;
         }
 
+        // Chrome browsers (Header / Footer / SideSheet / Modal) are not
+        // tab content even though their parent isn't `glass_entity`
+        // (Footer's parent is now `MainColumn`, Header's too). Treat them
+        // like Header/SideSheet for active/inactive logic.
+        let is_chrome =
+            status.is_some() || footer.is_some() || side_sheet.is_some() || modal.is_some();
+
         // Check if this browser's parent tab is the active tab in its pane
-        let is_active_tab = if parent != glass_entity && status.is_none() && side_sheet.is_none() {
+        let is_active_tab = if parent != glass_entity && !is_chrome {
             active_tab_in_pane(pane_entity, &pane_children, &tab_ts) == Some(parent)
         } else {
             true
@@ -278,11 +288,8 @@ fn sync_children_to_ui(
         // (without CEF content) is pending in the command bar flow.
         let is_previous_tab = new_tab_ctx.tab.is_some() && new_tab_ctx.previous_tab == Some(parent);
 
-        let is_inactive_tab = parent != glass_entity
-            && status.is_none()
-            && side_sheet.is_none()
-            && !is_active_tab
-            && !is_previous_tab;
+        let is_inactive_tab =
+            parent != glass_entity && !is_chrome && !is_active_tab && !is_previous_tab;
 
         let sx = size_px.x / glass_size_px.x;
         let sy = size_px.y / glass_size_px.y;
@@ -291,11 +298,7 @@ fn sync_children_to_ui(
         } else {
             Vec3::new(sx, sy, 1.0)
         };
-        if parent != glass_entity
-            && status.is_none()
-            && side_sheet.is_none()
-            && (tf.scale - new_scale).length() > 0.01
-        {
+        if parent != glass_entity && !is_chrome && (tf.scale - new_scale).length() > 0.01 {
             info!(
                 "[ui] browser child_of={:?} scale {:?} -> {:?} (inactive={})",
                 parent, tf.scale, new_scale, is_inactive_tab
@@ -311,7 +314,7 @@ fn sync_children_to_ui(
         let ty = -delta_px.y / glass_size_px.y;
         let z = if modal.is_some() {
             WEBVIEW_Z_MODAL
-        } else if status.is_some() {
+        } else if status.is_some() || footer.is_some() {
             WEBVIEW_Z_HEADER
         } else if side_sheet.is_some() {
             WEBVIEW_Z_SIDE_SHEET

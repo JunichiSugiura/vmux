@@ -1,13 +1,11 @@
 use super::{Open, SideSheetState};
 use crate::{
     command::{AppCommand, ReadAppCommands, SideSheetCommand},
-    layout::window::Main,
     settings::AppSettings,
 };
 #[cfg(target_os = "macos")]
 use bevy::{ecs::system::NonSendMarker, winit::WINIT_WINDOWS};
 use bevy::{prelude::*, ui::UiSystems, window::PrimaryWindow};
-use vmux_header::Header;
 
 pub(crate) struct SideSheetLayoutPlugin;
 
@@ -38,7 +36,7 @@ pub(crate) enum SideSheetPosition {
 
 /// Current width of the left side sheet (mutable during drag).
 #[derive(Resource)]
-struct SideSheetWidth(f32);
+pub(crate) struct SideSheetWidth(pub(crate) f32);
 
 /// Marker component for an active drag on the side sheet edge.
 #[derive(Component)]
@@ -100,9 +98,6 @@ fn side_sheet_drag_resize(
     active_drags: Query<(Entity, &SideSheetDrag)>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut side_sheet_q: Query<(&SideSheetPosition, &mut Node), With<SideSheet>>,
-    mut header_q: Query<&mut Node, (With<Header>, Without<SideSheet>, Without<Main>)>,
-    mut main_q: Query<&mut Node, (With<Main>, Without<SideSheet>, Without<Header>)>,
-    settings: Res<AppSettings>,
     mut commands: Commands,
 ) {
     let is_open = sheet_q
@@ -118,24 +113,19 @@ fn side_sheet_drag_resize(
     };
     let cursor_x = cursor_pos.x;
 
-    // Handle active drag
+    // Handle active drag. The sheet is a flex sibling of MainColumn so
+    // changing its width re-flows the layout naturally — no manual margin
+    // updates required on header/main/footer.
     if let Ok((drag_entity, drag)) = active_drags.single() {
         if mouse.pressed(MouseButton::Left) {
             let new_width = (drag.start_width + cursor_x - drag.start_cursor_x)
                 .clamp(MIN_SIDE_SHEET_WIDTH, MAX_SIDE_SHEET_WIDTH);
             width_res.0 = new_width;
-            let sheet_total = new_width + settings.layout.pane.gap;
 
             for (pos, mut node) in &mut side_sheet_q {
                 if *pos == SideSheetPosition::Left {
                     node.width = Val::Px(new_width);
                 }
-            }
-            for mut node in &mut header_q {
-                node.margin.left = Val::Px(sheet_total);
-            }
-            for mut node in &mut main_q {
-                node.margin.left = Val::Px(sheet_total);
             }
         } else {
             commands.entity(drag_entity).despawn();
@@ -177,8 +167,6 @@ fn sync_side_sheet_visibility(
         (Entity, &SideSheetPosition, &mut Visibility, &mut Node),
         With<SideSheet>,
     >,
-    mut header_q: Query<&mut Node, (With<Header>, Without<SideSheet>, Without<Main>)>,
-    mut main_q: Query<&mut Node, (With<Main>, Without<SideSheet>, Without<Header>)>,
     added: Query<Entity, (With<SideSheet>, Added<Open>)>,
     mut removed: RemovedComponents<Open>,
 ) {
@@ -207,7 +195,8 @@ fn sync_side_sheet_visibility(
     }
 
     let width = width_res.0;
-    let sheet_total = width + settings.layout.pane.gap;
+    // Sheet is a flex sibling of MainColumn — toggling display drives the
+    // entire layout; no margin updates needed on Header/Main/Footer.
     for (_, pos, mut vis, mut node) in &mut side_sheet_q {
         if *pos != SideSheetPosition::Left {
             continue;
@@ -220,20 +209,6 @@ fn sync_side_sheet_visibility(
             *vis = Visibility::Hidden;
             node.display = Display::None;
         }
-    }
-    for mut node in &mut header_q {
-        node.margin.left = if is_open {
-            Val::Px(sheet_total)
-        } else {
-            Val::Px(0.0)
-        };
-    }
-    for mut node in &mut main_q {
-        node.margin.left = if is_open {
-            Val::Px(sheet_total)
-        } else {
-            Val::Px(0.0)
-        };
     }
 }
 

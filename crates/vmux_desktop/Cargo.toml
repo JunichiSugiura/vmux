@@ -33,6 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 vmux_core = { path = "../vmux_core" }
 vmux_history = { path = "../vmux_history" }
+vmux_footer = { path = "../vmux_footer" }
 vmux_header = { path = "../vmux_header" }
 vmux_side_sheet = { path = "../vmux_side_sheet" }
 vmux_command_bar = { path = "../vmux_command_bar" }

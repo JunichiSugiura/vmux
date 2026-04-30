@@ -35,9 +35,9 @@ use {
     layout::LayoutPlugin, os_menu::OsMenuPlugin, persistence::PersistencePlugin,
     processes_monitor::ProcessesMonitorPlugin, profile::ProfilePlugin, scene::ScenePlugin,
     settings::SettingsPlugin, shortcut::ShortcutPlugin, terminal::TerminalInputPlugin,
-    vmux_command_bar::CommandBarPlugin, vmux_header::HeaderPlugin, vmux_processes::ProcessesPlugin,
-    vmux_side_sheet::SideSheetPlugin, vmux_terminal::TerminalPlugin,
-    vmux_webview_app::WebviewAppRegistryPlugin,
+    vmux_command_bar::CommandBarPlugin, vmux_footer::FooterPlugin, vmux_header::HeaderPlugin,
+    vmux_processes::ProcessesPlugin, vmux_side_sheet::SideSheetPlugin,
+    vmux_terminal::TerminalPlugin, vmux_webview_app::WebviewAppRegistryPlugin,
 };
 
 pub struct VmuxPlugin;
@@ -97,6 +97,7 @@ impl Plugin for VmuxPlugin {
             OsMenuPlugin,
             WebviewAppRegistryPlugin,
             HeaderPlugin,
+            FooterPlugin,
             SideSheetPlugin,
             CommandBarPlugin,
             TerminalPlugin,

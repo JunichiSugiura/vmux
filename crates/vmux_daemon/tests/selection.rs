@@ -96,3 +96,34 @@ fn copy_mode_exit_clears_state() {
     s.copy_mode_key(CopyModeKey::Exit);
     assert!(!s.is_copy_mode());
 }
+
+#[test]
+fn buffer_mutation_clears_selection() {
+    let mut s = new_session();
+    write_and_drain(&mut s, b"hello world\n");
+    // Select something on row 0.
+    let mut row0_with_text = None;
+    for row in 0..24u16 {
+        s.select_line_at(row);
+        if let Some(t) = s.selection_text()
+            && t.contains("hello world")
+        {
+            row0_with_text = Some(row);
+            break;
+        }
+    }
+    let row = row0_with_text.expect("found text row");
+    s.select_line_at(row);
+    assert!(s.selection_text().is_some());
+    // New output overwrites the selected row -> selection should clear.
+    write_and_drain(&mut s, b"goodbye\n");
+    // After enough new content, the originally-selected row got rewritten.
+    // Selection may have been cleared, or may still point at the new content.
+    // We accept either: but if the user copies, they should never get the
+    // originally-selected stale text. For this test, assert it cleared.
+    assert!(
+        s.selection_text().is_none(),
+        "selection should clear after buffer mutation, got: {:?}",
+        s.selection_text()
+    );
+}

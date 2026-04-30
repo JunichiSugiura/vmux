@@ -539,6 +539,22 @@ impl Process {
             }
         }
 
+        // If the buffer mutated under an active selection, the selection no
+        // longer points at the same characters. Clear it (browser-style:
+        // typing into a textarea drops the selection). Skip on `full` resyncs
+        // (initial population) which mark every row as "changed".
+        if !full
+            && let Some(sel) = self.selection
+            && changed_lines.iter().any(|(row, _)| {
+                let r = *row;
+                let lo = sel.start_row.min(sel.end_row);
+                let hi = sel.start_row.max(sel.end_row);
+                r >= lo && r <= hi
+            })
+        {
+            self.selection = None;
+        }
+
         let cursor_point = grid.cursor.point;
         let cursor_pos = (cursor_point.column.0 as u16, cursor_point.line.0 as u16);
         let cursor_moved = self.last_cursor != Some(cursor_pos);

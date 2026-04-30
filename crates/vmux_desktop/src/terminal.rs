@@ -439,6 +439,7 @@ fn poll_service_messages(
     mut commands: Commands,
     mut writer: MessageWriter<AppCommand>,
     mut mode_map: ResMut<TerminalModeMap>,
+    mut mouse_state: ResMut<MouseSelectionState>,
 ) {
     let Some(service) = service else { return };
 
@@ -554,6 +555,10 @@ fn poll_service_messages(
                 process_id,
                 exit_code: _,
             } => {
+                // Drop per-session caches so they don't leak across the
+                // app lifetime as sessions churn.
+                mode_map.modes.remove(&session_id);
+                mouse_state.per_session.remove(&session_id);
                 for (entity, handle, child_of) in &terminals {
                     if handle.process_id == process_id {
                         commands.entity(entity).insert(ProcessExited);

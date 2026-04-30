@@ -899,6 +899,9 @@ struct MouseSelectionState {
 struct MouseSessionState {
     last_click: Option<MouseClickRecord>,
     drag_active: bool,
+    /// Last (col, row) sent via ExtendSelectionTo during the active drag.
+    /// Used to dedupe redundant move events at the same cell.
+    last_extend_cell: Option<(u16, u16)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -972,6 +975,7 @@ fn on_term_mouse(
             count,
         });
         entry.drag_active = count == 1;
+        entry.last_extend_cell = Some((event.col, event.row));
 
         match count {
             1 if shift => {
@@ -1004,13 +1008,18 @@ fn on_term_mouse(
             }),
         }
     } else if event.moving && entry.drag_active {
-        service.0.send(ClientMessage::ExtendSelectionTo {
-            process_id,
-            col: event.col,
-            row: event.row,
-        });
+        // Dedupe: only send when the cursor crosses into a new cell.
+        if entry.last_extend_cell != Some((event.col, event.row)) {
+            entry.last_extend_cell = Some((event.col, event.row));
+            service.0.send(ClientMessage::ExtendSelectionTo {
+                process_id,
+                col: event.col,
+                row: event.row,
+            });
+        }
     } else if !event.pressed {
         entry.drag_active = false;
+        entry.last_extend_cell = None;
     }
 }
 

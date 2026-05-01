@@ -5,7 +5,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::net::UnixListener;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::time::MissedTickBehavior;
+
+const MAX_WAKE_EVENTS_PER_TICK: usize = 1024;
 
 /// Acquire the manager lock and run `f` against the process if it exists.
 /// Returns Some(result) when the process was found, None otherwise.
@@ -26,12 +29,23 @@ where
 
 /// Run the IPC server loop, accepting connections and dispatching messages.
 pub async fn run_server(listener: UnixListener) {
-    let manager = Arc::new(Mutex::new(ProcessManager::new()));
+    let (wake_tx, mut wake_rx) = mpsc::unbounded_channel();
+    let manager = Arc::new(Mutex::new(ProcessManager::new(wake_tx)));
 
-    // Poll processes at ~60Hz in background
+    // Poll at ~60Hz for exits, and immediately when PTY output arrives.
     let poll_mgr = Arc::clone(&manager);
     tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
         loop {
+            tokio::select! {
+                _ = interval.tick() => {}
+                Some(_) = wake_rx.recv() => {
+                    drain_pending_wakes(&mut wake_rx);
+                }
+            }
+
             {
                 let mut mgr = poll_mgr.lock().await;
                 let exited = mgr.poll_all();
@@ -39,7 +53,6 @@ pub async fn run_server(listener: UnixListener) {
                     mgr.remove_process(&id);
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
         }
     });
 
@@ -57,6 +70,14 @@ pub async fn run_server(listener: UnixListener) {
                 eprintln!("client error: {e}");
             }
         });
+    }
+}
+
+fn drain_pending_wakes(wake_rx: &mut mpsc::UnboundedReceiver<ProcessId>) {
+    for _ in 0..MAX_WAKE_EVENTS_PER_TICK {
+        if wake_rx.try_recv().is_err() {
+            break;
+        }
     }
 }
 
@@ -197,10 +218,8 @@ async fn handle_client(
             }
 
             ClientMessage::SetSelection { process_id, range } => {
-                with_process_mut(&manager, process_id, |process| {
-                    process.set_selection(range)
-                })
-                .await;
+                with_process_mut(&manager, process_id, |process| process.set_selection(range))
+                    .await;
             }
 
             ClientMessage::ExtendSelectionTo {
@@ -226,27 +245,22 @@ async fn handle_client(
             }
 
             ClientMessage::SelectLineAt { process_id, row } => {
-                with_process_mut(&manager, process_id, |process| {
-                    process.select_line_at(row)
-                })
-                .await;
+                with_process_mut(&manager, process_id, |process| process.select_line_at(row)).await;
             }
 
             ClientMessage::GetSelectionText { process_id } => {
-                let text = with_process_mut(&manager, process_id, |process| process.selection_text())
-                    .await
-                    .flatten()
-                    .unwrap_or_default();
+                let text =
+                    with_process_mut(&manager, process_id, |process| process.selection_text())
+                        .await
+                        .flatten()
+                        .unwrap_or_default();
                 let resp = ServiceMessage::SelectionText { process_id, text };
                 let mut w = writer.lock().await;
                 write_message!(&mut *w, &resp)?;
             }
 
             ClientMessage::EnterCopyMode { process_id } => {
-                with_process_mut(&manager, process_id, |process| {
-                    process.enter_copy_mode()
-                })
-                .await;
+                with_process_mut(&manager, process_id, |process| process.enter_copy_mode()).await;
             }
 
             ClientMessage::ExitCopyMode { process_id } => {
@@ -284,4 +298,23 @@ async fn handle_client(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wake_drain_leaves_excess_events_for_later_ticks() {
+        let (wake_tx, mut wake_rx) = mpsc::unbounded_channel();
+        for _ in 0..=MAX_WAKE_EVENTS_PER_TICK {
+            wake_tx
+                .send(ProcessId::new())
+                .expect("wake event should queue");
+        }
+
+        drain_pending_wakes(&mut wake_rx);
+
+        assert!(wake_rx.try_recv().is_ok());
+    }
 }

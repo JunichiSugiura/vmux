@@ -60,6 +60,7 @@ pub fn App() -> Element {
             vp.cursor = patch.cursor;
             vp.cols = patch.cols;
             vp.rows = patch.rows;
+            vp.copy_mode = patch.copy_mode;
             vp.selection = patch.selection;
         });
     });
@@ -165,6 +166,19 @@ pub fn App() -> Element {
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
             },
+
+            if vp.copy_mode {
+                {
+                    let row = vp.cursor.row.saturating_add(1);
+                    let rows = vp.rows.max(1);
+                    rsx! {
+                        div {
+                            class: "absolute right-2 top-1 z-10 rounded bg-term-fg px-1 text-xs text-term-bg",
+                            "[{row}/{rows}]"
+                        }
+                    }
+                }
+            }
 
             div {
                 style: "padding:{padding}px;",

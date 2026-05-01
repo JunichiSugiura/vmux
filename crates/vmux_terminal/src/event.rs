@@ -54,6 +54,8 @@ pub struct TermViewportEvent {
     pub rows: u16,
     pub title: Option<String>,
     #[serde(default)]
+    pub copy_mode: bool,
+    #[serde(default)]
     pub selection: Option<TermSelectionRange>,
 }
 
@@ -164,6 +166,8 @@ pub struct TermViewportPatch {
     pub cols: u16,
     pub rows: u16,
     pub selection: Option<TermSelectionRange>,
+    #[serde(default)]
+    pub copy_mode: bool,
     /// When true, changed_lines contains every row (full viewport rebuild).
     pub full: bool,
 }

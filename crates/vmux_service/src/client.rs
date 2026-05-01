@@ -5,6 +5,8 @@ use tokio::io::BufReader;
 use tokio::net::UnixStream;
 use tokio::sync::Mutex;
 
+const MAX_SERVICE_MESSAGES_PER_DRAIN: usize = 128;
+
 /// Async client connection to the vmux service.
 /// Wraps the Unix socket with framing/serialization.
 pub struct ServiceConnection {
@@ -45,6 +47,26 @@ pub struct ServiceHandle {
     _runtime: Arc<tokio::runtime::Runtime>,
 }
 
+pub type ServiceWake = Arc<dyn Fn() + Send + Sync + 'static>;
+
+fn forward_service_message(
+    msg_tx: &std::sync::mpsc::Sender<ServiceMessage>,
+    wake: Option<&ServiceWake>,
+    msg: ServiceMessage,
+) -> Result<(), std::sync::mpsc::SendError<ServiceMessage>> {
+    msg_tx.send(msg)?;
+    if let Some(wake) = wake {
+        wake();
+    }
+    Ok(())
+}
+
+fn clean_service_files(sock: &std::path::Path) {
+    let _ = std::fs::remove_file(sock);
+    let _ = std::fs::remove_file(crate::pid_path());
+    let _ = std::fs::remove_file(crate::service_identity_path());
+}
+
 impl ServiceHandle {
     /// Check if the service process is actually alive.
     pub fn service_running() -> bool {
@@ -59,7 +81,7 @@ impl ServiceHandle {
             Err(_) => {
                 // Socket exists but no PID file — stale state, clean up
                 eprintln!("vmux-service: socket exists but no PID file, cleaning up");
-                let _ = std::fs::remove_file(&sock);
+                clean_service_files(&sock);
                 return false;
             }
         };
@@ -71,8 +93,7 @@ impl ServiceHandle {
                     "vmux-service: invalid PID file content: {:?}",
                     pid_str.trim()
                 );
-                let _ = std::fs::remove_file(&sock);
-                let _ = std::fs::remove_file(&pid_file);
+                clean_service_files(&sock);
                 return false;
             }
         };
@@ -80,8 +101,30 @@ impl ServiceHandle {
         if unsafe { libc::kill(pid, 0) } != 0 {
             // Process is dead — clean up stale files
             eprintln!("vmux-service: stale service (pid {pid}) — cleaning up");
-            let _ = std::fs::remove_file(&sock);
-            let _ = std::fs::remove_file(&pid_file);
+            clean_service_files(&sock);
+            return false;
+        }
+
+        let current_identity = match crate::current_executable_identity() {
+            Ok(identity) => identity,
+            Err(e) => {
+                eprintln!("vmux-service: failed to identify current executable: {e}");
+                clean_service_files(&sock);
+                return false;
+            }
+        };
+        let service_identity_path = crate::service_identity_path();
+        let service_identity = match std::fs::read_to_string(&service_identity_path) {
+            Ok(identity) => identity,
+            Err(_) => {
+                eprintln!("vmux-service: service identity missing, cleaning up");
+                clean_service_files(&sock);
+                return false;
+            }
+        };
+        if !crate::service_identity_matches(&service_identity, &current_identity) {
+            eprintln!("vmux-service: service identity mismatch, cleaning up");
+            clean_service_files(&sock);
             return false;
         }
         true
@@ -90,6 +133,11 @@ impl ServiceHandle {
     /// Connect to the service synchronously.
     /// Returns `None` if the service is not running or connection fails.
     pub fn connect() -> Option<Self> {
+        Self::connect_with_wake(None)
+    }
+
+    /// Connect to the service synchronously, waking the owner when service messages arrive.
+    pub fn connect_with_wake(wake: Option<ServiceWake>) -> Option<Self> {
         if !Self::service_running() {
             return None;
         }
@@ -139,7 +187,7 @@ impl ServiceHandle {
                     loop {
                         match conn_r.recv().await {
                             Ok(Some(msg)) => {
-                                if msg_tx.send(msg).is_err() {
+                                if forward_service_message(&msg_tx, wake.as_ref(), msg).is_err() {
                                     break;
                                 }
                             }
@@ -178,13 +226,69 @@ impl ServiceHandle {
         let _ = self.cmd_tx.send(msg);
     }
 
-    /// Drain all available messages from the service (non-blocking).
+    /// Drain a bounded batch of service messages (non-blocking).
     pub fn drain(&self) -> Vec<ServiceMessage> {
         let rx = self.msg_rx.lock().unwrap();
-        let mut msgs = Vec::new();
-        while let Ok(msg) = rx.try_recv() {
-            msgs.push(msg);
+        drain_service_messages_bounded(&rx)
+    }
+}
+
+fn drain_service_messages_bounded(
+    rx: &std::sync::mpsc::Receiver<ServiceMessage>,
+) -> Vec<ServiceMessage> {
+    let mut msgs = Vec::with_capacity(MAX_SERVICE_MESSAGES_PER_DRAIN);
+    for _ in 0..MAX_SERVICE_MESSAGES_PER_DRAIN {
+        let Ok(msg) = rx.try_recv() else {
+            break;
+        };
+        msgs.push(msg);
+    }
+    msgs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn forwarding_service_message_wakes_consumer() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let wakes_for_callback = Arc::clone(&wakes);
+        let wake: ServiceWake = Arc::new(move || {
+            wakes_for_callback.fetch_add(1, Ordering::Relaxed);
+        });
+
+        forward_service_message(
+            &tx,
+            Some(&wake),
+            ServiceMessage::ProcessList {
+                processes: Vec::new(),
+            },
+        )
+        .expect("message should forward");
+
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ServiceMessage::ProcessList { processes }) if processes.is_empty()
+        ));
+        assert_eq!(wakes.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn service_message_drain_leaves_excess_messages_for_later_frames() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        for _ in 0..=MAX_SERVICE_MESSAGES_PER_DRAIN {
+            tx.send(ServiceMessage::ProcessList {
+                processes: Vec::new(),
+            })
+            .expect("service message should queue");
         }
-        msgs
+
+        let drained = drain_service_messages_bounded(&rx);
+
+        assert_eq!(drained.len(), MAX_SERVICE_MESSAGES_PER_DRAIN);
+        assert!(rx.try_recv().is_ok());
     }
 }

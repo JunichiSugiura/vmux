@@ -4,10 +4,16 @@ mod webview_material;
 
 pub use crate::common::*;
 use crate::system_param::pointer::WebviewPointer;
+use crate::webview::history_swipe::{
+    HistorySwipeAction, HistorySwipeOutcome, HistorySwipeState, return_history_swipe_visual,
+};
+use crate::webview::pinch_zoom::zoom_level_after_pinch;
 use crate::webview::webview_sprite::WebviewSpritePlugin;
+use bevy::input::gestures::PinchGesture;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy_cef_core::prelude::*;
+use std::time::Instant;
 pub use webview_extend_material::*;
 pub use webview_extend_standard_material::*;
 pub use webview_material::*;
@@ -30,6 +36,8 @@ impl Plugin for MeshWebviewPlugin {
             (
                 setup_observers,
                 on_mouse_wheel.run_if(on_message::<MouseWheel>),
+                on_pinch_zoom.run_if(on_message::<PinchGesture>),
+                return_history_swipe_visual,
             ),
         );
     }
@@ -96,6 +104,7 @@ fn on_pointer_released(
 }
 
 fn on_mouse_wheel(
+    mut commands: Commands,
     mut er: MessageReader<MouseWheel>,
     browsers: NonSend<Browsers>,
     pointer: WebviewPointer,
@@ -103,6 +112,7 @@ fn on_mouse_wheel(
     webviews_all: Query<Entity, (With<WebviewSource>, Or<(With<Mesh3d>, With<Mesh2d>)>)>,
     webviews_targeted: Query<Entity, (With<WebviewSource>, With<CefPointerTarget>)>,
     suppress: Res<CefSuppressPointerInput>,
+    mut history_swipe: Local<HistorySwipeState>,
 ) {
     if suppress.0 {
         for _ in er.read() {}
@@ -132,7 +142,67 @@ fn on_mouse_wheel(
                 }
                 MouseScrollUnit::Pixel => Vec2::new(event.x, event.y),
             };
-            browsers.send_mouse_wheel(&webview, pos, delta);
+            match history_swipe.record(webview, event.unit, delta, Instant::now()) {
+                HistorySwipeOutcome::PassThrough => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::default());
+                    browsers.send_mouse_wheel(&webview, pos, delta);
+                }
+                HistorySwipeOutcome::Consumed { visual } => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::from(visual));
+                }
+                HistorySwipeOutcome::Navigate { action, visual } => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::from(visual));
+                    match action {
+                        HistorySwipeAction::Back => browsers.go_back(&webview),
+                        HistorySwipeAction::Forward => browsers.go_forward(&webview),
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn on_pinch_zoom(
+    mut er: MessageReader<PinchGesture>,
+    pointer: WebviewPointer,
+    windows: Query<&Window>,
+    mut webviews_all: Query<
+        (Entity, &mut ZoomLevel),
+        (With<WebviewSource>, Or<(With<Mesh3d>, With<Mesh2d>)>),
+    >,
+    webviews_targeted: Query<Entity, (With<WebviewSource>, With<CefPointerTarget>)>,
+    suppress: Res<CefSuppressPointerInput>,
+) {
+    if suppress.0 {
+        for _ in er.read() {}
+        return;
+    }
+
+    let use_targets = webviews_targeted.iter().next().is_some();
+    for event in er.read() {
+        let Some(cursor_pos) = windows.iter().find_map(Window::cursor_position) else {
+            continue;
+        };
+        let candidates: Vec<Entity> = if use_targets {
+            webviews_targeted.iter().collect()
+        } else {
+            webviews_all.iter().map(|(entity, _)| entity).collect()
+        };
+        for webview in candidates {
+            if pointer.pointer_pos(webview, cursor_pos).is_none() {
+                continue;
+            }
+            let Ok((_, mut zoom_level)) = webviews_all.get_mut(webview) else {
+                continue;
+            };
+            zoom_level.0 = zoom_level_after_pinch(zoom_level.0, event.0 as f64);
+            break;
         }
     }
 }

@@ -2,6 +2,7 @@
 
 use dioxus::prelude::*;
 use vmux_footer::event::{FooterCommandEvent, SPACES_EVENT, SpaceRow, SpacesHostEvent};
+use vmux_footer::style::{space_close_button_class, space_pill_class};
 use vmux_ui::components::icon::Icon;
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener, use_theme};
 
@@ -16,7 +17,7 @@ pub fn App() -> Element {
     let SpacesHostEvent { spaces } = spaces_state();
 
     rsx! {
-        div { class: "flex h-full min-h-0 min-w-0 flex-1 items-center gap-1 rounded-lg px-2 text-foreground",
+        div { class: "flex h-full min-h-0 min-w-0 flex-1 items-center gap-1 rounded-lg px-1.5 text-foreground",
             if (listener.is_loading)() {
                 span { class: "text-ui text-muted-foreground", "Connecting…" }
             } else if let Some(err) = (listener.error)() {
@@ -39,23 +40,12 @@ pub fn App() -> Element {
 
 #[component]
 fn SpacePill(index: usize, space: SpaceRow) -> Element {
-    let pill_class = if space.is_active {
-        "group glass flex h-7 items-center gap-1.5 rounded-full pl-3 pr-1 text-xs text-foreground shadow-sm"
-    } else {
-        "group flex h-7 items-center gap-1.5 rounded-full pl-3 pr-1 text-xs text-muted-foreground hover:bg-glass-hover hover:text-foreground"
-    };
+    let pill_class = space_pill_class(space.is_active);
     let id_switch = space.id.clone();
     let id_close = space.id.clone();
     let name = space.name.clone();
     let is_active = space.is_active;
-    // Reserve fixed slot (h-5 w-5) on every pill so adjacent pills never
-    // shift; close button only becomes visible/interactive on hover of the
-    // active pill.
-    let close_class = if is_active {
-        "flex h-5 w-5 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-glass-hover hover:text-foreground"
-    } else {
-        "flex h-5 w-5 items-center justify-center rounded-full pointer-events-none invisible"
-    };
+    let close_class = space_close_button_class(is_active);
     rsx! {
         div { class: pill_class,
             button {
@@ -68,7 +58,7 @@ fn SpacePill(index: usize, space: SpaceRow) -> Element {
                         space_id: Some(id_switch.clone()),
                     });
                 },
-                span { class: "font-mono text-muted-foreground", "{index}" }
+                span { class: if is_active { "font-mono text-sidebar-primary-foreground" } else { "font-mono text-muted-foreground" }, "{index}" }
                 span { class: "min-w-0 truncate", "{name}" }
             }
             button {
@@ -76,17 +66,14 @@ fn SpacePill(index: usize, space: SpaceRow) -> Element {
                 aria_label: "Close space",
                 title: "Close space",
                 class: close_class,
-                tabindex: if is_active { "0" } else { "-1" },
                 onclick: move |evt| {
                     evt.stop_propagation();
-                    if is_active {
-                        let _ = try_cef_emit_serde(&FooterCommandEvent {
-                            command: "close".to_string(),
-                            space_id: Some(id_close.clone()),
-                        });
-                    }
+                    let _ = try_cef_emit_serde(&FooterCommandEvent {
+                        command: "close".to_string(),
+                        space_id: Some(id_close.clone()),
+                    });
                 },
-                Icon { class: "h-3 w-3",
+                Icon { class: "h-2.5 w-2.5",
                     path { d: "M18 6 6 18" }
                     path { d: "m6 6 12 12" }
                 }
@@ -102,14 +89,14 @@ fn NewSpaceButton() -> Element {
             r#type: "button",
             aria_label: "New space",
             title: "New space",
-            class: "flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-glass-hover hover:text-foreground active:bg-glass-active active:text-foreground",
+            class: "flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-glass-hover hover:text-foreground active:bg-glass-active active:text-foreground",
             onclick: move |_| {
                 let _ = try_cef_emit_serde(&FooterCommandEvent {
                     command: "new".to_string(),
                     space_id: None,
                 });
             },
-            Icon { class: "h-4 w-4",
+            Icon { class: "h-3.5 w-3.5",
                 path { d: "M12 5v14" }
                 path { d: "M5 12h14" }
             }

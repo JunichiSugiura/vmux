@@ -7,7 +7,7 @@ use winit::event_loop::EventLoopProxy;
 
 pub type WakeProxy = EventLoopProxy<bevy_winit::WinitUserEvent>;
 
-const WAKE_MIN_INTERVAL: Duration = Duration::from_millis(33);
+const WAKE_MIN_INTERVAL: Duration = Duration::from_millis(16);
 
 /// ## Reference
 ///
@@ -56,6 +56,17 @@ fn spawn_wake_throttler(proxy: WakeProxy) -> Sender<()> {
         })
         .expect("failed to spawn cef-wake-throttle thread");
     tx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cef_wake_throttle_caps_foreground_work_to_60hz() {
+        assert!(WAKE_MIN_INTERVAL >= Duration::from_millis(16));
+        assert!(WAKE_MIN_INTERVAL <= Duration::from_millis(17));
+    }
 }
 
 impl Rc for BrowserProcessHandlerBuilder {

@@ -70,7 +70,7 @@ extern "C" fn sigint_handler(_: libc::c_int) {
 /// Run the vmux service (persistent terminal process manager).
 /// Invoked via `vmux service` or `Vmux service`.
 fn run_service() {
-    use vmux_service::{pid_path, service_dir, socket_path};
+    use vmux_service::{pid_path, service_dir, service_identity_path, socket_path};
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -83,6 +83,7 @@ fn run_service() {
 
         let pid = std::process::id();
         std::fs::write(pid_path(), pid.to_string()).expect("failed to write PID file");
+        vmux_service::write_service_identity().expect("failed to write service identity file");
 
         let sock = socket_path();
         let _ = std::fs::remove_file(&sock);
@@ -96,6 +97,7 @@ fn run_service() {
             tokio::signal::ctrl_c().await.ok();
             let _ = std::fs::remove_file(&sock_cleanup);
             let _ = std::fs::remove_file(pid_path());
+            let _ = std::fs::remove_file(service_identity_path());
             std::process::exit(0);
         });
 

@@ -11,6 +11,7 @@ impl Plugin for WebviewCoreComponentsPlugin {
             .register_type::<WebviewSize>()
             .register_type::<WebviewSource>()
             .register_type::<CefKeyboardTarget>()
+            .register_type::<HistorySwipeVisualOffset>()
             .register_type::<HostWindow>()
             .register_type::<ZoomLevel>()
             .register_type::<AudioMuted>()
@@ -183,6 +184,14 @@ pub struct WebviewSurface(pub Handle<Image>);
 #[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct CefPointerTarget;
+
+/// Transient browser-surface offset used while a horizontal history swipe is in progress.
+#[derive(Reflect, Component, Debug, Copy, Clone, PartialEq, Default)]
+#[reflect(Component, Debug, Default)]
+pub struct HistorySwipeVisualOffset {
+    pub offset_px: f32,
+    pub progress: f32,
+}
 
 /// Marker: CEF renders with a fully transparent background (`0x00000000`).
 ///

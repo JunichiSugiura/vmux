@@ -1,9 +1,16 @@
-use crate::common::{CefSuppressPointerInput, WebviewSize, WebviewSource};
+use crate::common::{
+    CefPointerTarget, CefSuppressPointerInput, HistorySwipeVisualOffset, WebviewSize,
+    WebviewSource, ZoomLevel,
+};
 use crate::prelude::update_webview_image;
+use crate::webview::history_swipe::{HistorySwipeAction, HistorySwipeOutcome, HistorySwipeState};
+use crate::webview::pinch_zoom::zoom_level_after_pinch;
+use bevy::input::gestures::PinchGesture;
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 use bevy_cef_core::prelude::{Browsers, RenderTextureMessage};
 use std::fmt::Debug;
+use std::time::Instant;
 
 pub(in crate::webview) struct WebviewSpritePlugin;
 
@@ -18,6 +25,7 @@ impl Plugin for WebviewSpritePlugin {
             (
                 setup_observers,
                 on_mouse_wheel.run_if(on_message::<MouseWheel>),
+                on_pinch_zoom.run_if(on_message::<PinchGesture>),
             ),
         )
         .add_systems(
@@ -104,12 +112,14 @@ fn apply_on_pointer_released(
 }
 
 fn on_mouse_wheel(
+    mut commands: Commands,
     mut er: MessageReader<MouseWheel>,
     browsers: NonSend<Browsers>,
     webviews: Query<(Entity, &Sprite, &WebviewSize, &GlobalTransform)>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     windows: Query<&Window>,
     suppress: Res<CefSuppressPointerInput>,
+    mut history_swipe: Local<HistorySwipeState>,
 ) {
     if suppress.0 {
         for _ in er.read() {}
@@ -135,7 +145,65 @@ fn on_mouse_wheel(
                 }
                 MouseScrollUnit::Pixel => Vec2::new(event.x, event.y),
             };
-            browsers.send_mouse_wheel(&webview, pos, delta);
+            match history_swipe.record(webview, event.unit, delta, Instant::now()) {
+                HistorySwipeOutcome::PassThrough => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::default());
+                    browsers.send_mouse_wheel(&webview, pos, delta);
+                }
+                HistorySwipeOutcome::Consumed { visual } => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::from(visual));
+                }
+                HistorySwipeOutcome::Navigate { action, visual } => {
+                    commands
+                        .entity(webview)
+                        .insert(HistorySwipeVisualOffset::from(visual));
+                    match action {
+                        HistorySwipeAction::Back => browsers.go_back(&webview),
+                        HistorySwipeAction::Forward => browsers.go_forward(&webview),
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn on_pinch_zoom(
+    mut er: MessageReader<PinchGesture>,
+    mut webviews: Query<(
+        Entity,
+        &Sprite,
+        &WebviewSize,
+        &GlobalTransform,
+        &mut ZoomLevel,
+        Has<CefPointerTarget>,
+    )>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    windows: Query<&Window>,
+    suppress: Res<CefSuppressPointerInput>,
+) {
+    if suppress.0 {
+        for _ in er.read() {}
+        return;
+    }
+
+    let use_targets = webviews.iter().any(|(_, _, _, _, _, targeted)| targeted);
+    for event in er.read() {
+        let Some(cursor_pos) = windows.iter().find_map(Window::cursor_position) else {
+            continue;
+        };
+        for (_, sprite, webview_size, gtf, mut zoom_level, targeted) in webviews.iter_mut() {
+            if use_targets && !targeted {
+                continue;
+            }
+            if obtain_relative_pos(sprite, webview_size, gtf, &cameras, cursor_pos).is_none() {
+                continue;
+            }
+            zoom_level.0 = zoom_level_after_pinch(zoom_level.0, event.0 as f64);
+            break;
         }
     }
 }

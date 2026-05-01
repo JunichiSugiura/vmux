@@ -74,15 +74,3 @@
     min-height: 0;
   }
 }
-
-@keyframes blink {
-  0%,
-  100% {
-    background: var(--term-cursor);
-    color: var(--term-bg);
-  }
-  50% {
-    background: transparent;
-    color: inherit;
-  }
-}

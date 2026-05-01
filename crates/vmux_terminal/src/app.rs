@@ -5,6 +5,10 @@ use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use unicode_width::UnicodeWidthChar;
 use vmux_terminal::event::*;
+use vmux_terminal::render_model::{
+    cursor_cell_style, span_background_overlay, span_classes, span_inline_style,
+    span_looks_like_suggestion,
+};
 use vmux_ui::cef_bridge::try_cef_emit_keyed;
 use vmux_ui::hooks::{use_event_listener, use_theme};
 use wasm_bindgen::JsCast;
@@ -33,42 +37,73 @@ const MEASURE_ID: &str = "term-measure";
 #[component]
 pub fn App() -> Element {
     use_theme();
-    let mut viewport = use_signal(TermViewportEvent::default);
+    let mut rows = use_signal(Vec::<Signal<TermLine>>::new);
+    let mut cursor_rows = use_signal(Vec::<Signal<Option<TermCursor>>>::new);
+    let mut cols = use_signal(|| 0u16);
+    let mut cursor = use_signal(|| None::<TermCursor>);
+    let mut selection = use_signal(|| None::<TermSelectionRange>);
     let mut theme = use_signal(|| None::<TermThemeEvent>);
 
     let _listener = use_event_listener::<TermViewportPatch, _>(TERM_VIEWPORT_EVENT, move |patch| {
-        viewport.with_mut(|vp| {
-            // On full sync or dimension change, rebuild entire viewport.
-            if patch.full || vp.cols != patch.cols || vp.rows != patch.rows {
-                vp.lines.clear();
-                vp.lines.resize(patch.rows as usize, TermLine::default());
-            }
+        let current_cols = *cols.peek();
+        let current_rows = rows.peek().len() as u16;
+        if patch.requires_row_rebuild(current_cols, current_rows) {
+            resize_row_signals(&mut rows, patch.rows as usize);
+            resize_cursor_row_signals(&mut cursor_rows, patch.rows as usize);
+        }
 
-            // Ensure lines vec is large enough.
-            if vp.lines.len() < patch.rows as usize {
-                vp.lines.resize(patch.rows as usize, TermLine::default());
-            }
-
-            // Apply changed lines.
-            for (row_idx, line) in patch.changed_lines {
-                let idx = row_idx as usize;
-                if idx < vp.lines.len() {
-                    vp.lines[idx] = line;
-                }
-            }
-
-            vp.cursor = patch.cursor;
-            vp.cols = patch.cols;
-            vp.rows = patch.rows;
-            vp.selection = patch.selection;
+        let targets = rows.with_peek(|row_signals| {
+            patch
+                .changed_lines
+                .iter()
+                .filter_map(|(row_idx, line)| {
+                    row_signals
+                        .get(*row_idx as usize)
+                        .copied()
+                        .map(|row| (row, line.clone()))
+                })
+                .collect::<Vec<_>>()
         });
+        for (mut row, line) in targets {
+            if *row.peek() != line {
+                row.set(line);
+            }
+        }
+
+        if cursor.peek().as_ref() != Some(&patch.cursor) {
+            let next_cursor = patch.cursor.clone();
+            let update = cursor_row_update(cursor.peek().as_ref(), &next_cursor);
+            let targets = cursor_rows.with_peek(|row_signals| CursorRowSignalUpdate {
+                clear: update
+                    .clear
+                    .and_then(|row| row_signals.get(row as usize).copied()),
+                set: update
+                    .set
+                    .and_then(|row| row_signals.get(row as usize).copied()),
+            });
+            if let Some(mut clear) = targets.clear
+                && clear.peek().is_some()
+            {
+                clear.set(None);
+            }
+            if let Some(mut set) = targets.set
+                && *set.peek() != Some(next_cursor.clone())
+            {
+                set.set(Some(next_cursor.clone()));
+            }
+            cursor.set(Some(next_cursor));
+        }
+        if *cols.peek() != patch.cols {
+            cols.set(patch.cols);
+        }
+        if *selection.peek() != patch.selection {
+            selection.set(patch.selection);
+        }
     });
 
     let _theme_listener = use_event_listener::<TermThemeEvent, _>(TERM_THEME_EVENT, move |data| {
         theme.set(Some(data));
     });
-
-    let vp = viewport();
 
     // Cell dimensions (char_width, char_height), updated by resize observer.
     let cell_dims = use_signal(|| (0.0f64, 0.0f64));
@@ -113,10 +148,6 @@ pub fn App() -> Element {
     };
 
     let padding = theme().map(|t| t.padding).unwrap_or(4.0) as f64;
-    let cursor_blink = theme().map(|t| t.cursor_blink).unwrap_or(true);
-    let cursor_style = theme()
-        .map(|t| t.cursor_style.clone())
-        .unwrap_or_else(|| "block".into());
 
     // Include measured cell dimensions as CSS custom properties so they
     // survive Dioxus style re-renders and are available for row height,
@@ -168,61 +199,101 @@ pub fn App() -> Element {
 
             div {
                 style: "padding:{padding}px;",
-                for (row_idx , line) in vp.lines.iter().enumerate() {
+                div {
+                    class: "relative",
                     {
-                        // Hash span attributes so Dioxus detects row changes
-                        // (class/style diffs on keyed children can be missed).
-                        let sel_hash = selection_row_hash(&vp.selection, row_idx);
-                        let row_hash = line.spans.iter().fold(sel_hash, |h, s| {
-                            let mut h = h;
-                            // Hash text content so scrolling / text changes invalidate the row
-                            for b in s.text.bytes() {
-                                h = h.wrapping_mul(31).wrapping_add(b as u64);
-                            }
-                            h = h
-                                .wrapping_mul(31)
-                                .wrapping_add(s.col as u64)
-                                .wrapping_mul(31)
-                                .wrapping_add(s.grid_cols as u64)
-                                .wrapping_mul(31)
-                                .wrapping_add(s.flags as u64)
-                                .wrapping_mul(31)
-                                .wrapping_add(match s.fg {
-                                    TermColor::Default => 0,
-                                    TermColor::Indexed(i) => i as u64 + 1,
-                                    TermColor::Rgb(r,g,b) => ((r as u64) << 16) | ((g as u64) << 8) | b as u64,
-                                })
-                                .wrapping_mul(31)
-                                .wrapping_add(match s.bg {
-                                    TermColor::Default => 0,
-                                    TermColor::Indexed(i) => i as u64 + 1,
-                                    TermColor::Rgb(r,g,b) => ((r as u64) << 16) | ((g as u64) << 8) | b as u64,
-                                });
-                            h
-                        });
-                        let sel_range = row_selection_cols(&vp.selection, row_idx, vp.cols);
-                        {
-                        let is_cursor_row = row_idx == vp.cursor.row as usize && vp.cursor.visible;
-                        let cursor_col = vp.cursor.col as u16;
+                        let row_signals = rows();
+                        let cursor_signals = cursor_rows();
                         rsx! {
-                    div {
-                        key: "{row_idx}-{row_hash}",
-                        class: "relative whitespace-pre",
-                        style: "height: var(--ch, 1.2em);",
-                        for (span_idx , span) in line.spans.iter().enumerate() {
-                            {render_span(span, span_idx, is_cursor_row, cursor_col, &vp.cursor.ch, &cursor_style, cursor_blink)}
-                        }
-                        // Selection highlight overlay
-                        if let Some((sel_start, sel_end)) = sel_range {
-                            div {
-                                class: "absolute top-0 bottom-0 pointer-events-none",
-                                style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});background:rgba(255,255,255,0.25);",
+                            for (row_idx, line) in row_signals.iter().copied().enumerate() {
+                                if let Some(row_cursor) = cursor_signals.get(row_idx).copied() {
+                                    TerminalRow {
+                                        key: "{row_idx}",
+                                        row_idx,
+                                        line,
+                                        cursor: row_cursor,
+                                        selection,
+                                        cols,
+                                        theme,
+                                    }
+                                }
                             }
                         }
                     }
-                        }
-                        }
+                }
+            }
+        }
+    }
+}
+
+fn resize_row_signals(rows: &mut Signal<Vec<Signal<TermLine>>>, target_len: usize) {
+    rows.with_mut(|row_signals| {
+        let current_len = row_signals.len();
+        if current_len < target_len {
+            row_signals.extend((current_len..target_len).map(|_| Signal::new(TermLine::default())));
+        } else if current_len > target_len {
+            row_signals.truncate(target_len);
+        }
+    });
+}
+
+fn resize_cursor_row_signals(
+    cursor_rows: &mut Signal<Vec<Signal<Option<TermCursor>>>>,
+    target_len: usize,
+) {
+    cursor_rows.with_mut(|row_signals| {
+        let current_len = row_signals.len();
+        if current_len < target_len {
+            row_signals.extend((current_len..target_len).map(|_| Signal::new(None)));
+        } else if current_len > target_len {
+            row_signals.truncate(target_len);
+        }
+    });
+}
+
+struct CursorRowSignalUpdate {
+    clear: Option<Signal<Option<TermCursor>>>,
+    set: Option<Signal<Option<TermCursor>>>,
+}
+
+#[component]
+fn TerminalRow(
+    row_idx: usize,
+    line: Signal<TermLine>,
+    cursor: Signal<Option<TermCursor>>,
+    selection: Signal<Option<TermSelectionRange>>,
+    cols: Signal<u16>,
+    theme: Signal<Option<TermThemeEvent>>,
+) -> Element {
+    let line = line();
+    let cursor = cursor();
+    let selected_cols = row_selection_cols(&selection(), row_idx, cols());
+    let theme = theme();
+    let cursor_style = theme
+        .as_ref()
+        .map(|theme| theme.cursor_style.as_str())
+        .unwrap_or("block");
+
+    rsx! {
+        div {
+            class: "relative isolate whitespace-pre",
+            style: "height: var(--ch, 1.2em);",
+            for (span_idx, span) in line.spans.iter().enumerate() {
+                if let Some(background) = span_background_overlay(span) {
+                    div {
+                        key: "bg-{span_idx}",
+                        class: "{background.class}",
+                        style: "{background.style}",
                     }
+                }
+            }
+            for (span_idx, span) in line.spans.iter().enumerate() {
+                {render_span(span, span_idx, cursor.as_ref(), cursor_style)}
+            }
+            if let Some((sel_start, sel_end)) = selected_cols {
+                div {
+                    class: "absolute top-0 bottom-0 pointer-events-none",
+                    style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});background:rgba(255,255,255,0.25);",
                 }
             }
         }
@@ -430,152 +501,90 @@ fn emit_mouse(button: u8, col: u16, row: u16, modifiers: u8, pressed: bool, movi
 // Span rendering
 // ---------------------------------------------------------------------------
 
-fn span_classes(span: &TermSpan) -> String {
-    let mut classes = Vec::new();
-
-    let (fg, bg) = if span.flags & FLAG_INVERSE != 0 {
-        (&span.bg, &span.fg)
-    } else {
-        (&span.fg, &span.bg)
-    };
-
-    match fg {
-        TermColor::Default => {
-            if span.flags & FLAG_INVERSE != 0 {
-                classes.push("text-term-bg".into());
-            }
-        }
-        TermColor::Indexed(i) => classes.push(format!("text-ansi-{i}")),
-        TermColor::Rgb(..) => {}
-    }
-
-    match bg {
-        TermColor::Default => {
-            if span.flags & FLAG_INVERSE != 0 {
-                classes.push("bg-term-fg".into());
-            }
-        }
-        TermColor::Indexed(i) => classes.push(format!("bg-ansi-{i}")),
-        TermColor::Rgb(..) => {}
-    }
-
-    if span.flags & FLAG_BOLD != 0 {
-        classes.push("font-bold".into());
-    }
-    if span.flags & FLAG_ITALIC != 0 {
-        classes.push("italic".into());
-    }
-    if span.flags & FLAG_UNDERLINE != 0 {
-        classes.push("underline".into());
-    }
-    if span.flags & FLAG_STRIKETHROUGH != 0 {
-        classes.push("line-through".into());
-    }
-    if span.flags & FLAG_DIM != 0 {
-        classes.push("opacity-50".into());
-    }
-
-    classes.join(" ")
-}
-
-fn span_inline_style(span: &TermSpan) -> String {
-    let mut parts = Vec::new();
-
-    let (fg, bg) = if span.flags & FLAG_INVERSE != 0 {
-        (&span.bg, &span.fg)
-    } else {
-        (&span.fg, &span.bg)
-    };
-
-    if let TermColor::Rgb(r, g, b) = fg {
-        parts.push(format!("color:rgb({r},{g},{b})"));
-    }
-    if let TermColor::Rgb(r, g, b) = bg {
-        parts.push(format!("background:rgb({r},{g},{b})"));
-    }
-
-    parts.join(";")
-}
-
-/// Render a span, splitting it at the cursor position if the cursor falls within.
 fn render_span(
     span: &TermSpan,
     span_idx: usize,
-    is_cursor_row: bool,
-    cursor_col: u16,
-    cursor_ch: &str,
+    cursor: Option<&TermCursor>,
     cursor_style: &str,
-    cursor_blink: bool,
 ) -> Element {
     let classes = span_classes(span);
     let style = span_inline_style(span);
 
-    // Check if cursor falls within this span.
-    // Use grid_cols (accounts for wide chars) with fallback to char count.
-    let span_end_col = if span.grid_cols > 0 {
-        span.col + span.grid_cols
-    } else {
-        span.col + span.text.chars().count() as u16
-    };
-    if is_cursor_row && cursor_col >= span.col && cursor_col < span_end_col {
-        // Map grid column to char index, accounting for wide characters.
-        let target_grid_col = cursor_col - span.col;
-        let mut offset = 0usize;
-        let mut grid_col_acc: u16 = 0;
-        for (i, ch) in span.text.chars().enumerate() {
-            if grid_col_acc >= target_grid_col {
-                offset = i;
-                break;
-            }
-            grid_col_acc += ch.width().unwrap_or(1) as u16;
-            offset = i + 1;
-        }
-        let chars: Vec<char> = span.text.chars().collect();
-        let before: String = chars[..offset].iter().collect();
-        let after: String = chars[offset + 1..].iter().collect();
-
-        let blink_css = if cursor_blink {
-            "animation:blink 1s step-end infinite;"
+    if let Some(cursor) = cursor
+        && cursor.visible
+        && span_contains_col(span, cursor.col)
+    {
+        let offset = span_char_offset_for_col(span, cursor.col);
+        let chars = span.text.chars().collect::<Vec<_>>();
+        let before = chars[..offset.min(chars.len())].iter().collect::<String>();
+        let after = chars
+            .get(offset.saturating_add(1)..)
+            .unwrap_or(&[])
+            .iter()
+            .collect::<String>();
+        let cursor_ch = if cursor.ch.is_empty() {
+            " ".to_string()
         } else {
-            ""
+            cursor.ch.clone()
         };
-        let (cursor_cls, color_css) = match cursor_style {
-            "underline" => ("border-b-2 border-term-cursor", ""),
-            "bar" => ("border-l-2 border-term-cursor", ""),
-            _ => ("bg-term-cursor", "color:var(--term-bg);"),
-        };
+        let suggestion = span_looks_like_suggestion(span);
+        let (cursor_classes, cursor_style_attr) =
+            cursor_cell_style(&classes, &style, cursor_style, suggestion);
 
-        rsx! {
+        return rsx! {
             if !before.is_empty() {
                 span {
-                    class: "{classes}",
+                    class: "relative z-[1] {classes}",
                     style: "{style}",
                     "{before}"
                 }
             }
             span {
-                class: "{cursor_cls}",
-                style: "{color_css}{blink_css}",
+                class: "relative z-[1] {cursor_classes}",
+                style: "{cursor_style_attr}",
                 "{cursor_ch}"
             }
             if !after.is_empty() {
                 span {
-                    class: "{classes}",
+                    class: "relative z-[1] {classes}",
                     style: "{style}",
                     "{after}"
                 }
             }
-        }
-    } else {
-        rsx! {
-            span {
-                key: "{span_idx}",
-                class: "{classes}",
-                style: "{style}",
-                "{span.text}"
-            }
+        };
+    }
+
+    rsx! {
+        span {
+            key: "{span_idx}",
+            class: "relative z-[1] {classes}",
+            style: "{style}",
+            "{span.text}"
         }
     }
+}
+
+fn span_contains_col(span: &TermSpan, col: u16) -> bool {
+    let end_col = if span.grid_cols > 0 {
+        span.col + span.grid_cols
+    } else {
+        span.col + span.text.chars().count() as u16
+    };
+    col >= span.col && col < end_col
+}
+
+fn span_char_offset_for_col(span: &TermSpan, col: u16) -> usize {
+    let target_grid_col = col.saturating_sub(span.col);
+    let mut offset = 0usize;
+    let mut grid_col_acc = 0u16;
+    for (i, ch) in span.text.chars().enumerate() {
+        if grid_col_acc >= target_grid_col {
+            return i;
+        }
+        grid_col_acc += ch.width().unwrap_or(1) as u16;
+        offset = i + 1;
+    }
+    offset
 }
 
 /// Compute the selected column range for a given row, if any.
@@ -605,18 +614,5 @@ fn row_selection_cols(
     } else {
         // Middle line -- fully selected
         Some((0, total_cols as usize))
-    }
-}
-
-/// Hash contribution from selection state for a given row, so Dioxus detects
-/// selection changes even when the text content hasn't changed.
-fn selection_row_hash(selection: &Option<TermSelectionRange>, row_idx: usize) -> u64 {
-    match row_selection_cols(selection, row_idx, u16::MAX) {
-        Some((start, end)) => (start as u64)
-            .wrapping_mul(997)
-            .wrapping_add(end as u64)
-            .wrapping_mul(991)
-            .wrapping_add(1),
-        None => 0,
     }
 }

@@ -106,7 +106,7 @@ fn TabRow(tab: TabNode, pane_id: u64) -> Element {
     rsx! {
         div {
             class: if is_active {
-                "group flex cursor-default items-center gap-2 rounded-md bg-glass px-2 py-1.5 border border-glass-border"
+                "glass group flex cursor-default items-center gap-2 rounded-md px-2 py-1.5"
             } else {
                 "group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-muted-foreground hover:bg-glass-hover hover:text-foreground"
             },

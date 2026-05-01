@@ -14,6 +14,7 @@ impl Plugin for SettingsPlugin {
 
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct AppSettings {
+    #[allow(dead_code)]
     pub browser: BrowserSettings,
     pub layout: LayoutSettings,
     #[serde(default)]
@@ -143,6 +144,7 @@ impl KeyComboDef {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BrowserSettings {
+    #[allow(dead_code)]
     pub startup_url: String,
 }
 

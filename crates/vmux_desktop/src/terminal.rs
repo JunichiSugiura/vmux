@@ -19,7 +19,7 @@ use bevy_cef::prelude::*;
 use vmux_header::PageMetadata;
 use vmux_history::LastActivatedAt;
 use vmux_service::{
-    client::ServiceHandle,
+    client::{ServiceHandle, ServiceWake},
     protocol::{ClientMessage, ProcessId, ServiceMessage},
 };
 use vmux_terminal::event::*;
@@ -108,6 +108,9 @@ pub(crate) struct ServiceProcessHandle {
 #[derive(Resource)]
 pub(crate) struct ServiceClient(pub ServiceHandle);
 
+#[derive(Resource, Clone)]
+struct ServiceWakeCallback(Option<ServiceWake>);
+
 /// Triggered to restart the terminal process for a terminal entity.
 #[derive(Event)]
 pub(crate) struct RestartPty {
@@ -126,8 +129,9 @@ pub(crate) struct TerminalInputPlugin;
 
 impl Plugin for TerminalInputPlugin {
     fn build(&self, app: &mut App) {
+        let service_wake = service_wake_callback(app);
         // Try to connect to an already-running service first.
-        if let Some(handle) = ServiceHandle::connect() {
+        if let Some(handle) = ServiceHandle::connect_with_wake(service_wake.clone()) {
             eprintln!("vmux: connected to existing service");
             app.insert_resource(ServiceClient(handle));
         } else {
@@ -138,6 +142,7 @@ impl Plugin for TerminalInputPlugin {
                 timer: Timer::from_seconds(0.05, TimerMode::Repeating),
             });
         }
+        app.insert_resource(ServiceWakeCallback(service_wake));
 
         app.init_resource::<MouseSelectionState>()
             .add_plugins(JsEmitEventPlugin::<TermResizeEvent>::default())
@@ -164,6 +169,17 @@ impl Plugin for TerminalInputPlugin {
             .add_observer(on_term_mouse)
             .add_observer(on_restart_pty);
     }
+}
+
+fn service_wake_callback(app: &App) -> Option<ServiceWake> {
+    app.world()
+        .get_resource::<bevy::winit::EventLoopProxyWrapper>()
+        .map(|wrapper| {
+            let proxy = (**wrapper).clone();
+            std::sync::Arc::new(move || {
+                let _ = proxy.send_event(bevy::winit::WinitUserEvent::WakeUp);
+            }) as ServiceWake
+        })
 }
 
 impl Terminal {
@@ -363,6 +379,7 @@ fn try_connect_service(
     mut retry: ResMut<ServiceConnectRetry>,
     time: Res<Time>,
     mut commands: Commands,
+    wake: Res<ServiceWakeCallback>,
 ) {
     retry.timer.tick(time.delta());
     if !retry.timer.just_finished() {
@@ -382,7 +399,7 @@ fn try_connect_service(
     }
 
     // Try to connect
-    match ServiceHandle::connect() {
+    match ServiceHandle::connect_with_wake(wake.0.clone()) {
         Some(handle) => {
             eprintln!("vmux: connected to service after retry");
             commands.insert_resource(ServiceClient(handle));
@@ -596,12 +613,27 @@ fn is_non_character_key(key: KeyCode) -> bool {
 /// Handle keyboard input directly from Bevy, bypassing CEF round-trip.
 fn handle_terminal_keyboard(
     mut er: MessageReader<KeyboardInput>,
-    q: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    targeted_terminals: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    keyboard_targets: Query<(), With<CefKeyboardTarget>>,
+    terminals: Query<(&ServiceProcessHandle, &ChildOf), (With<Terminal>, Without<ProcessExited>)>,
+    focus: Res<crate::layout::tab::FocusedTab>,
+    mode: Res<crate::scene::InteractionMode>,
     input: Res<ButtonInput<KeyCode>>,
     chord_state: Res<crate::shortcut::ChordState>,
     service: Option<Res<ServiceClient>>,
 ) {
-    if q.is_empty() {
+    let target_processes = resolve_terminal_input_targets(
+        targeted_terminals.iter().map(|handle| handle.process_id),
+        !keyboard_targets.is_empty(),
+        focus.tab,
+        terminals
+            .iter()
+            .map(|(handle, child_of)| (child_of.get(), handle.process_id)),
+        *mode,
+    );
+
+    if target_processes.is_empty() {
+        for _ in er.read() {}
         return;
     }
     let Some(service) = service else {
@@ -646,9 +678,9 @@ fn handle_terminal_keyboard(
                             data.extend_from_slice(b"\x1b[200~");
                             data.extend_from_slice(text.as_bytes());
                             data.extend_from_slice(b"\x1b[201~");
-                            for handle in &q {
+                            for process_id in &target_processes {
                                 service.0.send(ClientMessage::ProcessInput {
-                                    process_id: handle.process_id,
+                                    process_id: *process_id,
                                     data: data.clone(),
                                 });
                             }
@@ -686,13 +718,36 @@ fn handle_terminal_keyboard(
         if bytes.is_empty() {
             continue;
         }
-        for handle in &q {
+        for process_id in &target_processes {
             service.0.send(ClientMessage::ProcessInput {
-                process_id: handle.process_id,
+                process_id: *process_id,
                 data: bytes.clone(),
             });
         }
     }
+}
+
+fn resolve_terminal_input_targets(
+    targeted_terminal_ids: impl IntoIterator<Item = ProcessId>,
+    any_keyboard_target_active: bool,
+    focused_tab: Option<Entity>,
+    terminal_ids_by_tab: impl IntoIterator<Item = (Entity, ProcessId)>,
+    mode: crate::scene::InteractionMode,
+) -> Vec<ProcessId> {
+    let targeted: Vec<ProcessId> = targeted_terminal_ids.into_iter().collect();
+    if !targeted.is_empty() {
+        return targeted;
+    }
+    if any_keyboard_target_active || mode != crate::scene::InteractionMode::User {
+        return Vec::new();
+    }
+    let Some(focused_tab) = focused_tab else {
+        return Vec::new();
+    };
+    terminal_ids_by_tab
+        .into_iter()
+        .filter_map(|(tab, process_id)| (tab == focused_tab).then_some(process_id))
+        .collect()
 }
 
 fn logical_key_to_bytes(key: &Key, ctrl: bool, alt: bool) -> Vec<u8> {
@@ -756,10 +811,25 @@ fn logical_key_to_bytes(key: &Key, ctrl: bool, alt: bool) -> Vec<u8> {
 /// Handle mouse wheel scrolling — sends scroll input to service.
 fn handle_terminal_scroll(
     mut er: MessageReader<MouseWheel>,
-    q: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    targeted_terminals: Query<&ServiceProcessHandle, (With<Terminal>, With<CefKeyboardTarget>)>,
+    keyboard_targets: Query<(), With<CefKeyboardTarget>>,
+    terminals: Query<(&ServiceProcessHandle, &ChildOf), (With<Terminal>, Without<ProcessExited>)>,
+    focus: Res<crate::layout::tab::FocusedTab>,
+    mode: Res<crate::scene::InteractionMode>,
     service: Option<Res<ServiceClient>>,
 ) {
-    if q.is_empty() {
+    let target_processes = resolve_terminal_input_targets(
+        targeted_terminals.iter().map(|handle| handle.process_id),
+        !keyboard_targets.is_empty(),
+        focus.tab,
+        terminals
+            .iter()
+            .map(|(handle, child_of)| (child_of.get(), handle.process_id)),
+        *mode,
+    );
+
+    if target_processes.is_empty() {
+        for _ in er.read() {}
         return;
     }
     let Some(service) = service else {
@@ -778,10 +848,10 @@ fn handle_terminal_scroll(
         let button: u8 = if lines < 0 { 64 } else { 65 };
         let count = lines.unsigned_abs();
         let seq = sgr_mouse_sequence(button, 0, 0, 0, true);
-        for handle in &q {
+        for process_id in &target_processes {
             for _ in 0..count {
                 service.0.send(ClientMessage::ProcessInput {
-                    process_id: handle.process_id,
+                    process_id: *process_id,
                     data: seq.clone(),
                 });
             }
@@ -998,4 +1068,44 @@ fn on_restart_pty(
     handle.process_id = new_id;
     meta.url = format!("{}{}", TERMINAL_WEBVIEW_URL, new_id);
     meta.title = format!("Terminal ({})", &new_id.to_string()[..8]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process_id(byte: u8) -> ProcessId {
+        ProcessId([byte; 16])
+    }
+
+    #[test]
+    fn terminal_input_targets_fallback_to_focused_terminal_in_user_mode() {
+        let tab = Entity::from_bits(1);
+        let process_id = process_id(7);
+
+        let targets = resolve_terminal_input_targets(
+            [],
+            false,
+            Some(tab),
+            [(tab, process_id)],
+            crate::scene::InteractionMode::User,
+        );
+
+        assert_eq!(targets, vec![process_id]);
+    }
+
+    #[test]
+    fn terminal_input_targets_do_not_steal_input_from_non_terminal_target() {
+        let tab = Entity::from_bits(1);
+
+        let targets = resolve_terminal_input_targets(
+            [],
+            true,
+            Some(tab),
+            [(tab, process_id(7))],
+            crate::scene::InteractionMode::User,
+        );
+
+        assert!(targets.is_empty());
+    }
 }

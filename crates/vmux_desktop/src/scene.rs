@@ -485,3 +485,51 @@ pub(crate) fn frame_main_camera_transform(
 
     Transform::from_xyz(center.x, center.y, center.z + dist).looking_at(center, Vec3::Y)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{
+        AppSettings, BrowserSettings, FocusRingSettings, LayoutSettings, PaneSettings,
+        ShortcutSettings, SideSheetSettings, WindowSettings,
+    };
+
+    fn settings_with_padding(
+        padding: f32,
+        top: Option<f32>,
+        right: Option<f32>,
+        bottom: Option<f32>,
+        left: Option<f32>,
+    ) -> AppSettings {
+        AppSettings {
+            browser: BrowserSettings {
+                startup_url: "about:blank".to_string(),
+            },
+            layout: LayoutSettings {
+                window: WindowSettings {
+                    padding,
+                    padding_top: top,
+                    padding_right: right,
+                    padding_bottom: bottom,
+                    padding_left: left,
+                },
+                pane: PaneSettings {
+                    gap: 0.0,
+                    radius: 0.0,
+                },
+                side_sheet: SideSheetSettings::default(),
+                focus_ring: FocusRingSettings::default(),
+            },
+            shortcuts: ShortcutSettings::default(),
+            terminal: None,
+            auto_update: false,
+        }
+    }
+
+    #[test]
+    fn camera_margin_ignores_inner_window_padding() {
+        let settings = settings_with_padding(4.0, Some(40.0), Some(12.0), Some(6.0), None);
+
+        assert_eq!(camera_margin_px(&settings), 0.0);
+    }
+}

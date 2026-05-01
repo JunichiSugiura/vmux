@@ -8,7 +8,11 @@ use crate::{
     settings::AppSettings,
     terminal::Terminal,
 };
-use bevy::{ecs::relationship::Relationship, prelude::*};
+use bevy::{
+    ecs::relationship::Relationship,
+    prelude::*,
+    window::{ClosingWindow, PrimaryWindow},
+};
 use bevy_cef::prelude::*;
 use moonshine_save::prelude::*;
 use vmux_history::LastActivatedAt;
@@ -191,7 +195,10 @@ fn handle_tab_commands(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
-    mut pending_warp: ResMut<PendingCursorWarp>,
+    mut tab_extra: ParamSet<(
+        Query<'static, 'static, Entity, With<PrimaryWindow>>,
+        ResMut<'static, PendingCursorWarp>,
+    )>,
 ) {
     for cmd in reader.read() {
         let (tab_cmd, is_terminal, is_processes) = match *cmd {
@@ -268,6 +275,13 @@ fn handle_tab_commands(
                 let tabs_in_pane: Vec<Entity> =
                     children.iter().filter(|&e| tab_q.contains(e)).collect();
                 if tabs_in_pane.len() <= 1 {
+                    if leaf_panes.iter().count() <= 1 {
+                        if let Ok(primary_window) = tab_extra.p0().single() {
+                            commands.entity(primary_window).insert(ClosingWindow);
+                        }
+                        continue;
+                    }
+
                     let Ok(pane_co) = child_of_q.get(pane) else {
                         continue;
                     };
@@ -393,7 +407,7 @@ fn handle_tab_commands(
                 commands.entity(target_tab).insert(LastActivatedAt::now());
                 if active_pane != Some(target_pane) {
                     commands.entity(target_pane).insert(LastActivatedAt::now());
-                    pending_warp.target = Some(target_pane);
+                    tab_extra.p1().target = Some(target_pane);
                 }
             }
             TabCommand::SelectIndex1
@@ -505,9 +519,13 @@ fn sync_tab_picking(
 pub(crate) fn open_command_bar_if_no_tabs(
     tab_q: Query<(), With<Tab>>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
+    closing_primary: Query<(), (With<PrimaryWindow>, With<ClosingWindow>)>,
     mut new_tab_ctx: ResMut<NewTabContext>,
     mut commands: Commands,
 ) {
+    if !closing_primary.is_empty() {
+        return;
+    }
     if !tab_q.is_empty() {
         return;
     }
@@ -520,4 +538,75 @@ pub(crate) fn open_command_bar_if_no_tabs(
     new_tab_ctx.tab = Some(tab);
     new_tab_ctx.previous_tab = None;
     new_tab_ctx.needs_open = true;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        command::{CommandPlugin, WriteAppCommands},
+        settings::{
+            AppSettings, BrowserSettings, FocusRingSettings, LayoutSettings, PaneSettings,
+            ShortcutSettings, SideSheetSettings, WindowSettings,
+        },
+    };
+    use bevy::window::ClosingWindow;
+
+    fn test_settings() -> AppSettings {
+        AppSettings {
+            browser: BrowserSettings {
+                startup_url: "about:blank".to_string(),
+            },
+            layout: LayoutSettings {
+                window: WindowSettings {
+                    padding: 0.0,
+                    padding_top: None,
+                    padding_right: None,
+                    padding_bottom: None,
+                    padding_left: None,
+                },
+                pane: PaneSettings {
+                    gap: 0.0,
+                    radius: 0.0,
+                },
+                side_sheet: SideSheetSettings::default(),
+                focus_ring: FocusRingSettings::default(),
+            },
+            shortcuts: ShortcutSettings::default(),
+            terminal: None,
+            auto_update: false,
+        }
+    }
+
+    #[test]
+    fn closing_last_tab_marks_window_closing() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(CommandPlugin);
+        app.init_resource::<NewTabContext>();
+        app.init_resource::<PendingCursorWarp>();
+        app.insert_resource(test_settings());
+        app.init_resource::<Assets<Mesh>>();
+        app.init_resource::<Assets<WebviewExtendStandardMaterial>>();
+        app.add_systems(Update, handle_tab_commands.in_set(WriteAppCommands));
+
+        let window = app.world_mut().spawn(PrimaryWindow).id();
+        let space = app
+            .world_mut()
+            .spawn((Space::default(), LastActivatedAt::now()))
+            .id();
+        let pane = app
+            .world_mut()
+            .spawn((Pane, LastActivatedAt::now(), ChildOf(space)))
+            .id();
+        app.world_mut()
+            .spawn((Tab::default(), LastActivatedAt::now(), ChildOf(pane)));
+        app.world_mut()
+            .resource_mut::<Messages<AppCommand>>()
+            .write(AppCommand::Tab(TabCommand::Close));
+
+        app.update();
+
+        assert!(app.world().entity(window).contains::<ClosingWindow>());
+    }
 }

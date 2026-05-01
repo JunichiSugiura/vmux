@@ -66,7 +66,12 @@ impl Plugin for CommandBarInputPlugin {
             .add_plugins(JsEmitEventPlugin::<PathCompleteRequest>::default())
             .add_observer(on_command_bar_action)
             .add_observer(on_path_complete_request)
-            .add_systems(Update, handle_open_command_bar.in_set(ReadAppCommands))
+            .add_systems(
+                Update,
+                handle_open_command_bar
+                    .in_set(ReadAppCommands)
+                    .after(crate::layout::space::SpaceCommandSet),
+            )
             .add_systems(
                 Update,
                 deferred_dismiss_modal

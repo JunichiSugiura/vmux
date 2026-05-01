@@ -236,24 +236,64 @@ fn ime_event(
     mut er: MessageReader<Ime>,
     mut is_ime_commiting: ResMut<IsImeCommiting>,
     browsers: NonSend<Browsers>,
+    webviews_targeted: Query<Entity, (With<WebviewSource>, With<CefKeyboardTarget>)>,
+    mut targeted_buf: Local<Vec<Entity>>,
     suppress: Res<CefSuppressKeyboardInput>,
 ) {
+    targeted_buf.clear();
+    targeted_buf.extend(webviews_targeted.iter());
+    let use_targets = !targeted_buf.is_empty();
     for event in er.read() {
         if suppress.0 {
             continue;
         }
         match event {
             Ime::Preedit { value, cursor, .. } => {
-                browsers.set_ime_composition(value, cursor.map(|(_, e)| e as u32))
+                let cursor = cursor.map(|(_, e)| e as u32);
+                if use_targets {
+                    for webview in targeted_buf.iter() {
+                        browsers.set_ime_composition_for(webview, value, cursor);
+                    }
+                } else {
+                    browsers.set_ime_composition(value, cursor);
+                }
             }
             Ime::Commit { value, .. } => {
-                browsers.set_ime_commit_text(value);
+                if use_targets {
+                    for webview in targeted_buf.iter() {
+                        browsers.set_ime_commit_text_for(webview, value);
+                    }
+                } else {
+                    browsers.set_ime_commit_text(value);
+                }
                 is_ime_commiting.0 = true;
             }
             Ime::Disabled { .. } => {
-                browsers.ime_cancel_composition();
+                if use_targets {
+                    for webview in targeted_buf.iter() {
+                        browsers.ime_cancel_composition_for(webview);
+                    }
+                } else {
+                    browsers.ime_cancel_composition();
+                }
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn ime_events_route_to_keyboard_targets() {
+        let implementation = include_str!("keyboard.rs")
+            .split("#[cfg(test)]\nmod tests")
+            .next()
+            .unwrap_or_default();
+
+        assert!(implementation.contains("webviews_targeted"));
+        assert!(implementation.contains("set_ime_composition_for"));
+        assert!(implementation.contains("set_ime_commit_text_for"));
+        assert!(implementation.contains("ime_cancel_composition_for"));
     }
 }

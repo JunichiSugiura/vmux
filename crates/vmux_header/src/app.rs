@@ -91,9 +91,9 @@ pub fn App() -> Element {
                     {
                         let has_content = active_row.as_ref().is_some_and(|t| !t.url.is_empty());
                         let bar_class = if has_content {
-                            "flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border border-white/40 bg-black/30 px-3 shadow-sm backdrop-blur-xl backdrop-saturate-150"
+                            "flex h-8 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-full border border-glass-border bg-glass px-3 shadow-sm backdrop-blur-xl backdrop-saturate-150"
                         } else {
-                            "flex h-8 min-w-0 flex-1 items-center rounded-full border border-white/20 bg-black/15 px-3 backdrop-blur-md"
+                            "flex h-8 min-w-0 flex-1 items-center rounded-full border border-glass-border bg-glass px-3 backdrop-blur-md"
                         };
                         rsx! {
                             div {

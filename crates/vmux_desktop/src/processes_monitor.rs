@@ -231,6 +231,7 @@ fn on_process_navigate(
 fn on_process_kill(
     trigger: On<Receive<ProcessKillEvent>>,
     service: Option<Res<ServiceClient>>,
+    mut process_list: ResMut<ServiceProcessList>,
     terminals: Query<(Entity, &ServiceProcessHandle, &ChildOf), With<Terminal>>,
     tab_parent: Query<&ChildOf, With<Tab>>,
     mut commands: Commands,
@@ -240,6 +241,8 @@ fn on_process_kill(
 
     if let Ok(process_id) = pid.parse::<ProcessId>() {
         service.0.send(ClientMessage::KillProcess { process_id });
+        remove_processes_from_cached_list(&mut process_list, [process_id]);
+        service.0.send(ClientMessage::ListProcesses);
 
         // Close the terminal tab that owns this process
         for (_, handle, content_child_of) in &terminals {
@@ -259,24 +262,77 @@ fn on_process_kill(
 fn on_process_kill_all(
     _trigger: On<Receive<ProcessKillAllEvent>>,
     service: Option<Res<ServiceClient>>,
-    process_list: Res<ServiceProcessList>,
+    mut process_list: ResMut<ServiceProcessList>,
     terminals: Query<(Entity, &ServiceProcessHandle, &ChildOf), With<Terminal>>,
     mut commands: Commands,
 ) {
     let Some(service) = service else { return };
+    let process_ids: Vec<ProcessId> = process_list.processes.iter().map(|info| info.id).collect();
 
-    for info in &process_list.processes {
+    for process_id in &process_ids {
         service.0.send(ClientMessage::KillProcess {
-            process_id: info.id,
+            process_id: *process_id,
         });
 
         // Close the terminal tab
         for (_, handle, content_child_of) in &terminals {
-            if handle.process_id == info.id {
+            if handle.process_id == *process_id {
                 let tab = content_child_of.get();
                 commands.entity(tab).despawn();
                 break;
             }
         }
+    }
+    if !process_ids.is_empty() {
+        remove_processes_from_cached_list(&mut process_list, process_ids);
+        service.0.send(ClientMessage::ListProcesses);
+    }
+}
+
+fn remove_processes_from_cached_list(
+    process_list: &mut ServiceProcessList,
+    process_ids: impl IntoIterator<Item = ProcessId>,
+) {
+    let process_ids: std::collections::HashSet<ProcessId> = process_ids.into_iter().collect();
+    if process_ids.is_empty() {
+        return;
+    }
+    process_list
+        .processes
+        .retain(|info| !process_ids.contains(&info.id));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn process_id(byte: u8) -> ProcessId {
+        ProcessId([byte; 16])
+    }
+
+    fn process_info(id: ProcessId) -> vmux_service::protocol::ProcessInfo {
+        vmux_service::protocol::ProcessInfo {
+            id,
+            shell: "/bin/sh".to_string(),
+            cwd: String::new(),
+            cols: 80,
+            rows: 24,
+            pid: 42,
+            created_at_secs: 0,
+        }
+    }
+
+    #[test]
+    fn remove_process_from_cached_list_is_optimistic() {
+        let keep = process_id(1);
+        let kill = process_id(2);
+        let mut list = ServiceProcessList {
+            processes: vec![process_info(keep), process_info(kill)],
+        };
+
+        remove_processes_from_cached_list(&mut list, [kill]);
+
+        assert_eq!(list.processes.len(), 1);
+        assert_eq!(list.processes[0].id, keep);
     }
 }

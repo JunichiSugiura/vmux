@@ -15,7 +15,7 @@ use bevy::{
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     ui::{FlexDirection, UiGlobalTransform},
-    window::PrimaryWindow,
+    window::{ClosingWindow, PrimaryWindow},
 };
 use bevy_cef::prelude::CefKeyboardTarget;
 use moonshine_save::prelude::*;
@@ -52,6 +52,7 @@ impl Plugin for PanePlugin {
             .add_systems(Update, click_pane_in_player_mode)
             .add_systems(Update, pane_gap_drag_resize)
             .add_systems(Update, process_pending_pane_closes)
+            .add_systems(PostUpdate, sync_pane_split_gaps_to_settings)
             .add_systems(PostUpdate, warp_cursor_to_active_pane);
     }
 }
@@ -96,6 +97,31 @@ impl Default for PaneSize {
 
 pub(crate) const MIN_PANE_PX: f32 = 60.0;
 pub(crate) const RESIZE_STEP: f32 = 0.05;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PaneSplitGaps {
+    pub column_gap: Val,
+    pub row_gap: Val,
+}
+
+pub(crate) fn pane_split_gaps(direction: PaneSplitDirection, gap: f32) -> PaneSplitGaps {
+    match direction {
+        PaneSplitDirection::Row => PaneSplitGaps {
+            column_gap: Val::Px(gap),
+            row_gap: Val::Px(0.0),
+        },
+        PaneSplitDirection::Column => PaneSplitGaps {
+            column_gap: Val::Px(0.0),
+            row_gap: Val::Px(gap),
+        },
+    }
+}
+
+pub(crate) fn apply_pane_split_gaps(split: &PaneSplit, node: &mut Node, gap: f32) {
+    let gaps = pane_split_gaps(split.direction, gap);
+    node.column_gap = gaps.column_gap;
+    node.row_gap = gaps.row_gap;
+}
 
 /// Temporary component inserted on a PaneSplit entity while the user is
 /// dragging the gap between two of its children.
@@ -192,6 +218,7 @@ fn handle_pane_commands(
     split_dir_q: Query<&PaneSplit>,
     tab_filter: Query<Entity, With<Tab>>,
     settings: Res<AppSettings>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
     mut commands: Commands,
     mut hover_intent: ResMut<PaneHoverIntent>,
     mut new_tab_ctx: ResMut<NewTabContext>,
@@ -223,6 +250,11 @@ fn handle_pane_commands(
 
         match pane_cmd {
             PaneCommand::SplitV | PaneCommand::SplitH => {
+                let split_dir = if pane_cmd == PaneCommand::SplitV {
+                    PaneSplitDirection::Row
+                } else {
+                    PaneSplitDirection::Column
+                };
                 let direction = if pane_cmd == PaneCommand::SplitV {
                     FlexDirection::Row
                 } else {
@@ -248,20 +280,15 @@ fn handle_pane_commands(
                 new_tab_ctx.previous_tab = active_tab_opt;
                 new_tab_ctx.needs_open = true;
 
-                let split_dir = if pane_cmd == PaneCommand::SplitV {
-                    PaneSplitDirection::Row
-                } else {
-                    PaneSplitDirection::Column
-                };
                 commands.entity(active).insert(PaneSplit {
                     direction: split_dir,
                 });
-                let gap = Val::Px(settings.layout.pane.gap);
+                let gap = pane_split_gaps(split_dir, settings.layout.pane.gap);
                 commands.entity(active).insert(Node {
                     flex_grow: 1.0,
                     flex_direction: direction,
-                    column_gap: gap,
-                    row_gap: gap,
+                    column_gap: gap.column_gap,
+                    row_gap: gap.row_gap,
                     align_items: AlignItems::Stretch,
                     ..default()
                 });
@@ -297,15 +324,19 @@ fn handle_pane_commands(
                 let parent = pane_co.get();
 
                 if !split_dir_q.contains(parent) {
-                    commands.entity(active).despawn();
-                    let leaf = spawn_leaf_pane(&mut commands, parent);
-                    let tab = commands
-                        .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(leaf)))
-                        .id();
-                    commands.entity(leaf).insert(LastActivatedAt::now());
-                    new_tab_ctx.tab = Some(tab);
-                    new_tab_ctx.previous_tab = None;
-                    new_tab_ctx.needs_open = true;
+                    if leaf_panes.iter().count() <= 1 {
+                        commands.entity(*primary_window).insert(ClosingWindow);
+                    } else {
+                        commands.entity(active).despawn();
+                        let leaf = spawn_leaf_pane(&mut commands, parent);
+                        let tab = commands
+                            .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(leaf)))
+                            .id();
+                        commands.entity(leaf).insert(LastActivatedAt::now());
+                        new_tab_ctx.tab = Some(tab);
+                        new_tab_ctx.previous_tab = None;
+                        new_tab_ctx.needs_open = true;
+                    }
                     continue;
                 }
 
@@ -935,6 +966,18 @@ fn pane_gap_drag_resize(
     }
 }
 
+fn sync_pane_split_gaps_to_settings(
+    settings: Res<AppSettings>,
+    mut splits: Query<(&PaneSplit, &mut Node), With<Pane>>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    for (split, mut node) in &mut splits {
+        apply_pane_split_gaps(split, &mut node, settings.layout.pane.gap);
+    }
+}
+
 fn collect_space_leaf_panes(
     root: Entity,
     all_children: &Query<&Children>,
@@ -1000,5 +1043,103 @@ fn process_pending_pane_closes(world: &mut World) {
                 .resource_mut::<Messages<AppCommand>>()
                 .write(AppCommand::Pane(PaneCommand::Close));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        command::{CommandPlugin, WriteAppCommands},
+        settings::{
+            AppSettings, BrowserSettings, FocusRingSettings, LayoutSettings, PaneSettings,
+            ShortcutSettings, SideSheetSettings, WindowSettings,
+        },
+    };
+    use bevy::window::ClosingWindow;
+
+    fn test_settings() -> AppSettings {
+        AppSettings {
+            browser: BrowserSettings {
+                startup_url: "about:blank".to_string(),
+            },
+            layout: LayoutSettings {
+                window: WindowSettings {
+                    padding: 0.0,
+                    padding_top: None,
+                    padding_right: None,
+                    padding_bottom: None,
+                    padding_left: None,
+                },
+                pane: PaneSettings {
+                    gap: 0.0,
+                    radius: 0.0,
+                },
+                side_sheet: SideSheetSettings::default(),
+                focus_ring: FocusRingSettings::default(),
+            },
+            shortcuts: ShortcutSettings::default(),
+            terminal: None,
+            auto_update: false,
+        }
+    }
+
+    #[test]
+    fn closing_last_pane_marks_window_closing() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(CommandPlugin);
+        app.init_resource::<PaneHoverIntent>();
+        app.init_resource::<PendingCursorWarp>();
+        app.init_resource::<NewTabContext>();
+        app.insert_resource(test_settings());
+        app.add_systems(Update, handle_pane_commands.in_set(WriteAppCommands));
+
+        let window = app.world_mut().spawn(PrimaryWindow).id();
+        let space = app
+            .world_mut()
+            .spawn((Space::default(), LastActivatedAt::now()))
+            .id();
+        let pane = app
+            .world_mut()
+            .spawn((Pane, LastActivatedAt::now(), ChildOf(space)))
+            .id();
+        app.world_mut()
+            .spawn((Tab::default(), LastActivatedAt::now(), ChildOf(pane)));
+        app.world_mut()
+            .resource_mut::<Messages<AppCommand>>()
+            .write(AppCommand::Pane(PaneCommand::Close));
+
+        app.update();
+
+        assert!(app.world().entity(window).contains::<ClosingWindow>());
+    }
+
+    #[test]
+    fn split_gap_only_applies_on_split_axis() {
+        let row = pane_split_gaps(PaneSplitDirection::Row, 8.0);
+        let column = pane_split_gaps(PaneSplitDirection::Column, 8.0);
+
+        assert_eq!(row.column_gap, Val::Px(8.0));
+        assert_eq!(row.row_gap, Val::Px(0.0));
+        assert_eq!(column.column_gap, Val::Px(0.0));
+        assert_eq!(column.row_gap, Val::Px(8.0));
+    }
+
+    #[test]
+    fn pane_split_gap_sync_clears_cross_axis_gap() {
+        let split = PaneSplit {
+            direction: PaneSplitDirection::Row,
+        };
+        let mut node = Node {
+            column_gap: Val::Px(16.0),
+            row_gap: Val::Px(16.0),
+            ..default()
+        };
+
+        apply_pane_split_gaps(&split, &mut node, 8.0);
+
+        assert_eq!(node.column_gap, Val::Px(8.0));
+        assert_eq!(node.row_gap, Val::Px(0.0));
     }
 }

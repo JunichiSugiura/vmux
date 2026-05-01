@@ -15,7 +15,15 @@
   }
 
   html.dark body {
-    @apply bg-glass text-foreground font-sans backdrop-blur-xl backdrop-saturate-150;
+    --foreground: oklch(1 0 0);
+    --muted-foreground: oklch(0.82 0 0);
+    --sidebar-primary-foreground: oklch(1 0 0);
+    --glass: oklch(0.36 0 0 / 0.82);
+    --glass-hover: oklch(0.44 0 0 / 0.86);
+    --glass-active: oklch(0.50 0 0 / 0.90);
+    --glass-border: oklch(0.52 0 0 / 0.36);
+    color: var(--foreground);
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
   }
 }
 

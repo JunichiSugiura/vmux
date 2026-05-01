@@ -22,7 +22,7 @@ use bevy::{
     prelude::*,
     render::alpha::AlphaMode,
     ui::{UiGlobalTransform, UiSystems},
-    window::{PrimaryWindow, WindowResized},
+    window::{ClosingWindow, PrimaryWindow, WindowResized},
 };
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::RenderTextureMessage;
@@ -228,6 +228,8 @@ fn sync_children_to_ui(
             Option<&Footer>,
             Option<&SideSheet>,
             Option<&Modal>,
+            Option<&Visibility>,
+            Option<&HistorySwipeVisualOffset>,
         ),
         With<Browser>,
     >,
@@ -252,6 +254,8 @@ fn sync_children_to_ui(
         footer,
         side_sheet,
         modal,
+        visibility,
+        history_swipe_visual,
     ) in browser_q.iter_mut()
     {
         let parent = child_of.get();
@@ -266,7 +270,11 @@ fn sync_children_to_ui(
         }
 
         let size_px = computed.size;
-        if size_px.x <= 0.0 || size_px.y <= 0.0 {
+        if !webview_layout_is_renderable(size_px, visibility) {
+            tf.scale = Vec3::splat(1.0e-6);
+            if webview_size.0 != Vec2::ONE {
+                webview_size.0 = Vec2::ONE;
+            }
             continue;
         }
 
@@ -327,7 +335,14 @@ fn sync_children_to_ui(
         } else {
             0.01 + self_computed.stack_index as f32 * 0.001
         };
-        tf.translation = Vec3::new(tx, ty, z);
+        let history_swipe_tx = if parent != glass_entity && !is_chrome {
+            history_swipe_visual
+                .map(|visual| visual.offset_px / glass_size_px.x)
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        tf.translation = Vec3::new(tx + history_swipe_tx, ty, z);
 
         let dip = (size_px * computed.inverse_scale_factor).max(Vec2::splat(1.0));
         if webview_size.0 != dip {
@@ -419,7 +434,8 @@ fn sync_webview_pane_corner_clip(
 
 fn sync_osr_webview_focus(
     browsers: NonSend<Browsers>,
-    webviews: Query<Entity, With<WebviewSource>>,
+    webviews: Query<(Entity, Option<&Visibility>, Option<&ComputedNode>), With<WebviewSource>>,
+    primary_window: Single<&Window, With<PrimaryWindow>>,
     focus: Res<crate::layout::tab::FocusedTab>,
     new_tab_ctx: Res<crate::command_bar::NewTabContext>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
@@ -433,11 +449,22 @@ fn sync_osr_webview_focus(
     mut last_ready_set: Local<Vec<Entity>>,
 ) {
     ready.clear();
-    ready.extend(webviews.iter().filter(|&e| browsers.has_browser(e)));
+    for (entity, visibility, computed) in webviews.iter() {
+        if !browsers.has_browser(entity) {
+            continue;
+        }
+        let size = computed.map(|node| node.size).unwrap_or(Vec2::ONE);
+        if webview_layout_is_renderable(size, visibility) {
+            ready.push(entity);
+        } else {
+            browsers.set_osr_hidden(&entity);
+        }
+    }
     if ready.is_empty() {
         return;
     }
     ready.sort_by_key(|e| e.to_bits());
+    let window_focused = primary_window.focused;
 
     let active_tab_opt = focus.tab;
     let active = active_tab_opt
@@ -449,7 +476,13 @@ fn sync_osr_webview_focus(
         })
         .unwrap_or(ready[0]);
 
-    if *last_active == Some(active) && *last_ready_set == *ready {
+    if !window_focused {
+        if last_active.is_some() || *last_ready_set != *ready {
+            browsers.sync_osr_focus_to_active_pane(None, &[]);
+            *last_active = None;
+            last_ready_set.clone_from(&ready);
+        }
+    } else if *last_active == Some(active) && *last_ready_set == *ready {
     } else {
         auxiliary.clear();
         auxiliary.extend(ready.iter().copied().filter(|&e| e != active));
@@ -458,33 +491,56 @@ fn sync_osr_webview_focus(
         last_ready_set.clone_from(&ready);
     }
     for &e in ready.iter() {
-        let Ok(parent) = child_of_q.get(e).map(|co| co.get()) else {
-            browsers.set_osr_not_hidden(&e);
-            continue;
-        };
-        let is_tab = tab_ts.get(parent).is_ok();
-        if !is_tab {
-            browsers.set_osr_not_hidden(&e);
-            continue;
+        let mut parent_is_tab = false;
+        let mut pane_is_leaf = false;
+        let mut is_active = false;
+        let mut is_prev = false;
+
+        if let Ok(parent) = child_of_q.get(e).map(|co| co.get()) {
+            parent_is_tab = tab_ts.get(parent).is_ok();
+            if parent_is_tab && let Ok(pane) = child_of_q.get(parent).map(|co| co.get()) {
+                pane_is_leaf = leaf_panes.contains(pane);
+                if pane_is_leaf {
+                    is_active = active_tab_in_pane(pane, &pane_children_q, &tab_ts) == Some(parent);
+                    // Keep previous tab's webview visible while an empty new tab is
+                    // pending (user is picking content in the command bar).
+                    is_prev = new_tab_ctx.tab.is_some() && new_tab_ctx.previous_tab == Some(parent);
+                }
+            }
         }
-        let Ok(pane) = child_of_q.get(parent).map(|co| co.get()) else {
-            browsers.set_osr_not_hidden(&e);
-            continue;
-        };
-        if !leaf_panes.contains(pane) {
-            browsers.set_osr_not_hidden(&e);
-            continue;
-        }
-        let is_active = active_tab_in_pane(pane, &pane_children_q, &tab_ts) == Some(parent);
-        // Keep previous tab's webview visible while an empty new tab is
-        // pending (user is picking content in the command bar).
-        let is_prev = new_tab_ctx.tab.is_some() && new_tab_ctx.previous_tab == Some(parent);
-        if is_active || is_prev {
+
+        if should_show_osr_webview(
+            window_focused,
+            parent_is_tab,
+            pane_is_leaf,
+            is_active,
+            is_prev,
+        ) {
             browsers.set_osr_not_hidden(&e);
         } else {
             browsers.set_osr_hidden(&e);
         }
     }
+}
+
+fn webview_layout_is_renderable(size_px: Vec2, visibility: Option<&Visibility>) -> bool {
+    !matches!(visibility, Some(Visibility::Hidden)) && size_px.x > 0.0 && size_px.y > 0.0
+}
+
+fn should_show_osr_webview(
+    window_focused: bool,
+    parent_is_tab: bool,
+    pane_is_leaf: bool,
+    tab_is_active: bool,
+    tab_is_previous_new_tab: bool,
+) -> bool {
+    if !window_focused {
+        return false;
+    }
+    if !parent_is_tab || !pane_is_leaf {
+        return true;
+    }
+    tab_is_active || tab_is_previous_new_tab
 }
 
 fn drain_loading_state(receiver: Res<WebviewLoadingStateReceiver>, mut commands: Commands) {
@@ -871,8 +927,7 @@ fn on_side_sheet_command_emit(
     )>,
     mut hover_intent: ResMut<PaneHoverIntent>,
     settings: Res<AppSettings>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
     mut commands: Commands,
 ) {
     let evt = &trigger.event().payload;
@@ -937,15 +992,7 @@ fn on_side_sheet_command_emit(
                     commands.entity(next).insert(LastActivatedAt::now());
                 }
             } else if leaf_panes.iter().count() <= 1 {
-                let startup_url = settings.browser.startup_url.as_str();
-                commands.entity(target_tab).despawn();
-                let tab = commands
-                    .spawn((tab_bundle(), LastActivatedAt::now(), ChildOf(target_pane)))
-                    .id();
-                commands.spawn((
-                    Browser::new(&mut meshes, &mut webview_mt, startup_url),
-                    ChildOf(tab),
-                ));
+                commands.entity(*primary_window).insert(ClosingWindow);
             } else {
                 let Ok(pane_co) = child_of_q.get(target_pane) else {
                     return;
@@ -1075,4 +1122,45 @@ fn sync_page_metadata_to_tab(
 
 fn cef_root_cache_path() -> Option<String> {
     crate::profile::cef_cache_path()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn osr_webview_is_hidden_when_window_is_unfocused() {
+        assert!(!should_show_osr_webview(true, true, true, false, false));
+        assert!(should_show_osr_webview(true, true, true, true, false));
+        assert!(!should_show_osr_webview(false, true, true, true, false));
+    }
+
+    #[test]
+    fn auxiliary_osr_webviews_remain_visible_when_window_is_focused() {
+        assert!(should_show_osr_webview(true, false, true, false, false));
+        assert!(should_show_osr_webview(true, true, false, false, false));
+        assert!(should_show_osr_webview(true, true, true, false, true));
+        assert!(!should_show_osr_webview(false, false, true, false, false));
+        assert!(!should_show_osr_webview(false, true, false, false, false));
+    }
+
+    #[test]
+    fn hidden_or_collapsed_webviews_do_not_render() {
+        assert!(!webview_layout_is_renderable(
+            Vec2::ZERO,
+            Some(&Visibility::Inherited)
+        ));
+        assert!(!webview_layout_is_renderable(
+            Vec2::new(100.0, 0.0),
+            Some(&Visibility::Inherited)
+        ));
+        assert!(!webview_layout_is_renderable(
+            Vec2::new(100.0, 20.0),
+            Some(&Visibility::Hidden)
+        ));
+        assert!(webview_layout_is_renderable(
+            Vec2::new(100.0, 20.0),
+            Some(&Visibility::Inherited)
+        ));
+    }
 }

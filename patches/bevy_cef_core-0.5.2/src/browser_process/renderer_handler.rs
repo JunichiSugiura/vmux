@@ -5,10 +5,13 @@ use cef::*;
 use cef_dll_sys::cef_paint_element_type_t;
 use std::cell::Cell;
 use std::os::raw::c_int;
+use std::sync::Arc;
 
 pub type TextureSender = Sender<RenderTextureMessage>;
 
 pub type TextureReceiver = Receiver<RenderTextureMessage>;
+
+pub type TextureWake = Arc<dyn Fn() + Send + Sync + 'static>;
 
 /// The texture structure passed from [`CefRenderHandler::OnPaint`](https://cef-builds.spotifycdn.com/docs/106.1/classCefRenderHandler.html#a6547d5c9dd472e6b84706dc81d3f1741).
 #[derive(Debug, Clone, PartialEq, Message)]
@@ -45,6 +48,7 @@ pub struct RenderHandlerBuilder {
     object: *mut RcImpl<sys::cef_render_handler_t, Self>,
     webview: Entity,
     texture_sender: TextureSender,
+    texture_wake: Option<TextureWake>,
     size: SharedViewSize,
     device_scale: SharedDeviceScaleFactor,
 }
@@ -53,6 +57,7 @@ impl RenderHandlerBuilder {
     pub fn build(
         webview: Entity,
         texture_sender: TextureSender,
+        texture_wake: Option<TextureWake>,
         size: SharedViewSize,
         device_scale: SharedDeviceScaleFactor,
     ) -> RenderHandler {
@@ -60,6 +65,7 @@ impl RenderHandlerBuilder {
             object: std::ptr::null_mut(),
             webview,
             texture_sender,
+            texture_wake,
             size,
             device_scale,
         })
@@ -92,6 +98,7 @@ impl Clone for RenderHandlerBuilder {
             object,
             webview: self.webview,
             texture_sender: self.texture_sender.clone(),
+            texture_wake: self.texture_wake.clone(),
             size: self.size.clone(),
             device_scale: self.device_scale.clone(),
         }
@@ -148,11 +155,53 @@ impl ImplRenderHandler for RenderHandlerBuilder {
                 std::slice::from_raw_parts(buffer, (width * height * 4) as usize).to_vec()
             },
         };
-        let _ = self.texture_sender.send_blocking(texture);
+        send_render_texture(&self.texture_sender, self.texture_wake.as_ref(), texture);
     }
 
     #[inline]
     fn get_raw(&self) -> *mut sys::_cef_render_handler_t {
         self.object.cast()
+    }
+}
+
+fn send_render_texture(
+    texture_sender: &TextureSender,
+    texture_wake: Option<&TextureWake>,
+    texture: RenderTextureMessage,
+) {
+    let _ = texture_sender.send_blocking(texture);
+    if let Some(wake) = texture_wake {
+        wake();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn render_texture_delivery_wakes_consumer() {
+        let (tx, rx) = async_channel::unbounded();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let wakes_for_callback = Arc::clone(&wakes);
+        let wake: TextureWake = Arc::new(move || {
+            wakes_for_callback.fetch_add(1, Ordering::Relaxed);
+        });
+
+        send_render_texture(
+            &tx,
+            Some(&wake),
+            RenderTextureMessage {
+                webview: Entity::from_bits(1),
+                ty: RenderPaintElementType::View,
+                width: 1,
+                height: 1,
+                buffer: vec![0, 0, 0, 0],
+            },
+        );
+
+        assert!(rx.try_recv().is_ok());
+        assert_eq!(wakes.load(Ordering::Relaxed), 1);
     }
 }

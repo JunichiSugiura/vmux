@@ -1,31 +1,54 @@
-use crate::process::ProcessManager;
+use crate::process::{Process, ProcessManager, PtyInputWriter};
 use crate::protocol::{ClientMessage, ProcessId, ServiceMessage};
 use crate::{read_message, write_message};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::BufReader;
 use tokio::net::UnixListener;
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, broadcast, mpsc};
+use tokio::time::MissedTickBehavior;
+
+const MAX_WAKE_EVENTS_PER_TICK: usize = 1024;
+type InputWriters = Arc<Mutex<HashMap<ProcessId, PtyInputWriter>>>;
 
 // rkyv is used directly in the attach forwarder (can't use write_message! macro
 // inside a spawned task that doesn't return Result).
 
 /// Run the IPC server loop, accepting connections and dispatching messages.
 pub async fn run_server(listener: UnixListener) {
-    let manager = Arc::new(Mutex::new(ProcessManager::new()));
+    let (wake_tx, mut wake_rx) = mpsc::unbounded_channel();
+    let manager = Arc::new(Mutex::new(ProcessManager::new(wake_tx)));
+    let input_writers = Arc::new(Mutex::new(HashMap::new()));
 
-    // Poll processes at ~60Hz in background
+    // Poll at ~60Hz for exits, and immediately when PTY output arrives.
     let poll_mgr = Arc::clone(&manager);
+    let poll_input_writers = Arc::clone(&input_writers);
     tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
+        interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
         loop {
-            {
-                let mut mgr = poll_mgr.lock().await;
-                let exited = mgr.poll_all();
-                for id in exited {
-                    mgr.remove_process(&id);
+            tokio::select! {
+                _ = interval.tick() => {}
+                Some(_) = wake_rx.recv() => {
+                    drain_pending_wakes(&mut wake_rx);
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+
+            let exited = {
+                let mut mgr = poll_mgr.lock().await;
+                let exited = mgr.poll_all();
+                for id in &exited {
+                    mgr.remove_process(id);
+                }
+                exited
+            };
+            if !exited.is_empty() {
+                let mut writers = poll_input_writers.lock().await;
+                for id in exited {
+                    writers.remove(&id);
+                }
+            }
         }
     });
 
@@ -38,17 +61,27 @@ pub async fn run_server(listener: UnixListener) {
             }
         };
         let mgr = Arc::clone(&manager);
+        let input_writers = Arc::clone(&input_writers);
         tokio::spawn(async move {
-            if let Err(e) = handle_client(stream, mgr).await {
+            if let Err(e) = handle_client(stream, mgr, input_writers).await {
                 eprintln!("client error: {e}");
             }
         });
     }
 }
 
+fn drain_pending_wakes(wake_rx: &mut mpsc::UnboundedReceiver<ProcessId>) {
+    for _ in 0..MAX_WAKE_EVENTS_PER_TICK {
+        if wake_rx.try_recv().is_err() {
+            break;
+        }
+    }
+}
+
 async fn handle_client(
     stream: tokio::net::UnixStream,
     manager: Arc<Mutex<ProcessManager>>,
+    input_writers: InputWriters,
 ) -> std::io::Result<()> {
     let (reader, writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
@@ -72,9 +105,16 @@ async fn handle_client(
                 cols,
                 rows,
             } => {
-                let mut mgr = manager.lock().await;
-                match mgr.create_process(shell, cwd, env, cols, rows) {
-                    Ok(id) => {
+                let created = {
+                    let mut mgr = manager.lock().await;
+                    mgr.create_process(shell, cwd, env, cols, rows)
+                        .map(|id| (id, mgr.input_writer(&id)))
+                };
+                match created {
+                    Ok((id, input_writer)) => {
+                        if let Some(input_writer) = input_writer {
+                            input_writers.lock().await.insert(id, input_writer);
+                        }
                         let resp = ServiceMessage::ProcessCreated { process_id: id };
                         let w = writer.clone();
                         let mut w = w.lock().await;
@@ -132,9 +172,9 @@ async fn handle_client(
             }
 
             ClientMessage::ProcessInput { process_id, data } => {
-                let mgr = manager.lock().await;
-                if let Some(process) = mgr.processes.get(&process_id) {
-                    process.write_input(&data);
+                let writer = input_writers.lock().await.get(&process_id).cloned();
+                if let Some(writer) = writer {
+                    Process::write_input_to_writer(&writer, &data);
                 }
             }
 
@@ -158,6 +198,7 @@ async fn handle_client(
             }
 
             ClientMessage::KillProcess { process_id } => {
+                input_writers.lock().await.remove(&process_id);
                 let mut mgr = manager.lock().await;
                 mgr.remove_process(&process_id);
                 if let Some(handle) = attached.lock().await.remove(&process_id) {
@@ -181,8 +222,11 @@ async fn handle_client(
             }
 
             ClientMessage::Shutdown => {
-                let mut mgr = manager.lock().await;
-                mgr.shutdown();
+                {
+                    let mut mgr = manager.lock().await;
+                    mgr.shutdown();
+                }
+                input_writers.lock().await.clear();
                 let resp = ServiceMessage::ProcessList {
                     processes: Vec::new(),
                 };
@@ -200,4 +244,23 @@ async fn handle_client(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wake_drain_leaves_excess_events_for_later_ticks() {
+        let (wake_tx, mut wake_rx) = mpsc::unbounded_channel();
+        for _ in 0..=MAX_WAKE_EVENTS_PER_TICK {
+            wake_tx
+                .send(ProcessId::new())
+                .expect("wake event should queue");
+        }
+
+        drain_pending_wakes(&mut wake_rx);
+
+        assert!(wake_rx.try_recv().is_ok());
+    }
 }

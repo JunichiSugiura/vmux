@@ -42,6 +42,23 @@ use {
 
 pub struct VmuxPlugin;
 
+fn primary_window_config(title: String) -> NativeWindow {
+    NativeWindow {
+        title,
+        transparent: true,
+        composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
+        decorations: true,
+        titlebar_shown: true,
+        titlebar_transparent: true,
+        titlebar_show_title: false,
+        titlebar_show_buttons: false,
+        movable_by_window_background: false,
+        fullsize_content_view: true,
+        ime_enabled: true,
+        ..default()
+    }
+}
+
 impl Plugin for VmuxPlugin {
     fn build(&self, app: &mut App) {
         let title = match env!("VMUX_PROFILE") {
@@ -51,19 +68,7 @@ impl Plugin for VmuxPlugin {
             other => format!("Vmux ({})", other),
         };
 
-        let primary_window = NativeWindow {
-            title,
-            transparent: true,
-            composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
-            decorations: true,
-            titlebar_shown: true,
-            titlebar_transparent: true,
-            titlebar_show_title: false,
-            titlebar_show_buttons: false,
-            movable_by_window_background: false,
-            fullsize_content_view: true,
-            ..default()
-        };
+        let primary_window = primary_window_config(title);
         let window_plugin = WindowPlugin {
             primary_window: Some(primary_window),
             close_when_requested: false,
@@ -113,5 +118,17 @@ impl Plugin for VmuxPlugin {
             LayoutPlugin,
             updater::VmuxUpdater::builder().build().plugin(),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn primary_window_enables_ime_input() {
+        let window = primary_window_config("Vmux".to_string());
+
+        assert!(window.ime_enabled);
     }
 }

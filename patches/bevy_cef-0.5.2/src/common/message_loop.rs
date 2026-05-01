@@ -211,10 +211,7 @@ fn cef_do_message_loop_work(
         *max_delay_timer = MessageLoopWorkingMaxDelayTimer::default();
         timer.take();
     }
-    // Gating `do_message_loop_work` on the ~30 Hz max-delay timer meant most frames skipped the
-    // pump entirely, which stalls keyboard/pointer IPC and feels laggy. Pump every frame.
-    cef::do_message_loop_work();
-    // Second pass helps drain IPC queued between the render and input phases on the same tick.
+    // Pump once per Bevy tick. Input handlers still do immediate targeted pumps after key events.
     cef::do_message_loop_work();
 }
 
@@ -271,6 +268,18 @@ pub fn early_exit_if_subprocess() {
     );
     if ret >= 0 {
         std::process::exit(ret);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn main_message_loop_uses_single_pump_pass() {
+        let main_loop = include_str!("message_loop.rs")
+            .split("fn close_all_browsers_then_cef_shutdown")
+            .next()
+            .unwrap_or_default();
+        assert_eq!(main_loop.matches("cef::do_message_loop_work();").count(), 1);
     }
 }
 

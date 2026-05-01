@@ -1,7 +1,7 @@
 use crate::{
     command::{AppCommand, ReadAppCommands, SpaceCommand},
     command_bar::NewTabContext,
-    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
+    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle, pane_split_gaps},
     layout::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
     layout::tab::tab_bundle,
     layout::window::Main,
@@ -23,12 +23,20 @@ use vmux_webview_app::UiReady;
 
 pub(crate) struct SpacePlugin;
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SpaceCommandSet;
+
 impl Plugin for SpacePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Space>()
             .add_plugins(JsEmitEventPlugin::<FooterCommandEvent>::default())
             .add_observer(on_footer_command_emit)
-            .add_systems(Update, handle_space_commands.in_set(ReadAppCommands))
+            .add_systems(
+                Update,
+                handle_space_commands
+                    .in_set(ReadAppCommands)
+                    .in_set(SpaceCommandSet),
+            )
             .add_systems(Update, push_spaces_host_emit)
             .add_systems(PostUpdate, sync_space_visibility);
     }
@@ -92,6 +100,7 @@ fn spawn_new_space(
         ))
         .id();
 
+    let gap = pane_split_gaps(PaneSplitDirection::Row, settings.layout.pane.gap);
     let split_root = commands
         .spawn((
             Pane,
@@ -105,8 +114,8 @@ fn spawn_new_space(
             Node {
                 flex_grow: 1.0,
                 min_height: Val::Px(0.0),
-                column_gap: Val::Px(settings.layout.pane.gap),
-                row_gap: Val::Px(settings.layout.pane.gap),
+                column_gap: gap.column_gap,
+                row_gap: gap.row_gap,
                 ..default()
             },
             ChildOf(space),
@@ -130,9 +139,13 @@ fn spawn_new_space(
         ))
         .id();
 
+    if let Some(old_tab) = new_tab_ctx.tab.take() {
+        commands.entity(old_tab).despawn();
+    }
     new_tab_ctx.tab = Some(tab);
     new_tab_ctx.previous_tab = None;
     new_tab_ctx.needs_open = true;
+    new_tab_ctx.dismiss_modal = false;
 
     space
 }
@@ -173,25 +186,19 @@ fn handle_space_commands(
             }
             SpaceCommand::Close => {
                 let Some(active) = active_space else { continue };
-                let siblings = active_space_siblings(active, &child_of_q, &all_children, &space_q);
-                if siblings.len() <= 1 {
-                    // Closing the only remaining space: spawn a fresh empty
-                    // space first so the user is never left without one.
-                    let Ok(main) = main_q.single() else { continue };
-                    let count = spaces.iter().count();
-                    let name = format!("Space {}", count + 1);
-                    spawn_new_space(
-                        main,
-                        *primary_window,
-                        name,
-                        &settings,
-                        &mut new_tab_ctx,
-                        &mut commands,
-                    );
-                } else if let Some(next) = pick_after_close(active, &siblings) {
-                    commands.entity(next).insert(LastActivatedAt::now());
-                }
-                commands.entity(active).despawn();
+                close_space_entity(
+                    active,
+                    active_space,
+                    spaces.iter().count(),
+                    &space_q,
+                    &main_q,
+                    *primary_window,
+                    &child_of_q,
+                    &all_children,
+                    &settings,
+                    &mut new_tab_ctx,
+                    &mut commands,
+                );
             }
             SpaceCommand::Next | SpaceCommand::Previous => {
                 let Some(active) = active_space else { continue };
@@ -244,6 +251,33 @@ fn handle_space_commands(
             }
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn close_space_entity(
+    target: Entity,
+    active_space: Option<Entity>,
+    space_count: usize,
+    space_q: &Query<Entity, With<Space>>,
+    main_q: &Query<Entity, With<Main>>,
+    primary_window: Entity,
+    child_of_q: &Query<&ChildOf>,
+    all_children: &Query<&Children>,
+    settings: &AppSettings,
+    new_tab_ctx: &mut NewTabContext,
+    commands: &mut Commands,
+) {
+    let siblings = active_space_siblings(target, child_of_q, all_children, space_q);
+    if siblings.len() <= 1 {
+        let Ok(main) = main_q.single() else { return };
+        let name = format!("Space {}", space_count + 1);
+        spawn_new_space(main, primary_window, name, settings, new_tab_ctx, commands);
+    } else if active_space == Some(target)
+        && let Some(next) = pick_after_close(target, &siblings)
+    {
+        commands.entity(next).insert(LastActivatedAt::now());
+    }
+    commands.entity(target).despawn();
 }
 
 /// Returns sibling Space entities under the same parent in child order.
@@ -358,17 +392,43 @@ fn push_spaces_host_emit(
 
 fn on_footer_command_emit(
     trigger: On<Receive<FooterCommandEvent>>,
-    spaces: Query<Entity, With<Space>>,
+    spaces: Query<(Entity, &LastActivatedAt), With<Space>>,
+    space_q: Query<Entity, With<Space>>,
+    main_q: Query<Entity, With<Main>>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
+    child_of_q: Query<&ChildOf>,
+    all_children: Query<&Children>,
+    settings: Res<AppSettings>,
+    mut new_tab_ctx: ResMut<NewTabContext>,
     mut messages: ResMut<Messages<AppCommand>>,
     mut commands: Commands,
 ) {
     let evt = &trigger.event().payload;
+    let active_space = spaces.iter().max_by_key(|(_, ts)| ts.0).map(|(e, _)| e);
     match evt.command.as_str() {
         "new" => {
             messages.write(AppCommand::Space(SpaceCommand::New));
         }
         "close" => {
-            messages.write(AppCommand::Space(SpaceCommand::Close));
+            let target = footer_target_space(
+                evt.space_id.as_deref(),
+                spaces.iter().map(|(entity, _)| entity),
+            )
+            .or(active_space);
+            let Some(target) = target else { return };
+            close_space_entity(
+                target,
+                active_space,
+                spaces.iter().count(),
+                &space_q,
+                &main_q,
+                *primary_window,
+                &child_of_q,
+                &all_children,
+                &settings,
+                &mut new_tab_ctx,
+                &mut commands,
+            );
         }
         "switch" => {
             let Some(id_str) = evt.space_id.as_deref() else {
@@ -377,11 +437,36 @@ fn on_footer_command_emit(
             let Ok(bits) = id_str.parse::<u64>() else {
                 return;
             };
-            let Some(target) = spaces.iter().find(|e| e.to_bits() == bits) else {
+            let Some((target, _)) = spaces.iter().find(|(e, _)| e.to_bits() == bits) else {
                 return;
             };
             commands.entity(target).insert(LastActivatedAt::now());
         }
         _ => {}
+    }
+}
+
+fn footer_target_space(
+    id: Option<&str>,
+    spaces: impl IntoIterator<Item = Entity>,
+) -> Option<Entity> {
+    let bits = id?.parse::<u64>().ok()?;
+    spaces.into_iter().find(|space| space.to_bits() == bits)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn footer_target_space_uses_event_space_id() {
+        let target = Entity::from_bits(42);
+        let other = Entity::from_bits(7);
+        let id = target.to_bits().to_string();
+
+        assert_eq!(
+            footer_target_space(Some(&id), [other, target]),
+            Some(target)
+        );
     }
 }

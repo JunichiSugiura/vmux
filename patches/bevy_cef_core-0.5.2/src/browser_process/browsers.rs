@@ -91,6 +91,7 @@ impl Browsers {
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
         webview_chrome_state_sender: WebviewChromeStateSenderInner,
         webview_popup_sender: WebviewPopupSenderInner,
+        texture_wake: Option<TextureWake>,
         initialize_scripts: &[String],
         _window_handle: Option<RawWindowHandle>,
         disk_profile_root: Option<&str>,
@@ -109,6 +110,7 @@ impl Browsers {
             webview_loading_state_sender,
             webview_chrome_state_sender,
             webview_popup_sender,
+            texture_wake,
         );
 
         // `RequestContext::register_scheme_handler_factory` is not always enough: some navigations
@@ -189,8 +191,9 @@ impl Browsers {
             Some(&mut client),
             Some(&_uri.into()),
             Some(&BrowserSettings {
-                // Cap for OSR; matches ProMotion / 120 Hz displays when the host can sustain it.
-                windowless_frame_rate: 120,
+                // Cap OSR paints to one 60Hz frame budget. Higher rates can saturate a full core
+                // per active webview because each paint copies and uploads a full texture.
+                windowless_frame_rate: 60,
                 background_color: background_color.unwrap_or(CEF_OSR_BACKGROUND_COLOR_ARGB),
                 ..Default::default()
             }),
@@ -585,25 +588,36 @@ impl Browsers {
     ///
     /// - [`ImeSetComposition`](https://cef-builds.spotifycdn.com/docs/122.0/classCefBrowserHost.html#a567b41fb2d3917843ece3b57adc21ebe)
     pub fn set_ime_composition(&self, text: &str, cursor_utf16: Option<u32>) {
+        for browser in self
+            .browsers
+            .values()
+            .filter(|b| b.client.focused_frame().is_some())
+        {
+            Self::set_ime_composition_on(browser, text, cursor_utf16);
+        }
+    }
+
+    pub fn set_ime_composition_for(&self, webview: &Entity, text: &str, cursor_utf16: Option<u32>) {
+        if let Some(browser) = self.browsers.get(webview) {
+            browser.host.set_focus(true as _);
+            Self::set_ime_composition_on(browser, text, cursor_utf16);
+        }
+    }
+
+    fn set_ime_composition_on(browser: &WebviewBrowser, text: &str, cursor_utf16: Option<u32>) {
         let underlines = make_underlines_for(text, cursor_utf16.map(|i| (i, i)));
         let i = text.encode_utf16().count();
         let selection_range = Range {
             from: i as _,
             to: i as _,
         };
-        for browser in self
-            .browsers
-            .values()
-            .filter(|b| b.client.focused_frame().is_some())
-        {
-            let replacement_range = Self::ime_caret_range_for();
-            browser.host.ime_set_composition(
-                Some(&text.into()),
-                Some(&underlines),
-                Some(&replacement_range),
-                Some(&selection_range),
-            );
-        }
+        let replacement_range = Self::ime_caret_range_for();
+        browser.host.ime_set_composition(
+            Some(&text.into()),
+            Some(&underlines),
+            Some(&replacement_range),
+            Some(&selection_range),
+        );
     }
 
     /// ## Reference
@@ -615,6 +629,13 @@ impl Browsers {
             .values()
             .filter(|b| b.client.focused_frame().is_some())
         {
+            browser.host.ime_cancel_composition();
+        }
+    }
+
+    pub fn ime_cancel_composition_for(&self, webview: &Entity) {
+        if let Some(browser) = self.browsers.get(webview) {
+            browser.host.set_focus(true as _);
             browser.host.ime_cancel_composition();
         }
     }
@@ -632,17 +653,35 @@ impl Browsers {
         }
     }
 
+    pub fn ime_finish_composition_for(&self, webview: &Entity, keep_selection: bool) {
+        if let Some(browser) = self.browsers.get(webview) {
+            browser.host.set_focus(true as _);
+            browser.host.ime_finish_composing_text(keep_selection as _);
+        }
+    }
+
     pub fn set_ime_commit_text(&self, text: &str) {
         for browser in self
             .browsers
             .values()
             .filter(|b| b.client.focused_frame().is_some())
         {
-            let replacement_range = Self::ime_caret_range_for();
-            browser
-                .host
-                .ime_commit_text(Some(&text.into()), Some(&replacement_range), 0);
+            Self::set_ime_commit_text_on(browser, text);
         }
+    }
+
+    pub fn set_ime_commit_text_for(&self, webview: &Entity, text: &str) {
+        if let Some(browser) = self.browsers.get(webview) {
+            browser.host.set_focus(true as _);
+            Self::set_ime_commit_text_on(browser, text);
+        }
+    }
+
+    fn set_ime_commit_text_on(browser: &WebviewBrowser, text: &str) {
+        let replacement_range = Self::ime_caret_range_for();
+        browser
+            .host
+            .ime_commit_text(Some(&text.into()), Some(&replacement_range), 0);
     }
 
     fn persistent_request_context_settings(cache_path: &str) -> RequestContextSettings {
@@ -708,10 +747,12 @@ impl Browsers {
         webview_loading_state_sender: WebviewLoadingStateSenderInner,
         webview_chrome_state_sender: WebviewChromeStateSenderInner,
         webview_popup_sender: WebviewPopupSenderInner,
+        texture_wake: Option<TextureWake>,
     ) -> Client {
         ClientHandlerBuilder::new(RenderHandlerBuilder::build(
             webview,
             self.sender.clone(),
+            texture_wake,
             size.clone(),
             device_scale.clone(),
         ))
@@ -832,5 +873,14 @@ mod tests {
             cef_dll_sys::cef_event_flags_t::EVENTFLAG_LEFT_MOUSE_BUTTON.0 as u32
                 | cef_dll_sys::cef_event_flags_t::EVENTFLAG_RIGHT_MOUSE_BUTTON.0 as u32
         );
+    }
+
+    #[test]
+    fn osr_frame_rate_is_capped_at_60hz() {
+        let implementation = include_str!("browsers.rs")
+            .split("#[cfg(test)]\nmod tests")
+            .next()
+            .unwrap_or_default();
+        assert!(implementation.contains("windowless_frame_rate: 60"));
     }
 }

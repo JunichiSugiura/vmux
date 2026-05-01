@@ -19,9 +19,18 @@ use bevy_remote::BrpSender;
 #[allow(deprecated)]
 use raw_window_handle::HasRawWindowHandle;
 use serde::{Deserialize, Serialize};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
+mod history_swipe;
 mod mesh;
+mod pinch_zoom;
 mod webview_sprite;
+
+const TEXTURE_WAKE_MIN_INTERVAL: Duration = Duration::from_millis(16);
+
+#[derive(Resource, Clone)]
+struct TextureWakeCallback(Option<TextureWake>);
 
 pub mod prelude {
     pub use crate::webview::{
@@ -87,9 +96,14 @@ pub struct WebviewPlugin;
 
 impl Plugin for WebviewPlugin {
     fn build(&self, app: &mut App) {
+        let texture_wake = app
+            .world()
+            .get_resource::<bevy::winit::EventLoopProxyWrapper>()
+            .map(spawn_texture_wake_throttler);
         app.register_type::<RequestShowDevTool>()
             .init_resource::<CefDiskProfileRoot>()
             .init_non_send_resource::<Browsers>()
+            .insert_resource(TextureWakeCallback(texture_wake))
             .add_plugins((MeshWebviewPlugin,))
             .add_systems(
                 Update,
@@ -126,6 +140,32 @@ fn any_resized(webviews: Query<Entity, Changed<WebviewSize>>) -> bool {
     !webviews.is_empty()
 }
 
+fn spawn_texture_wake_throttler(wrapper: &bevy::winit::EventLoopProxyWrapper) -> TextureWake {
+    let proxy = (**wrapper).clone();
+    let (tx, rx) = mpsc::channel::<()>();
+    std::thread::Builder::new()
+        .name("cef-texture-wake-throttle".into())
+        .spawn(move || {
+            let mut last_fire: Option<Instant> = None;
+            while rx.recv().is_ok() {
+                if let Some(t) = last_fire {
+                    let elapsed = Instant::now().duration_since(t);
+                    if elapsed < TEXTURE_WAKE_MIN_INTERVAL {
+                        std::thread::sleep(TEXTURE_WAKE_MIN_INTERVAL - elapsed);
+                    }
+                }
+                while rx.try_recv().is_ok() {}
+                let _ = proxy.send_event(bevy::winit::WinitUserEvent::WakeUp);
+                last_fire = Some(Instant::now());
+            }
+        })
+        .expect("failed to spawn cef-texture-wake-throttle thread");
+
+    std::sync::Arc::new(move || {
+        let _ = tx.send(());
+    }) as TextureWake
+}
+
 #[allow(clippy::too_many_arguments)]
 fn create_webview(
     mut browsers: NonSendMut<Browsers>,
@@ -137,6 +177,7 @@ fn create_webview(
     loading_state_sender: Res<WebviewLoadingStateSender>,
     chrome_state_sender: Res<WebviewChromeStateSender>,
     popup_sender: Res<WebviewPopupSender>,
+    texture_wake: Res<TextureWakeCallback>,
     webviews: Query<
         (
             Entity,
@@ -182,6 +223,7 @@ fn create_webview(
                 loading_state_sender.0.clone(),
                 chrome_state_sender.0.clone(),
                 popup_sender.0.clone(),
+                texture_wake.0.clone(),
                 &initialize_scripts.0,
                 host_window,
                 disk_profile.0.as_deref(),
@@ -232,4 +274,15 @@ fn apply_request_show_devtool(trigger: On<RequestShowDevTool>, browsers: NonSend
 
 fn apply_request_close_devtool(trigger: On<RequestCloseDevtool>, browsers: NonSend<Browsers>) {
     browsers.close_devtools(&trigger.webview);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn texture_wake_throttle_caps_to_60hz() {
+        assert!(TEXTURE_WAKE_MIN_INTERVAL >= Duration::from_millis(16));
+        assert!(TEXTURE_WAKE_MIN_INTERVAL <= Duration::from_millis(17));
+    }
 }

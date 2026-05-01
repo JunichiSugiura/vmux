@@ -59,7 +59,15 @@ pub struct TermViewportEvent {
 
 /// Range of selected cells in viewport coordinates (0-based row/col).
 #[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct TermSelectionRange {
     pub start_col: u16,
@@ -70,14 +78,30 @@ pub struct TermSelectionRange {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Default,
+    PartialEq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct TermLine {
     pub spans: Vec<TermSpan>,
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Default,
+    PartialEq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct TermSpan {
     pub text: String,
@@ -101,7 +125,14 @@ pub const FLAG_DIM: u16 = 16;
 pub const FLAG_INVERSE: u16 = 32;
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct TermCursor {
     pub col: u16,
@@ -159,6 +190,31 @@ pub struct TermViewportPatch {
     pub full: bool,
 }
 
+impl TermViewportPatch {
+    pub fn requires_row_rebuild(&self, current_cols: u16, current_rows: u16) -> bool {
+        self.full || self.cols != current_cols || self.rows != current_rows
+    }
+
+    pub fn changed_row_indices(&self) -> impl Iterator<Item = u16> + '_ {
+        self.changed_lines.iter().map(|(row_idx, _)| *row_idx)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CursorRowUpdate {
+    pub clear: Option<u16>,
+    pub set: Option<u16>,
+}
+
+pub fn cursor_row_update(previous: Option<&TermCursor>, next: &TermCursor) -> CursorRowUpdate {
+    let clear = previous
+        .filter(|cursor| cursor.visible && (!next.visible || cursor.row != next.row))
+        .map(|cursor| cursor.row);
+    let set = next.visible.then_some(next.row);
+
+    CursorRowUpdate { clear, set }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TermKeyEvent {
     pub key: String,
@@ -193,4 +249,81 @@ pub struct TermResizeEvent {
     pub viewport_width: f32,
     #[serde(default)]
     pub viewport_height: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn patch(changed_rows: Vec<u16>, cols: u16, rows: u16, full: bool) -> TermViewportPatch {
+        TermViewportPatch {
+            changed_lines: changed_rows
+                .into_iter()
+                .map(|row| (row, TermLine::default()))
+                .collect(),
+            cursor: TermCursor::default(),
+            cols,
+            rows,
+            selection: None,
+            full,
+        }
+    }
+
+    #[test]
+    fn viewport_patch_rebuilds_only_for_full_or_dimension_change() {
+        assert!(!patch(vec![3], 80, 24, false).requires_row_rebuild(80, 24));
+        assert!(patch(vec![3], 80, 24, true).requires_row_rebuild(80, 24));
+        assert!(patch(vec![3], 100, 24, false).requires_row_rebuild(80, 24));
+        assert!(patch(vec![3], 80, 30, false).requires_row_rebuild(80, 24));
+    }
+
+    #[test]
+    fn viewport_patch_changed_rows_come_only_from_changed_lines() {
+        let rows = patch(vec![1, 9], 80, 24, false)
+            .changed_row_indices()
+            .collect::<Vec<_>>();
+        assert_eq!(rows, vec![1, 9]);
+    }
+
+    #[test]
+    fn cursor_row_update_targets_only_old_and_new_visible_rows() {
+        let old = TermCursor {
+            row: 2,
+            visible: true,
+            ..TermCursor::default()
+        };
+        let new = TermCursor {
+            row: 5,
+            visible: true,
+            ..TermCursor::default()
+        };
+
+        assert_eq!(
+            cursor_row_update(Some(&old), &new),
+            CursorRowUpdate {
+                clear: Some(2),
+                set: Some(5)
+            }
+        );
+        assert_eq!(
+            cursor_row_update(Some(&new), &new),
+            CursorRowUpdate {
+                clear: None,
+                set: Some(5)
+            }
+        );
+        assert_eq!(
+            cursor_row_update(
+                Some(&old),
+                &TermCursor {
+                    visible: false,
+                    ..new
+                }
+            ),
+            CursorRowUpdate {
+                clear: Some(2),
+                set: None
+            }
+        );
+    }
 }

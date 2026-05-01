@@ -17,9 +17,14 @@ use std::{
 use tokio::sync::{broadcast, mpsc};
 use vmux_terminal::event::*;
 
+const MAX_PTY_CHUNKS_PER_POLL: usize = 64;
+const _: () = assert!(MAX_PTY_CHUNKS_PER_POLL <= 256);
+
+pub type PtyInputWriter = Arc<Mutex<Box<dyn Write + Send>>>;
+
 #[derive(Clone)]
 struct ServiceEventProxy {
-    pty_writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pty_writer: PtyInputWriter,
 }
 
 impl TermEventListener for ServiceEventProxy {
@@ -60,7 +65,7 @@ pub struct Process {
     pub created_at: Instant,
     term: Term<ServiceEventProxy>,
     processor: Processor,
-    pty_writer: Arc<Mutex<Box<dyn Write + Send>>>,
+    pty_writer: PtyInputWriter,
     master: Box<dyn portable_pty::MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     pty_rx: mpsc::UnboundedReceiver<Vec<u8>>,
@@ -81,6 +86,7 @@ impl Process {
         env: Vec<(String, String)>,
         cols: u16,
         rows: u16,
+        wake_tx: mpsc::UnboundedSender<ProcessId>,
     ) -> Result<Self, String> {
         let id = ProcessId::new();
         let pty_system = NativePtySystem::default();
@@ -115,7 +121,7 @@ impl Process {
             .master
             .try_clone_reader()
             .map_err(|e| format!("failed to clone PTY reader: {e}"))?;
-        let writer: Arc<Mutex<Box<dyn Write + Send>>> = Arc::new(Mutex::new(
+        let writer: PtyInputWriter = Arc::new(Mutex::new(
             pair.master
                 .take_writer()
                 .map_err(|e| format!("failed to take PTY writer: {e}"))?,
@@ -132,6 +138,7 @@ impl Process {
         }
 
         let (pty_tx, pty_rx) = mpsc::unbounded_channel();
+        let wake_process_id = id;
         std::thread::Builder::new()
             .name(format!("pty-reader-{}", &id.to_string()[..8]))
             .spawn(move || {
@@ -144,6 +151,7 @@ impl Process {
                             if pty_tx.send(buf[..n].to_vec()).is_err() {
                                 break;
                             }
+                            let _ = wake_tx.send(wake_process_id);
                         }
                         Err(_) => break,
                     }
@@ -183,7 +191,15 @@ impl Process {
     }
 
     pub fn write_input(&self, data: &[u8]) {
-        if let Ok(mut w) = self.pty_writer.lock() {
+        Self::write_input_to_writer(&self.pty_writer, data);
+    }
+
+    pub fn input_writer(&self) -> PtyInputWriter {
+        Arc::clone(&self.pty_writer)
+    }
+
+    pub fn write_input_to_writer(writer: &PtyInputWriter, data: &[u8]) {
+        if let Ok(mut w) = writer.lock() {
             let _ = w.write_all(data);
         }
     }
@@ -206,7 +222,10 @@ impl Process {
     /// Returns true if the child process has exited.
     pub fn poll(&mut self) -> bool {
         let mut got_data = false;
-        while let Ok(data) = self.pty_rx.try_recv() {
+        for _ in 0..MAX_PTY_CHUNKS_PER_POLL {
+            let Ok(data) = self.pty_rx.try_recv() else {
+                break;
+            };
             self.processor.advance(&mut self.term, &data);
             got_data = true;
         }
@@ -331,18 +350,21 @@ impl Process {
 
 pub struct ProcessManager {
     pub processes: HashMap<ProcessId, Process>,
+    wake_tx: mpsc::UnboundedSender<ProcessId>,
 }
 
 impl Default for ProcessManager {
     fn default() -> Self {
-        Self::new()
+        let (wake_tx, _) = mpsc::unbounded_channel();
+        Self::new(wake_tx)
     }
 }
 
 impl ProcessManager {
-    pub fn new() -> Self {
+    pub fn new(wake_tx: mpsc::UnboundedSender<ProcessId>) -> Self {
         Self {
             processes: HashMap::new(),
+            wake_tx,
         }
     }
 
@@ -354,7 +376,7 @@ impl ProcessManager {
         cols: u16,
         rows: u16,
     ) -> Result<ProcessId, String> {
-        let process = Process::new(shell, cwd, env, cols, rows)?;
+        let process = Process::new(shell, cwd, env, cols, rows, self.wake_tx.clone())?;
         let id = process.id;
         self.processes.insert(id, process);
         Ok(id)
@@ -374,6 +396,10 @@ impl ProcessManager {
         if let Some(mut process) = self.processes.remove(id) {
             process.kill();
         }
+    }
+
+    pub fn input_writer(&self, id: &ProcessId) -> Option<PtyInputWriter> {
+        self.processes.get(id).map(Process::input_writer)
     }
 
     pub fn shutdown(&mut self) {
@@ -550,5 +576,65 @@ fn ansi_256_to_rgb(idx: u8) -> [u8; 3] {
     } else {
         let v = 8 + (idx - 232) * 10;
         [v, v, v]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn pty_reader_notifies_when_output_arrives() {
+        let (wake_tx, mut wake_rx) = mpsc::unbounded_channel();
+        let mut process = Process::new(
+            "/bin/sh".to_string(),
+            String::new(),
+            Vec::new(),
+            80,
+            24,
+            wake_tx,
+        )
+        .expect("process should spawn");
+
+        process.write_input(b"printf vmux-wake-test\r");
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if wake_rx.try_recv().is_ok() {
+                process.kill();
+                return;
+            }
+            if Instant::now() >= deadline {
+                process.kill();
+                panic!("timed out waiting for PTY wake notification");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn write_input_to_writer_does_not_need_process_lock() {
+        #[derive(Clone)]
+        struct CapturingWriter(Arc<Mutex<Vec<u8>>>);
+
+        impl Write for CapturingWriter {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let writer: PtyInputWriter =
+            Arc::new(Mutex::new(Box::new(CapturingWriter(captured.clone()))));
+
+        Process::write_input_to_writer(&writer, b"abc");
+
+        assert_eq!(*captured.lock().unwrap(), b"abc".to_vec());
     }
 }

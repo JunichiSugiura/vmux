@@ -2,7 +2,7 @@ use crate::{
     browser::Browser,
     command::{AppCommand, ReadAppCommands, WindowCommand},
     layout::glass::{GlassCorners, GlassMaterial},
-    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle},
+    layout::pane::{Pane, PaneSplit, PaneSplitDirection, leaf_pane_bundle, pane_split_gaps},
     layout::side_sheet::{SideSheet, SideSheetPosition, SideSheetWidth},
     layout::space::space_bundle,
     layout::tab::tab_bundle,
@@ -26,14 +26,30 @@ use vmux_header::{HEADER_HEIGHT_PX, HEADER_WEBVIEW_URL, Header, HeaderBundle};
 use vmux_history::{CreatedAt, LastActivatedAt};
 use vmux_webview_app::WebviewAppEmbedSet;
 
-pub(crate) const WEBVIEW_Z_MAIN: f32 = 0.12;
-pub(crate) const WEBVIEW_Z_FOCUS_RING: f32 = 0.122;
-pub(crate) const WEBVIEW_Z_HEADER: f32 = 0.125;
-pub(crate) const WEBVIEW_Z_SIDE_SHEET: f32 = 0.125;
-pub(crate) const WEBVIEW_Z_MODAL: f32 = 0.5;
+pub(crate) const WEBVIEW_Z_MAIN: f32 = 0.018;
+pub(crate) const WEBVIEW_Z_FOCUS_RING: f32 = 0.02;
+pub(crate) const WEBVIEW_Z_HEADER: f32 = 0.022;
+pub(crate) const WEBVIEW_Z_SIDE_SHEET: f32 = 0.022;
+pub(crate) const WEBVIEW_Z_MODAL: f32 = 0.06;
 pub(crate) const WEBVIEW_MESH_DEPTH_BIAS: f32 = -4.0;
 
+const _: () = {
+    assert!(WEBVIEW_Z_MAIN <= 0.025);
+    assert!(WEBVIEW_Z_FOCUS_RING > WEBVIEW_Z_MAIN);
+    assert!(WEBVIEW_Z_HEADER <= 0.03);
+    assert!(WEBVIEW_Z_SIDE_SHEET <= 0.03);
+    assert!(WEBVIEW_Z_MODAL <= 0.08);
+};
+
 pub(crate) struct WindowPlugin;
+
+fn window_glass_base_color() -> Color {
+    Color::srgba(0.13, 0.13, 0.14, 1.0)
+}
+
+fn chrome_glass_base_color() -> Color {
+    Color::srgba(1.0, 1.0, 1.0, 0.0)
+}
 
 impl Plugin for WindowPlugin {
     fn build(&self, app: &mut App) {
@@ -173,7 +189,8 @@ fn setup(
             mesh: Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
             material: MeshMaterial3d(materials.add(GlassMaterial {
                 base: StandardMaterial {
-                    base_color: Color::srgba(1.0, 1.0, 1.0, 0.08),
+                    base_color: window_glass_base_color(),
+                    unlit: true,
                     alpha_mode: AlphaMode::Blend,
                     cull_mode: None,
                     perceptual_roughness: 0.23,
@@ -430,6 +447,7 @@ fn spawn_default_session(
         ))
         .id();
 
+    let gap = pane_split_gaps(PaneSplitDirection::Row, settings.layout.pane.gap);
     let split_root = commands
         .spawn((
             Pane,
@@ -443,8 +461,8 @@ fn spawn_default_session(
             Node {
                 flex_grow: 1.0,
                 min_height: Val::Px(0.0),
-                column_gap: Val::Px(settings.layout.pane.gap),
-                row_gap: Val::Px(settings.layout.pane.gap),
+                column_gap: gap.column_gap,
+                row_gap: gap.row_gap,
                 ..default()
             },
             ChildOf(space),
@@ -485,7 +503,8 @@ fn spawn_glass_child(
         Mesh3d(plane),
         MeshMaterial3d(materials.add(GlassMaterial {
             base: StandardMaterial {
-                base_color: Color::srgba(1.0, 1.0, 1.0, 0.08),
+                base_color: chrome_glass_base_color(),
+                unlit: true,
                 alpha_mode: AlphaMode::Blend,
                 cull_mode: None,
                 perceptual_roughness: 0.1,
@@ -664,5 +683,23 @@ pub(crate) fn fit_window_to_screen(
         if let Some(mat) = materials.get_mut(handle) {
             mat.extension.clip = Vec4::new(r, m.x, m.y, PIXELS_PER_METER);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_glass_uses_dark_finder_style_background() {
+        assert_eq!(
+            window_glass_base_color(),
+            Color::srgba(0.13, 0.13, 0.14, 1.0)
+        );
+    }
+
+    #[test]
+    fn chrome_glass_has_no_fill_color() {
+        assert_eq!(chrome_glass_base_color(), Color::srgba(1.0, 1.0, 1.0, 0.0));
     }
 }

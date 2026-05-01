@@ -5,6 +5,7 @@ use vmux_command_bar::event::{
     COMMAND_BAR_OPEN_EVENT, CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent,
     CommandBarTab, PATH_COMPLETE_RESPONSE, PathCompleteRequest, PathCompleteResponse, PathEntry,
 };
+use vmux_command_bar::style::result_item_class;
 use vmux_ui::components::icon::Icon;
 use vmux_ui::hooks::{try_cef_emit_serde, use_event_listener, use_theme};
 use wasm_bindgen::JsCast;
@@ -439,16 +440,12 @@ pub fn App() -> Element {
                     }
                 }
                 if !results.is_empty() {
-                    div { class: "max-h-80 overflow-y-auto border-t border-border p-1",
+                    div { class: "max-h-80 overflow-y-auto border-t border-border",
                         for (i, item) in results.iter().enumerate() {
                             div {
                                 key: "{i}",
                                 id: "command-bar-item-{i}",
-                                class: if i == sel {
-                                    "flex cursor-pointer items-center justify-between rounded-lg bg-white/10 px-3 py-2"
-                                } else {
-                                    "flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 hover:bg-white/5"
-                                },
+                                class: result_item_class(i == sel),
                                 onclick: {
                                     let item = item.clone();
                                     move |_| { execute(&item); }

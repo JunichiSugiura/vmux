@@ -1,5 +1,5 @@
 use super::Open;
-use crate::command::{AppCommand, FooterCommand, ReadAppCommands};
+use crate::command::{AppCommand, BrowserCommand, FooterCommand, ReadAppCommands};
 use bevy::prelude::*;
 use vmux_footer::{FOOTER_HEIGHT_PX, Footer};
 
@@ -21,15 +21,25 @@ fn handle_footer_toggle(
     mut commands: Commands,
 ) {
     for cmd in reader.read() {
-        if matches!(cmd, AppCommand::Footer(FooterCommand::Toggle)) {
-            for (entity, is_open) in &footer_q {
-                if is_open {
-                    commands.entity(entity).remove::<Open>();
-                } else {
+        for (entity, is_open) in &footer_q {
+            match footer_open_after_command(*cmd, is_open) {
+                Some(true) => {
                     commands.entity(entity).insert(Open);
                 }
+                Some(false) => {
+                    commands.entity(entity).remove::<Open>();
+                }
+                None => {}
             }
         }
+    }
+}
+
+fn footer_open_after_command(cmd: AppCommand, is_open: bool) -> Option<bool> {
+    match cmd {
+        AppCommand::Footer(FooterCommand::Toggle) => Some(!is_open),
+        AppCommand::Browser(BrowserCommand::Find) if is_open => Some(false),
+        _ => None,
     }
 }
 
@@ -52,5 +62,40 @@ fn sync_footer_visibility(
             node.display = Display::None;
             node.height = Val::Px(0.0);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::CommandPlugin;
+
+    #[test]
+    fn browser_find_closes_open_footer_on_first_command() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.add_plugins(CommandPlugin);
+        app.add_systems(Update, handle_footer_toggle.in_set(ReadAppCommands));
+
+        let footer = app.world_mut().spawn((Footer, Open)).id();
+        app.world_mut()
+            .resource_mut::<Messages<AppCommand>>()
+            .write(AppCommand::Browser(BrowserCommand::Find));
+
+        app.update();
+
+        assert!(!app.world().entity(footer).contains::<Open>());
+    }
+
+    #[test]
+    fn footer_toggle_still_opens_and_closes() {
+        assert_eq!(
+            footer_open_after_command(AppCommand::Footer(FooterCommand::Toggle), false),
+            Some(true)
+        );
+        assert_eq!(
+            footer_open_after_command(AppCommand::Footer(FooterCommand::Toggle), true),
+            Some(false)
+        );
     }
 }

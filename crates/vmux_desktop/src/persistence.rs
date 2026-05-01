@@ -10,7 +10,7 @@ use crate::{
     browser::Browser,
     layout::{
         HeaderState, Open, SideSheetState,
-        pane::{Pane, PaneSize, PaneSplit, PaneSplitDirection},
+        pane::{Pane, PaneSize, PaneSplit, PaneSplitDirection, pane_split_gaps},
         side_sheet::{SideSheet, SideSheetPosition},
         space::Space,
         tab::Tab,
@@ -194,12 +194,12 @@ pub(crate) fn rebuild_session_views(
     }
 
     // -- PaneSplit: add flex container with gap + direction --
-    let gap = Val::Px(settings.layout.pane.gap);
     for (entity, split) in &splits_need_view {
         let flex_dir = match split.direction {
             PaneSplitDirection::Row => FlexDirection::Row,
             PaneSplitDirection::Column => FlexDirection::Column,
         };
+        let gap = pane_split_gaps(split.direction, settings.layout.pane.gap);
         let mut ecmds = commands.entity(entity);
         ecmds.insert((
             HostWindow(pw),
@@ -210,8 +210,8 @@ pub(crate) fn rebuild_session_views(
                 flex_grow: 1.0,
                 min_height: Val::Px(0.0),
                 flex_direction: flex_dir,
-                column_gap: gap,
-                row_gap: gap,
+                column_gap: gap.column_gap,
+                row_gap: gap.row_gap,
                 ..default()
             },
         ));

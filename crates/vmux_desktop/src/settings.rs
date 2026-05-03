@@ -2,15 +2,28 @@ use bevy::prelude::*;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use std::sync::{Mutex, mpsc};
+use vmux_layout::settings::ConfirmCloseSettings;
+pub use vmux_layout::settings::LayoutSettings;
+#[cfg(test)]
+pub use vmux_layout::settings::{
+    FocusRingSettings, PaneSettings, SideSheetSettings, WindowSettings,
+};
 
 pub struct SettingsPlugin;
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_settings)
-            .add_systems(Update, reload_settings_on_change);
+        app.configure_sets(
+            Startup,
+            SettingsLoadSet.before(vmux_layout::LayoutStartupSet::Window),
+        )
+        .add_systems(Startup, load_settings.in_set(SettingsLoadSet))
+        .add_systems(Update, reload_settings_on_change);
     }
 }
+
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SettingsLoadSet;
 
 #[derive(Clone, Debug, Deserialize, Resource)]
 pub struct AppSettings {
@@ -252,180 +265,6 @@ impl TerminalSettings {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct LayoutSettings {
-    pub window: WindowSettings,
-    pub pane: PaneSettings,
-    #[serde(default)]
-    pub side_sheet: SideSheetSettings,
-    #[serde(default)]
-    pub focus_ring: FocusRingSettings,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct SideSheetSettings {
-    #[serde(default = "default_side_sheet_width")]
-    pub width: f32,
-}
-
-impl Default for SideSheetSettings {
-    fn default() -> Self {
-        Self {
-            width: default_side_sheet_width(),
-        }
-    }
-}
-
-fn default_side_sheet_width() -> f32 {
-    280.0
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct WindowSettings {
-    pub padding: f32,
-    #[serde(default)]
-    pub padding_top: Option<f32>,
-    #[serde(default)]
-    pub padding_right: Option<f32>,
-    #[serde(default)]
-    pub padding_bottom: Option<f32>,
-    #[serde(default)]
-    pub padding_left: Option<f32>,
-}
-
-impl WindowSettings {
-    pub fn pad_top(&self) -> f32 {
-        self.padding_top.unwrap_or(self.padding)
-    }
-    pub fn pad_right(&self) -> f32 {
-        self.padding_right.unwrap_or(self.padding)
-    }
-    pub fn pad_bottom(&self) -> f32 {
-        self.padding_bottom.unwrap_or(self.padding)
-    }
-    pub fn pad_left(&self) -> f32 {
-        self.padding_left.unwrap_or(self.padding)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct FocusRingColor {
-    pub r: f32,
-    pub g: f32,
-    pub b: f32,
-}
-
-impl Default for FocusRingColor {
-    fn default() -> Self {
-        Self {
-            r: 0.52,
-            g: 0.52,
-            b: 0.58,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct FocusRingGlow {
-    #[serde(default = "default_outline_glow_spread")]
-    pub spread: f32,
-    #[serde(default = "default_outline_glow_intensity")]
-    pub intensity: f32,
-}
-
-impl Default for FocusRingGlow {
-    fn default() -> Self {
-        Self {
-            spread: default_outline_glow_spread(),
-            intensity: default_outline_glow_intensity(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct FocusRingGradient {
-    #[serde(default = "default_outline_gradient_enabled")]
-    pub enabled: bool,
-    #[serde(default = "default_outline_gradient_speed")]
-    pub speed: f32,
-    #[serde(default = "default_outline_gradient_cycles")]
-    pub cycles: f32,
-    #[serde(default = "default_outline_gradient_accent")]
-    pub accent: FocusRingColor,
-}
-
-impl Default for FocusRingGradient {
-    fn default() -> Self {
-        Self {
-            enabled: default_outline_gradient_enabled(),
-            speed: default_outline_gradient_speed(),
-            cycles: default_outline_gradient_cycles(),
-            accent: default_outline_gradient_accent(),
-        }
-    }
-}
-
-fn default_outline_gradient_enabled() -> bool {
-    true
-}
-
-fn default_outline_gradient_speed() -> f32 {
-    1.0
-}
-
-fn default_outline_gradient_cycles() -> f32 {
-    2.0
-}
-
-fn default_outline_gradient_accent() -> FocusRingColor {
-    FocusRingColor {
-        r: 0.15,
-        g: 0.55,
-        b: 1.0,
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct FocusRingSettings {
-    #[serde(default = "default_outline_width")]
-    pub width: f32,
-    #[serde(default)]
-    pub color: FocusRingColor,
-    #[serde(default)]
-    pub glow: FocusRingGlow,
-    #[serde(default)]
-    pub gradient: FocusRingGradient,
-}
-
-impl Default for FocusRingSettings {
-    fn default() -> Self {
-        Self {
-            width: default_outline_width(),
-            color: FocusRingColor::default(),
-            glow: FocusRingGlow::default(),
-            gradient: FocusRingGradient::default(),
-        }
-    }
-}
-
-fn default_outline_width() -> f32 {
-    2.0
-}
-
-fn default_outline_glow_spread() -> f32 {
-    3.0
-}
-
-fn default_outline_glow_intensity() -> f32 {
-    0.35
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct PaneSettings {
-    pub gap: f32,
-    pub radius: f32,
-}
-
 const DEFAULT_SETTINGS: &str = include_str!("settings.ron");
 
 /// Holds the file watcher and channel for settings hot-reload.
@@ -479,6 +318,7 @@ pub fn load_settings(mut commands: Commands) {
         (load_embedded_settings(), None)
     };
 
+    sync_layout_resources(&mut commands, &settings);
     commands.insert_resource(settings);
 
     // Start file watcher
@@ -516,6 +356,8 @@ pub fn load_settings(mut commands: Commands) {
 fn reload_settings_on_change(
     watcher: Option<Res<SettingsWatcher>>,
     mut settings: ResMut<AppSettings>,
+    mut layout_settings: ResMut<LayoutSettings>,
+    mut confirm_close: ResMut<ConfirmCloseSettings>,
 ) {
     let Some(watcher) = watcher else { return };
 
@@ -534,6 +376,11 @@ fn reload_settings_on_change(
         Ok(text) => match ron::de::from_str::<AppSettings>(&text) {
             Ok(new_settings) => {
                 bevy::log::info!("Settings reloaded from {}", watcher.path.display());
+                *layout_settings = new_settings.layout.clone();
+                confirm_close.enabled = new_settings
+                    .terminal
+                    .as_ref()
+                    .is_none_or(|terminal| terminal.confirm_close);
                 *settings = new_settings;
             }
             Err(e) => {
@@ -548,4 +395,14 @@ fn reload_settings_on_change(
 
 fn load_embedded_settings() -> AppSettings {
     ron::de::from_str(DEFAULT_SETTINGS).expect("embedded settings.ron must parse")
+}
+
+fn sync_layout_resources(commands: &mut Commands, settings: &AppSettings) {
+    commands.insert_resource(settings.layout.clone());
+    commands.insert_resource(ConfirmCloseSettings {
+        enabled: settings
+            .terminal
+            .as_ref()
+            .is_none_or(|terminal| terminal.confirm_close),
+    });
 }

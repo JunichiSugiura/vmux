@@ -33,9 +33,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 vmux_core = { path = "../vmux_core" }
 vmux_history = { path = "../vmux_history" }
-vmux_footer = { path = "../vmux_footer" }
-vmux_header = { path = "../vmux_header" }
-vmux_side_sheet = { path = "../vmux_side_sheet" }
+vmux_layout = { path = "../vmux_layout" }
 vmux_command_bar = { path = "../vmux_command_bar" }
 vmux_macro = { path = "../vmux_macro" }
 vmux_ui = { path = "../vmux_ui", default-features = false }
@@ -73,5 +71,3 @@ application-folder-position = { x = 480, y = 180 }
 minimum-system-version = "13.0"
 signing-identity = "Developer ID Application: Junichi Sugiura (4BG7FRMF2G)"
 entitlements = "../../packaging/macos/Vmux.entitlements"
-
-

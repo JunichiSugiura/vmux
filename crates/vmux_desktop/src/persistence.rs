@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use crate::{
     browser::Browser,
     layout::{
-        HeaderState, Open, SideSheetState,
+        Header, HeaderState, LayoutStartupSet, Open, SessionFilePresent, SideSheetState,
         pane::{Pane, PaneSize, PaneSplit, PaneSplitDirection, pane_split_gaps},
         side_sheet::{SideSheet, SideSheetPosition},
         space::Space,
@@ -20,10 +20,9 @@ use crate::{
     settings::AppSettings,
     terminal::Terminal,
 };
-use vmux_header::PageMetadata;
-use vmux_processes::event::PROCESSES_WEBVIEW_URL;
+use vmux_core::PageMetadata;
+use vmux_layout::event::{PROCESSES_WEBVIEW_URL, TERMINAL_WEBVIEW_URL};
 use vmux_service::protocol::ProcessId;
-use vmux_terminal::event::TERMINAL_WEBVIEW_URL;
 
 pub(crate) struct PersistencePlugin;
 
@@ -36,6 +35,20 @@ impl Plugin for PersistencePlugin {
         })
         .add_observer(save_on_default_event)
         .add_observer(load_on_default_event)
+        .add_systems(
+            Startup,
+            load_session_on_startup.in_set(LayoutStartupSet::Persistence),
+        )
+        .add_systems(
+            Startup,
+            (
+                rebuild_session_views,
+                ensure_layout_state_entities,
+                apply_persisted_layout_state,
+            )
+                .chain()
+                .in_set(LayoutStartupSet::Post),
+        )
         .add_systems(Update, (mark_dirty_on_change, auto_save_system).chain());
     }
 }
@@ -137,7 +150,9 @@ fn do_save(commands: &mut Commands) {
 /// Check if a session file exists and trigger load on startup.
 pub(crate) fn load_session_on_startup(mut commands: Commands) {
     let path = session_path();
-    if path.exists() {
+    let exists = path.exists();
+    commands.insert_resource(SessionFilePresent(exists));
+    if exists {
         info!("Loading session from {:?}", path);
         commands.trigger_load(LoadWorld::default_from_file(path));
     }
@@ -364,7 +379,7 @@ pub(crate) fn ensure_layout_state_entities(
 pub(crate) fn apply_persisted_layout_state(
     header_state_q: Query<Has<Open>, With<HeaderState>>,
     side_sheet_state_q: Query<Has<Open>, With<SideSheetState>>,
-    header_q: Query<Entity, With<vmux_header::Header>>,
+    header_q: Query<Entity, With<Header>>,
     side_sheet_q: Query<(Entity, &SideSheetPosition), With<SideSheet>>,
     mut commands: Commands,
 ) {

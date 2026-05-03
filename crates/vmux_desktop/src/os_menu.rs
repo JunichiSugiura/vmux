@@ -1,4 +1,4 @@
-use crate::command::{AppCommand, WriteAppCommands};
+use crate::command::{AppCommand, WriteAppCommands, build_native_root_menu};
 use crate::settings::AppSettings;
 use crate::terminal::{self, PtyExited, Terminal};
 use bevy::app::AppExit;
@@ -39,7 +39,7 @@ impl Plugin for OsMenuPlugin {
 
 fn setup(world: &mut World) {
     let mut menu = Menu::new();
-    AppCommand::build_native_root_menu(&mut menu).unwrap();
+    build_native_root_menu(&mut menu).unwrap();
 
     #[cfg(target_os = "macos")]
     menu.init_for_nsapp();

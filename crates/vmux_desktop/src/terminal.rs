@@ -2,6 +2,7 @@ use crate::{
     browser::Browser,
     command::{AppCommand, TabCommand, WriteAppCommands},
     layout::window::WEBVIEW_MESH_DEPTH_BIAS,
+    processes_monitor::ProcessesMonitor,
     settings::AppSettings,
 };
 use bevy::{
@@ -16,8 +17,9 @@ use bevy::{
     render::alpha::AlphaMode,
 };
 use bevy_cef::prelude::*;
-use vmux_header::PageMetadata;
+use vmux_core::PageMetadata;
 use vmux_history::LastActivatedAt;
+use vmux_layout::{CloseRequiresConfirmation, LayoutSpawnRequest};
 use vmux_service::{
     client::{ServiceHandle, ServiceWake},
     protocol::{ClientMessage, ProcessId, ServiceMessage},
@@ -59,33 +61,6 @@ pub(crate) fn has_live_terminal(
     } else {
         false
     }
-}
-
-/// Check if a pane has any tab with a live terminal.
-pub(crate) fn pane_has_live_terminal(
-    pane: Entity,
-    pane_children_q: &Query<&Children, With<crate::layout::pane::Pane>>,
-    all_children_q: &Query<&Children>,
-    terminal_q: &Query<(), (With<Terminal>, Without<ProcessExited>)>,
-) -> bool {
-    if let Ok(tabs) = pane_children_q.get(pane) {
-        tabs.iter()
-            .any(|tab| has_live_terminal(tab, all_children_q, terminal_q))
-    } else {
-        false
-    }
-}
-
-/// Show confirmation dialog for closing a terminal tab/pane.
-pub(crate) fn show_close_dialog() -> bool {
-    use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
-    let result = MessageDialog::new()
-        .set_level(MessageLevel::Warning)
-        .set_title("Close Terminal?")
-        .set_description("A process is still running in this terminal. Close anyway?")
-        .set_buttons(MessageButtons::OkCancel)
-        .show();
-    matches!(result, MessageDialogResult::Ok)
 }
 
 /// Show confirmation dialog for quitting with N running terminals.
@@ -226,21 +201,57 @@ impl Plugin for TerminalInputPlugin {
                     handle_terminal_scroll.run_if(on_message::<MouseWheel>),
                 )
                     .after(InputSystems),
-            )
-            .add_systems(
-                Update,
-                (
-                    try_connect_service.run_if(resource_exists::<ServiceConnectRetry>),
-                    poll_service_messages.in_set(WriteAppCommands),
-                    handle_terminal_copy_mode_command.in_set(crate::command::ReadAppCommands),
-                    sync_terminal_theme,
-                )
-                    .chain(),
-            )
+            );
+        add_terminal_update_systems(app)
             .add_observer(on_term_ready)
             .add_observer(on_term_resize)
             .add_observer(on_term_mouse)
             .add_observer(on_restart_pty);
+    }
+}
+
+fn add_terminal_update_systems(app: &mut App) -> &mut App {
+    app.add_systems(
+        Update,
+        spawn_layout_requested_content.after(crate::layout::tab::TabCommandSet),
+    )
+    .add_systems(
+        Update,
+        (
+            try_connect_service.run_if(resource_exists::<ServiceConnectRetry>),
+            poll_service_messages.in_set(WriteAppCommands),
+            handle_terminal_copy_mode_command.in_set(crate::command::ReadAppCommands),
+            sync_terminal_theme,
+        )
+            .chain(),
+    )
+}
+
+fn spawn_layout_requested_content(
+    mut reader: MessageReader<LayoutSpawnRequest>,
+    settings: Res<AppSettings>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut webview_mt: ResMut<Assets<WebviewExtendStandardMaterial>>,
+) {
+    for request in reader.read() {
+        match *request {
+            LayoutSpawnRequest::Terminal { tab } => {
+                let terminal = commands
+                    .spawn((
+                        Terminal::new(&mut meshes, &mut webview_mt, &settings),
+                        ChildOf(tab),
+                    ))
+                    .id();
+                commands.entity(terminal).insert(CefKeyboardTarget);
+            }
+            LayoutSpawnRequest::ProcessesMonitor { tab } => {
+                commands.spawn((
+                    ProcessesMonitor::new(&mut meshes, &mut webview_mt),
+                    ChildOf(tab),
+                ));
+            }
+        }
     }
 }
 
@@ -290,6 +301,7 @@ impl Terminal {
             (
                 Self,
                 Browser,
+                CloseRequiresConfirmation,
                 ServiceProcessHandle { process_id },
                 PendingServiceCreate {
                     shell,
@@ -345,6 +357,7 @@ impl Terminal {
             (
                 Self,
                 Browser,
+                CloseRequiresConfirmation,
                 ServiceProcessHandle { process_id },
                 PendingServiceAttach,
                 PageMetadata {
@@ -641,7 +654,10 @@ fn poll_service_messages(
                 mouse_state.per_process.remove(&process_id);
                 for (entity, handle, child_of) in &terminals {
                     if handle.process_id == process_id {
-                        commands.entity(entity).insert(ProcessExited);
+                        commands
+                            .entity(entity)
+                            .insert(ProcessExited)
+                            .remove::<CloseRequiresConfirmation>();
                         let tab = child_of.get();
                         commands.entity(tab).insert(LastActivatedAt::now());
                         writer.write(AppCommand::Tab(TabCommand::Close));
@@ -1708,9 +1724,28 @@ fn update_local_copy_mode_for_mouse_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::schedule::Schedules;
 
     fn process_id(byte: u8) -> ProcessId {
         ProcessId([byte; 16])
+    }
+
+    #[test]
+    fn terminal_update_schedule_has_no_before_after_cycle() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(crate::command::CommandPlugin)
+            .add_plugins(vmux_layout::tab::TabPlugin)
+            .add_message::<LayoutSpawnRequest>();
+        add_terminal_update_systems(&mut app);
+
+        let mut schedules = app.world_mut().remove_resource::<Schedules>().unwrap();
+        let mut update = schedules.remove(Update).unwrap();
+        let result = update.initialize(app.world_mut());
+
+        if let Err(error) = result {
+            panic!("{}", error.to_string(update.graph(), app.world()));
+        }
     }
 
     #[test]

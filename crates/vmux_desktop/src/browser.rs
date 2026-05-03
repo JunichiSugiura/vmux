@@ -3,15 +3,15 @@ use crate::{
     layout::{
         PendingWebviewReveal,
         pane::{Pane, PaneHoverIntent, PaneSplit, first_leaf_descendant, first_tab_in_pane},
-        side_sheet::SideSheet,
+        side_sheet::{SideSheet, SideSheetPosition, SideSheetWidth},
         space::Space,
         tab::{
             CloseConfirmed, PendingTabClose, Tab, active_tab_in_pane, collect_leaf_panes,
             focused_tab, tab_bundle,
         },
         window::{
-            Modal, VmuxWindow, WEBVIEW_MESH_DEPTH_BIAS, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN,
-            WEBVIEW_Z_MODAL, WEBVIEW_Z_SIDE_SHEET,
+            Modal, VmuxWindow, WEBVIEW_Z_HEADER, WEBVIEW_Z_MAIN, WEBVIEW_Z_MODAL,
+            WEBVIEW_Z_SIDE_SHEET,
         },
     },
     settings::AppSettings,
@@ -19,23 +19,23 @@ use crate::{
 };
 use bevy::{
     ecs::{message::Messages, relationship::Relationship},
-    picking::Pickable,
     prelude::*,
-    render::alpha::AlphaMode,
     ui::{UiGlobalTransform, UiSystems},
     window::{ClosingWindow, PrimaryWindow, WindowResized},
 };
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::{RenderTextureMessage, webview_debug_log};
-use vmux_footer::Footer;
-#[cfg(target_os = "macos")]
-use vmux_header::{
-    Header, NavigationState, PageMetadata,
-    event::{HeaderCommandEvent, RELOAD_EVENT, TABS_EVENT, TabRow, TabsHostEvent},
-};
+use vmux_core::PageMetadata;
 use vmux_history::{CreatedAt, LastActivatedAt, Visit};
-use vmux_side_sheet::event::{
-    PANE_TREE_EVENT, PaneNode, PaneTreeEvent, SideSheetCommandEvent, TabNode,
+use vmux_layout::event::SideSheetCommandEvent;
+pub(crate) use vmux_layout::{Browser, Loading};
+use vmux_layout::{
+    Footer, Header, LayoutChrome, NavigationState, Open,
+    event::{
+        FOOTER_HEIGHT_PX, HEADER_HEIGHT_PX, HeaderCommandEvent, LAYOUT_STATE_EVENT,
+        LayoutStateEvent, PANE_TREE_EVENT, PaneNode, PaneTreeEvent, RELOAD_EVENT, TABS_EVENT,
+        TabNode, TabRow, TabsHostEvent, effective_titlebar_height,
+    },
 };
 use vmux_ui::theme::{THEME_EVENT, ThemeEvent};
 use vmux_webview_app::{UiReady, WebviewAppRegistry};
@@ -66,6 +66,7 @@ impl Plugin for BrowserPlugin {
                 Update,
                 (
                     handle_browser_commands.in_set(ReadAppCommands),
+                    vmux_layout::apply_chrome_state_from_cef,
                     drain_loading_state,
                     spawn_popup_tabs,
                 ),
@@ -74,12 +75,16 @@ impl Plugin for BrowserPlugin {
                 Update,
                 (sync_page_metadata_to_tab, spawn_visit_on_navigation)
                     .chain()
-                    .after(vmux_header::system::apply_chrome_state_from_cef),
+                    .after(vmux_layout::apply_chrome_state_from_cef),
             )
             .add_systems(
                 Update,
-                (push_tabs_host_emit, push_pane_tree_emit)
-                    .after(vmux_header::system::apply_chrome_state_from_cef)
+                (
+                    push_layout_state_emit,
+                    push_tabs_host_emit,
+                    push_pane_tree_emit,
+                )
+                    .after(vmux_layout::apply_chrome_state_from_cef)
                     .after(crate::layout::tab::ComputeFocusSet),
             )
             .add_systems(
@@ -113,54 +118,6 @@ fn on_webview_ready_send_theme(
         };
         let body = ron::ser::to_string(&payload).unwrap_or_default();
         commands.trigger(HostEmitEvent::new(entity, THEME_EVENT, &body));
-    }
-}
-
-#[derive(Component)]
-pub(crate) struct Browser;
-
-#[derive(Component)]
-pub(crate) struct Loading;
-
-impl Browser {
-    pub(crate) fn new(
-        meshes: &mut ResMut<Assets<Mesh>>,
-        webview_mt: &mut ResMut<Assets<WebviewExtendStandardMaterial>>,
-        url: &str,
-    ) -> impl Bundle {
-        (
-            Self,
-            vmux_header::PageMetadata {
-                title: url.to_string(),
-                url: url.to_string(),
-                favicon_url: String::new(),
-            },
-            WebviewSource::new(url),
-            ResolvedWebviewUri(url.to_string()),
-            Mesh3d(meshes.add(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))),
-            MeshMaterial3d(webview_mt.add(WebviewExtendStandardMaterial {
-                base: StandardMaterial {
-                    unlit: true,
-                    alpha_mode: AlphaMode::Blend,
-                    depth_bias: WEBVIEW_MESH_DEPTH_BIAS,
-                    ..default()
-                },
-                ..default()
-            })),
-            WebviewSize(Vec2::new(1280.0, 720.0)),
-            Transform::default(),
-            GlobalTransform::default(),
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(0.0),
-                right: Val::Px(0.0),
-                top: Val::Px(0.0),
-                bottom: Val::Px(0.0),
-                ..default()
-            },
-            Visibility::Inherited,
-            Pickable::default(),
-        )
     }
 }
 
@@ -631,18 +588,72 @@ fn flush_pending_osr_textures(
     }
 }
 
+fn push_layout_state_emit(
+    mut commands: Commands,
+    browsers: NonSend<Browsers>,
+    chrome: Option<Single<Entity, (With<LayoutChrome>, With<UiReady>)>>,
+    header_q: Query<Has<Open>, With<Header>>,
+    footer_q: Query<Has<Open>, With<Footer>>,
+    side_sheet_q: Query<(&SideSheetPosition, Has<Open>), With<SideSheet>>,
+    side_sheet_width: Res<SideSheetWidth>,
+    settings: Res<AppSettings>,
+    mut last: Local<String>,
+) {
+    let Some(chrome) = chrome else { return };
+    let chrome_e = *chrome;
+    if !browsers.has_browser(chrome_e) || !browsers.host_emit_ready(&chrome_e) {
+        return;
+    }
+
+    let payload = LayoutStateEvent {
+        header_open: header_q.iter().any(|is_open| is_open),
+        footer_open: footer_q.iter().any(|is_open| is_open),
+        side_sheet_open: side_sheet_q
+            .iter()
+            .any(|(pos, is_open)| *pos == SideSheetPosition::Left && is_open),
+        header_height: HEADER_HEIGHT_PX,
+        footer_height: FOOTER_HEIGHT_PX,
+        side_sheet_width: side_sheet_width.0,
+        pane_gap: settings.layout.pane.gap,
+        titlebar_height: effective_titlebar_height(settings.layout.window.pad_top()),
+    };
+    let body = ron::ser::to_string(&payload).unwrap_or_default();
+    if body == *last {
+        return;
+    }
+    commands.trigger(HostEmitEvent::new(chrome_e, LAYOUT_STATE_EVENT, &body));
+    *last = body;
+}
+
+fn should_emit_new_tab_placeholder(
+    pending_tab: Option<Entity>,
+    active_tab: Option<Entity>,
+    rows: &[TabRow],
+) -> bool {
+    let Some(pending_tab) = pending_tab else {
+        return false;
+    };
+    if active_tab != Some(pending_tab) {
+        return false;
+    }
+    !rows
+        .iter()
+        .any(|row| row.is_active && !row.url.is_empty() && row.url != "about:blank")
+}
+
 fn push_tabs_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    status: Single<Entity, (With<Header>, With<UiReady>)>,
+    chrome: Option<Single<Entity, (With<LayoutChrome>, With<UiReady>)>>,
     browser_q: Query<(&PageMetadata, &ChildOf, Option<&NavigationState>), With<Browser>>,
     new_tab_ctx: Res<crate::command_bar::NewTabContext>,
     focus: Res<crate::layout::tab::FocusedTab>,
     child_of_q: Query<&ChildOf>,
     mut last: Local<String>,
 ) {
-    let status_e = *status;
-    if !browsers.has_browser(status_e) || !browsers.host_emit_ready(&status_e) {
+    let Some(chrome) = chrome else { return };
+    let chrome_e = *chrome;
+    if !browsers.has_browser(chrome_e) || !browsers.host_emit_ready(&chrome_e) {
         return;
     }
     let active_pane = focus.pane;
@@ -673,9 +684,7 @@ fn push_tabs_host_emit(
     }
     // If the active tab is a new-tab (pending content selection),
     // replace any pre-spawned browser row with a "New tab" placeholder.
-    if let Some(empty_tab) = new_tab_ctx.tab
-        && active_tab_opt == Some(empty_tab)
-    {
+    if should_emit_new_tab_placeholder(new_tab_ctx.tab, active_tab_opt, &rows) {
         rows.retain(|r| !r.is_active);
         rows.push(TabRow {
             title: "New Tab".to_string(),
@@ -698,14 +707,14 @@ fn push_tabs_host_emit(
         payload.tabs.len(),
         ron_body.len()
     );
-    commands.trigger(HostEmitEvent::new(status_e, TABS_EVENT, &ron_body));
+    commands.trigger(HostEmitEvent::new(chrome_e, TABS_EVENT, &ron_body));
     *last = ron_body;
 }
 
 fn push_pane_tree_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    side_sheet: Option<Single<Entity, (With<SideSheet>, With<UiReady>)>>,
+    chrome: Option<Single<Entity, (With<LayoutChrome>, With<UiReady>)>>,
     new_tab_ctx: Res<crate::command_bar::NewTabContext>,
     focus: Res<crate::layout::tab::FocusedTab>,
     all_children: Query<&Children>,
@@ -717,11 +726,9 @@ fn push_pane_tree_emit(
     browser_meta: Query<(&PageMetadata, Has<Loading>), With<Browser>>,
     mut last: Local<String>,
 ) {
-    let Some(side_sheet) = side_sheet else {
-        return;
-    };
-    let side_sheet_e = *side_sheet;
-    if !browsers.has_browser(side_sheet_e) || !browsers.host_emit_ready(&side_sheet_e) {
+    let Some(chrome) = chrome else { return };
+    let chrome_e = *chrome;
+    if !browsers.has_browser(chrome_e) || !browsers.host_emit_ready(&chrome_e) {
         return;
     }
 
@@ -799,7 +806,7 @@ fn push_pane_tree_emit(
     if ron_body.as_str() == last.as_str() {
         return;
     }
-    commands.trigger(HostEmitEvent::new(side_sheet_e, PANE_TREE_EVENT, &ron_body));
+    commands.trigger(HostEmitEvent::new(chrome_e, PANE_TREE_EVENT, &ron_body));
     *last = ron_body;
 }
 
@@ -908,27 +915,27 @@ fn on_header_command_emit(
 
 fn on_reload_notify_header(
     _trigger: On<RequestReload>,
-    header: Option<Single<Entity, (With<Header>, With<UiReady>)>>,
+    chrome: Option<Single<Entity, (With<LayoutChrome>, With<UiReady>)>>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,
 ) {
-    let Some(header) = header else { return };
-    let header_e = *header;
-    if browsers.has_browser(header_e) && browsers.host_emit_ready(&header_e) {
-        commands.trigger(HostEmitEvent::new(header_e, RELOAD_EVENT, &"()"));
+    let Some(chrome) = chrome else { return };
+    let chrome_e = *chrome;
+    if browsers.has_browser(chrome_e) && browsers.host_emit_ready(&chrome_e) {
+        commands.trigger(HostEmitEvent::new(chrome_e, RELOAD_EVENT, &"()"));
     }
 }
 
 fn on_hard_reload_notify_header(
     _trigger: On<RequestReloadIgnoreCache>,
-    header: Option<Single<Entity, (With<Header>, With<UiReady>)>>,
+    chrome: Option<Single<Entity, (With<LayoutChrome>, With<UiReady>)>>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,
 ) {
-    let Some(header) = header else { return };
-    let header_e = *header;
-    if browsers.has_browser(header_e) && browsers.host_emit_ready(&header_e) {
-        commands.trigger(HostEmitEvent::new(header_e, RELOAD_EVENT, &"()"));
+    let Some(chrome) = chrome else { return };
+    let chrome_e = *chrome;
+    if browsers.has_browser(chrome_e) && browsers.host_emit_ready(&chrome_e) {
+        commands.trigger(HostEmitEvent::new(chrome_e, RELOAD_EVENT, &"()"));
     }
 }
 
@@ -1195,6 +1202,23 @@ mod tests {
             Vec2::ZERO,
             Some(&Visibility::Hidden),
             true
+        ));
+    }
+
+    #[test]
+    fn active_browser_url_wins_over_stale_new_tab_placeholder() {
+        let tab = Entity::from_bits(1);
+        let rows = [TabRow {
+            title: "Google".to_string(),
+            url: "https://www.google.com".to_string(),
+            favicon_url: String::new(),
+            is_active: true,
+        }];
+
+        assert!(!should_emit_new_tab_placeholder(
+            Some(tab),
+            Some(tab),
+            &rows
         ));
     }
 }

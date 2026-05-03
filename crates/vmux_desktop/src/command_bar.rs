@@ -23,11 +23,14 @@ use vmux_command_bar::event::{
     COMMAND_BAR_OPEN_EVENT, CommandBarActionEvent, CommandBarCommandEntry, CommandBarOpenEvent,
     CommandBarTab, PATH_COMPLETE_RESPONSE, PathCompleteRequest, PathCompleteResponse, PathEntry,
 };
-use vmux_header::{Header, PageMetadata};
+use vmux_core::PageMetadata;
 use vmux_history::LastActivatedAt;
-use vmux_processes::event::PROCESSES_WEBVIEW_URL;
+pub(crate) use vmux_layout::NewTabContext;
+use vmux_layout::{
+    Header,
+    event::{PROCESSES_WEBVIEW_URL, TERMINAL_WEBVIEW_URL},
+};
 use vmux_service::protocol::ProcessId;
-use vmux_terminal::event::TERMINAL_WEBVIEW_URL;
 use vmux_webview_app::UiReady;
 
 /// Try to extract a process UUID from `vmux://terminal/{uuid}`.
@@ -40,19 +43,6 @@ fn parse_process_id_from_url(url: &str) -> Option<ProcessId> {
 /// so CEF can resize the webview before the modal becomes visible.
 #[derive(Component)]
 struct PendingCommandBarReveal(u8);
-
-/// to choose content via the command bar.
-#[derive(Resource, Default)]
-pub(crate) struct NewTabContext {
-    /// The empty tab entity waiting for a Browser or Terminal child.
-    pub tab: Option<Entity>,
-    pub previous_tab: Option<Entity>,
-
-    pub needs_open: bool,
-    /// Set by handle_tab_commands when SelectIndex dismisses the empty
-    /// tab; a PostUpdate system reads this to close the modal.
-    pub dismiss_modal: bool,
-}
 
 pub(crate) struct CommandBarInputPlugin;
 

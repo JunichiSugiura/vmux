@@ -4,7 +4,7 @@ use bevy_cef::prelude::*;
 use vmux_webview_app::{UiReady, WebviewAppConfig, WebviewAppRegistry};
 
 use crate::event::{HISTORY_EVENT, HistoryEvent};
-use vmux_header::PageMetadata;
+use vmux_core::PageMetadata;
 
 pub struct HistoryPlugin;
 

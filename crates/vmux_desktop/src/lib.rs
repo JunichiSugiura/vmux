@@ -22,7 +22,6 @@ pub(crate) mod shortcut;
 mod terminal;
 mod themes;
 mod tray;
-mod unit;
 pub mod updater;
 
 use bevy::asset::io::web::WebAssetPlugin;
@@ -32,13 +31,21 @@ use bevy::winit::WinitSettings;
 use std::time::Duration;
 
 use {
-    browser::BrowserPlugin, command::CommandPlugin, command_bar::CommandBarInputPlugin,
-    layout::LayoutPlugin, os_menu::OsMenuPlugin, persistence::PersistencePlugin,
-    processes_monitor::ProcessesMonitorPlugin, profile::ProfilePlugin, scene::ScenePlugin,
-    settings::SettingsPlugin, shortcut::ShortcutPlugin, terminal::TerminalInputPlugin,
-    vmux_command_bar::CommandBarPlugin, vmux_footer::FooterPlugin, vmux_header::HeaderPlugin,
-    vmux_processes::ProcessesPlugin, vmux_side_sheet::SideSheetPlugin,
-    vmux_terminal::TerminalPlugin, vmux_webview_app::WebviewAppRegistryPlugin,
+    browser::BrowserPlugin,
+    command::CommandPlugin,
+    command_bar::CommandBarInputPlugin,
+    layout::LayoutPlugin,
+    os_menu::OsMenuPlugin,
+    persistence::PersistencePlugin,
+    processes_monitor::ProcessesMonitorPlugin,
+    settings::SettingsPlugin,
+    shortcut::ShortcutPlugin,
+    terminal::TerminalInputPlugin,
+    vmux_command_bar::CommandBarPlugin,
+    vmux_layout::{LayoutChromePlugin, profile::ProfilePlugin, scene::ScenePlugin},
+    vmux_processes::ProcessesPlugin,
+    vmux_terminal::TerminalPlugin,
+    vmux_webview_app::WebviewAppRegistryPlugin,
 };
 
 pub struct VmuxPlugin;
@@ -102,9 +109,7 @@ impl Plugin for VmuxPlugin {
             ScenePlugin,
             OsMenuPlugin,
             WebviewAppRegistryPlugin,
-            HeaderPlugin,
-            FooterPlugin,
-            SideSheetPlugin,
+            LayoutChromePlugin,
             CommandBarPlugin,
             TerminalPlugin,
             ProcessesPlugin,
@@ -131,5 +136,15 @@ mod tests {
         let window = primary_window_config("Vmux".to_string());
 
         assert!(window.ime_enabled);
+    }
+
+    #[test]
+    fn desktop_uses_single_layout_crate_for_chrome_and_layout() {
+        let source = include_str!("lib.rs");
+
+        assert!(source.contains("vmux_layout::"));
+        assert!(!source.contains(&["vmux_", "footer::FooterPlugin"].concat()));
+        assert!(!source.contains(&["vmux_", "header::HeaderPlugin"].concat()));
+        assert!(!source.contains(&["vmux_", "side_sheet::SideSheetPlugin"].concat()));
     }
 }

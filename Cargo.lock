@@ -8916,49 +8916,14 @@ dependencies = [
  "uuid",
  "vmux_command_bar",
  "vmux_core",
- "vmux_footer",
- "vmux_header",
  "vmux_history",
+ "vmux_layout",
  "vmux_macro",
  "vmux_processes",
  "vmux_service",
- "vmux_side_sheet",
  "vmux_terminal",
  "vmux_ui",
  "vmux_webview_app",
-]
-
-[[package]]
-name = "vmux_footer"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_cef",
- "bevy_ecs",
- "bevy_reflect",
- "dioxus",
- "moonshine-save",
- "serde",
- "vmux_ui",
- "vmux_webview_app",
- "wasm-bindgen",
-]
-
-[[package]]
-name = "vmux_header"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_cef",
- "bevy_ecs",
- "bevy_reflect",
- "dioxus",
- "moonshine-save",
- "serde",
- "vmux_core",
- "vmux_ui",
- "vmux_webview_app",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -8976,7 +8941,34 @@ dependencies = [
  "serde",
  "url",
  "vmux_core",
- "vmux_header",
+ "vmux_ui",
+ "vmux_webview_app",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "vmux_layout"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_asset",
+ "bevy_cef",
+ "bevy_cef_core",
+ "bevy_ecs",
+ "bevy_reflect",
+ "bevy_render",
+ "bevy_winit",
+ "dioxus",
+ "libc",
+ "moonshine-save",
+ "muda",
+ "raw-window-handle",
+ "rfd",
+ "ron 0.8.1",
+ "serde",
+ "vmux_core",
+ "vmux_history",
+ "vmux_macro",
  "vmux_ui",
  "vmux_webview_app",
  "wasm-bindgen",
@@ -9018,20 +9010,6 @@ dependencies = [
  "tokio",
  "uuid",
  "vmux_terminal",
-]
-
-[[package]]
-name = "vmux_side_sheet"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bevy_cef",
- "bevy_ecs",
- "dioxus",
- "serde",
- "vmux_ui",
- "vmux_webview_app",
- "wasm-bindgen",
 ]
 
 [[package]]

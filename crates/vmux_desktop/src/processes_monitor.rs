@@ -2,6 +2,7 @@ use bevy::{
     ecs::relationship::Relationship, picking::Pickable, prelude::*, render::alpha::AlphaMode,
 };
 use bevy_cef::prelude::*;
+use vmux_core::PageMetadata;
 use vmux_history::LastActivatedAt;
 use vmux_processes::event::*;
 use vmux_service::protocol::{ClientMessage, ProcessId};
@@ -34,7 +35,7 @@ impl ProcessesMonitor {
                 Browser,
                 WebviewSource::new(PROCESSES_WEBVIEW_URL),
                 ResolvedWebviewUri(PROCESSES_WEBVIEW_URL.to_string()),
-                vmux_header::PageMetadata {
+                PageMetadata {
                     title: "Background Services".to_string(),
                     url: PROCESSES_WEBVIEW_URL.to_string(),
                     favicon_url: String::new(),

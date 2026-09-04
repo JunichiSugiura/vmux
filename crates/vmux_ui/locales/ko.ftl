@@ -246,7 +246,8 @@ composer-branch = 브랜치
 composer-attach-files = 파일 첨부(/upload)
 composer-remove-attachment = 첨부 파일 삭제
 composer-choose-agent = 에이전트 선택
-composer-worktree = 워크트리
+composer-create-worktree = + 워크트리
+composer-create-worktree-title = 이 프로젝트의 워크트리를 만들거나 선택
 composer-uncommitted-changes = 커밋되지 않은 변경 사항
 composer-commits-ahead = 업스트림보다 앞선 커밋
 composer-no-git = Git 없음
@@ -577,6 +578,7 @@ agent-tool = 도구
 agent-server = 서버
 agent-bytes = { $count }바이트
 agent-worked-for = { $duration } 동안 작업함
+agent-tool-calls = 도구 호출 { $count }개
 agent-worked-for-steps = { $count ->
     [one] { $duration } 동안 작업함 · 1단계
    *[other] { $duration } 동안 작업함 · { $count }단계

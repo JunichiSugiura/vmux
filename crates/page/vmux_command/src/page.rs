@@ -17,7 +17,9 @@ use dioxus::prelude::*;
 use vmux_core::input::{PageKeyContext, Unclaimed};
 use vmux_ui::agent_accent::agent_accent;
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
-use vmux_ui::components::composer_bar::{ComposerBar, ComposerMenus, use_composer_menu};
+use vmux_ui::components::composer_bar::{
+    ComposerBar, ComposerMenus, WorkspaceBadges, use_composer_menu,
+};
 use vmux_ui::components::icon::Icon;
 use vmux_ui::components::prompt_box::{PromptBox, PromptPopup, PromptPopupPlacement};
 use vmux_ui::components::prompt_media_options::PromptMediaOptions;
@@ -191,13 +193,11 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let chips = ComposerChips::of(&composer, menu, model_menu_sel);
     let menus = ComposerMenuSet::of(&composer, signals, model_menu_sel, picking);
     let start_badges = rsx! {
-        StartContextBadges {
+        WorkspaceBadges {
             is_git_repo: composer.is_git_repo,
-            is_worktree: composer.is_worktree,
-            worktree_title: composer.worktree_title.clone(),
+            workspace_known: !composer.cwd.is_empty(),
             uncommitted: composer.uncommitted,
             ahead: composer.ahead,
-            cwd: composer.cwd.clone(),
         }
     };
     let start_status = rsx! {
@@ -334,9 +334,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     overlay: palette.row_text.clone().unwrap_or_default(),
                     completion: ghost_text.clone(),
                     attachments: start_prompt_attachments,
-                    show_examples: q.is_empty() && ghost_text.is_empty(),
                     placeholder: translate("command-composer-placeholder"),
-                    accent_bg: start_accent.accent_bg.to_string(),
                     accent_color: format!("rgb({})", start_accent.rain_rgb),
                     accent_gradient: start_accent.grad.to_string(),
                     footer: Some(start_composer_footer),
@@ -486,36 +484,6 @@ fn PaletteGlyphIcon(glyph: PaletteGlyph) -> Element {
                 path { d: "m21 21-4.3-4.3" }
             }
         },
-    }
-}
-
-#[component]
-fn StartContextBadges(
-    is_git_repo: bool,
-    is_worktree: bool,
-    worktree_title: String,
-    uncommitted: u32,
-    ahead: u32,
-    cwd: String,
-) -> Element {
-    rsx! {
-        if is_git_repo {
-            if is_worktree {
-                span {
-                    class: "flex h-7 shrink-0 items-center gap-1 rounded-lg bg-violet-500/[0.08] px-2 text-[10px] font-medium text-violet-600 ring-1 ring-inset ring-violet-500/15 dark:text-violet-300",
-                    title: "{worktree_title}",
-                    {translate("composer-worktree")}
-                }
-            }
-            if uncommitted > 0 {
-                span { class: "shrink-0 font-mono text-[10px] text-amber-500", title: translate("composer-uncommitted-changes"), "\u{25cf} {uncommitted}" }
-            }
-            if ahead > 0 {
-                span { class: "shrink-0 font-mono text-[10px] text-sky-500", title: translate("composer-commits-ahead"), "\u{2191}{ahead}" }
-            }
-        } else if !cwd.is_empty() {
-            span { class: "h-7 shrink-0 content-center rounded-lg px-2 text-[10px] text-muted-foreground/70", {translate("composer-no-git")} }
-        }
     }
 }
 

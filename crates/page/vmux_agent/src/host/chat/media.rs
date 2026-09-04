@@ -418,11 +418,18 @@ fn tiff_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn clipboard_image_path() -> Option<std::path::PathBuf> {
+    bevy::log::warn!(
+        "vmx198 clipboard types: {:?}",
+        vmux_clipboard::pasteboard_types()
+    );
     if let Some(path) = vmux_clipboard::image_file_path() {
+        bevy::log::warn!("vmx198 clipboard took the file url: {path}");
         return Some(std::path::PathBuf::from(path));
     }
+    bevy::log::warn!("vmx198 clipboard found no usable file url, falling back to image data");
     let png = vmux_clipboard::read_image_png()
         .or_else(|| vmux_clipboard::read_image_tiff().and_then(|bytes| tiff_to_png(&bytes)))?;
+    bevy::log::warn!("vmx198 clipboard image data is {} bytes", png.len());
     let directory = std::env::temp_dir().join("vmux-prompt-attachments");
     std::fs::create_dir_all(&directory).ok()?;
     let path = directory.join(format!("clipboard-{}.png", uuid::Uuid::new_v4()));

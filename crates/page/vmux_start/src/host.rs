@@ -86,6 +86,7 @@ struct StartPromptContextParams<'w, 's> {
         ),
     >,
     agent_models: Res<'w, vmux_command::snapshot::CommandBarAgentModels>,
+    warmed_branches_for: Local<'s, String>,
 }
 
 impl StartPromptContextParams<'_, '_> {
@@ -261,39 +262,48 @@ struct StartBranchRead {
     task: bevy::tasks::Task<Vec<vmux_wire::space::ProjectBranch>>,
 }
 
+impl StartBranchRead {
+    fn of(webview: Entity, project: &str) -> Option<Self> {
+        let project = project.trim().to_string();
+        if project.is_empty() {
+            return None;
+        }
+        let root = std::path::PathBuf::from(&project);
+        let task = IoTaskPool::get().spawn(async move {
+            let Ok(holders) = vmux_git::worktree::branch_holders(&root) else {
+                return Vec::new();
+            };
+            let mut branches = Vec::with_capacity(holders.len());
+            for holder in holders {
+                let checkout = holder.checkout_path();
+                let label = holder.checkout_label();
+                branches.push(vmux_wire::space::ProjectBranch {
+                    branch: holder.branch,
+                    checkout,
+                    label,
+                    insertions: holder.change.insertions,
+                    deletions: holder.change.deletions,
+                });
+            }
+            branches
+        });
+        Some(Self {
+            webview,
+            project,
+            task,
+        })
+    }
+}
+
 fn on_start_branches_request(
     trigger: On<BinReceive<vmux_wire::command_bar::StartBranchesRequest>>,
     mut commands: Commands,
 ) {
-    let webview = trigger.event().webview;
-    let project = trigger.event().payload.project.trim().to_string();
-    if project.is_empty() {
+    let Some(read) = StartBranchRead::of(trigger.event().webview, &trigger.event().payload.project)
+    else {
         return;
-    }
-    let root = std::path::PathBuf::from(&project);
-    let task = IoTaskPool::get().spawn(async move {
-        let Ok(holders) = vmux_git::worktree::branch_holders(&root) else {
-            return Vec::new();
-        };
-        let mut branches = Vec::with_capacity(holders.len());
-        for holder in holders {
-            let checkout = holder.checkout_path();
-            let label = holder.checkout_label();
-            branches.push(vmux_wire::space::ProjectBranch {
-                branch: holder.branch,
-                checkout,
-                label,
-                insertions: holder.change.insertions,
-                deletions: holder.change.deletions,
-            });
-        }
-        branches
-    });
-    commands.spawn(StartBranchRead {
-        webview,
-        project,
-        task,
-    });
+    };
+    commands.spawn(read);
 }
 
 fn drain_start_branch_reads(
@@ -394,7 +404,7 @@ impl ChosenProject {
 
 fn sync_live_start_pages(
     tab_gather: TabGatherParams,
-    prompt_context: StartPromptContextParams,
+    mut prompt_context: StartPromptContextParams,
     spaces_snapshot: Res<CommandBarSpacesSnapshot>,
     contributions: Contributions,
     mut contributions_changed: ContributionsChanged,
@@ -480,7 +490,15 @@ fn sync_live_start_pages(
         prompt_context.agent_models.agents.clone(),
         &locale,
     );
+    let project = vmux_ui::launcher::palette::ActiveProject::of(&payload.prompt_context);
+    let warm_branches = !project.is_empty() && *prompt_context.warmed_branches_for != project;
+    if warm_branches {
+        *prompt_context.warmed_branches_for = project.clone();
+    }
     for (e, focus_requested) in targets {
+        if warm_branches && let Some(read) = StartBranchRead::of(e, &project) {
+            commands.spawn(read);
+        }
         commands.trigger(BinHostEmitEvent::from_rkyv(
             e,
             START_COMMAND_BAR_OPEN_EVENT,

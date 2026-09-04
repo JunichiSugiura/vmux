@@ -246,7 +246,8 @@ composer-branch = Ветка
 composer-attach-files = Прикрепить файлы (/upload)
 composer-remove-attachment = Удалить вложение
 composer-choose-agent = Выбрать агента
-composer-worktree = Рабочее дерево
+composer-create-worktree = + Worktree
+composer-create-worktree-title = Создать или выбрать рабочее дерево для этого проекта
 composer-uncommitted-changes = Незафиксированные изменения
 composer-commits-ahead = Коммиты впереди upstream
 composer-no-git = Без Git
@@ -577,6 +578,10 @@ agent-tool = Инструмент
 agent-server = Сервер
 agent-bytes = { $count } байт
 agent-worked-for = Работал { $duration }
+agent-tool-calls = { $count ->
+    [one] { $count } вызов инструмента
+   *[other] { $count } вызовов инструментов
+}
 agent-worked-for-steps = { $count ->
     [one] Работал { $duration } · 1 шаг
    *[other] Работал { $duration } · { $count } шагов

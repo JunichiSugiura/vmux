@@ -7,6 +7,7 @@ use crate::components::effort_menu::EffortMenu;
 use crate::components::model_menu::ModelMenu;
 use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker};
 use crate::components::prompt_box::PromptPopupPlacement;
+use crate::i18n::translate;
 
 const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-muted-foreground";
 const COMPOSER_CHIP_INTERACTIVE: &str =
@@ -31,6 +32,47 @@ pub struct ComposerBarProps {
     pub badges: Option<Element>,
     #[props(default)]
     pub status: Option<Element>,
+}
+
+#[component]
+pub fn WorkspaceBadges(
+    is_git_repo: bool,
+    workspace_known: bool,
+    uncommitted: u32,
+    ahead: u32,
+    #[props(default)] on_create_worktree: Option<EventHandler<()>>,
+) -> Element {
+    rsx! {
+        if is_git_repo {
+            if let Some(create) = on_create_worktree {
+                button {
+                    class: "flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-violet-500/[0.08] hover:text-violet-600 dark:hover:text-violet-300",
+                    title: translate("composer-create-worktree-title"),
+                    onmousedown: move |event| event.prevent_default(),
+                    onclick: move |_| create.call(()),
+                    {translate("composer-create-worktree")}
+                }
+            }
+            if uncommitted > 0 {
+                span {
+                    class: "shrink-0 font-mono text-[10px] text-amber-500",
+                    title: translate("composer-uncommitted-changes"),
+                    "\u{25cf} {uncommitted}"
+                }
+            }
+            if ahead > 0 {
+                span {
+                    class: "shrink-0 font-mono text-[10px] text-sky-500",
+                    title: translate("composer-commits-ahead"),
+                    "\u{2191}{ahead}"
+                }
+            }
+        } else if workspace_known {
+            span { class: "h-7 shrink-0 content-center rounded-lg px-2 text-[10px] text-muted-foreground/70",
+                {translate("composer-no-git")}
+            }
+        }
+    }
 }
 
 #[component]

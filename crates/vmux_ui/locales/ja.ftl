@@ -234,7 +234,8 @@ composer-branch = ブランチ
 composer-attach-files = ファイルを添付（/upload）
 composer-remove-attachment = 添付ファイルを削除
 composer-choose-agent = エージェントを選択
-composer-worktree = ワークツリー
+composer-create-worktree = + ワークツリー
+composer-create-worktree-title = このプロジェクトのワークツリーを作成または選択
 composer-uncommitted-changes = コミットされていない変更
 composer-commits-ahead = アップストリームより先行するコミット
 composer-no-git = Git なし
@@ -562,6 +563,7 @@ agent-tool = ツール
 agent-server = サーバー
 agent-bytes = { $count }バイト
 agent-worked-for = { $duration }作業しました
+agent-tool-calls = { $count } 件のツール呼び出し
 agent-worked-for-steps = { $count ->
     [one] { $duration }作業しました · 1ステップ
    *[other] { $duration }作業しました · { $count }ステップ

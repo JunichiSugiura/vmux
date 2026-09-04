@@ -400,8 +400,6 @@ impl SpaceOverrides {
     pub fn project_rows(&self) -> Vec<vmux_core::event::ProjectRow> {
         use vmux_core::event::ProjectRow;
 
-        let listed: std::collections::HashSet<&str> =
-            self.projects.iter().map(|p| p.path.as_str()).collect();
         let active = self.active_dir();
         let row = |project: &SpaceProject, depth: u32| ProjectRow {
             path: project.path.clone(),
@@ -416,18 +414,25 @@ impl SpaceOverrides {
             expanded: false,
         };
 
-        let mut rows = Vec::with_capacity(self.projects.len());
+        let mut roots: Vec<&str> = Vec::new();
         for project in &self.projects {
-            let rooted = project
-                .parent
-                .as_deref()
-                .is_none_or(|parent| !listed.contains(parent));
-            if !rooted {
-                continue;
+            let root = match project.parent.as_deref() {
+                Some(parent) => parent,
+                None => project.path.as_str(),
+            };
+            if !roots.contains(&root) {
+                roots.push(root);
             }
-            rows.push(row(project, 0));
+        }
+
+        let mut rows = Vec::with_capacity(self.projects.len());
+        for root in roots {
+            match self.projects.iter().find(|project| project.path == root) {
+                Some(project) => rows.push(row(project, 0)),
+                None => rows.push(row(&SpaceProject::at(root), 0)),
+            }
             for child in &self.projects {
-                if child.parent.as_deref() == Some(project.path.as_str()) {
+                if child.parent.as_deref() == Some(root) {
                     rows.push(row(child, 1));
                 }
             }

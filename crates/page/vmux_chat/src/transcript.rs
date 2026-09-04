@@ -180,10 +180,13 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                 .iter()
                 .enumerate()
                 .filter(|(child_key, _)| turn.parent_tool_index(*child_key) == Some(key))
+                .map(|(index, child)| (index, child.clone()))
                 .collect::<Vec<_>>();
-            Some((key, block, children))
+            Some((key, block.clone(), children))
         })
         .collect::<Vec<_>>();
+    let live_tool = turn.running.then_some(latest_tool_index).flatten();
+    let items = TurnItem::over(blocks.clone(), live_tool);
     let duration_label = turn.duration_secs.map(|duration| {
         if turn.step_count == 0 {
             let elapsed = fmt_elapsed(duration);
@@ -232,16 +235,21 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                     if !copy_text.is_empty() {
                         MessageCopyButton { text: copy_text.clone() }
                     }
-                    for (j , block , children) in blocks {
-                        TurnBlock {
-                            block_index: j,
-                            block: block.clone(),
-                            nested: children
-                                .iter()
-                                .map(|(index, child)| (*index, (*child).clone()))
-                                .collect::<Vec<_>>(),
-                            latest_thinking: j + 1 == block_count,
-                            latest_tool: latest_tool_index == Some(j),
+                    for item in items {
+                        match item {
+                            TurnItem::Block((j, block, children)) => rsx! {
+                                TurnBlock {
+                                    key: "{j}",
+                                    block_index: j,
+                                    block,
+                                    nested: children,
+                                    latest_thinking: j + 1 == block_count,
+                                    latest_tool: live_tool == Some(j),
+                                }
+                            },
+                            TurnItem::FinishedTools(held) => rsx! {
+                                FinishedToolCalls { key: "tools-{held[0].0}", blocks: held }
+                            },
                         }
                     }
                 }
@@ -452,6 +460,59 @@ fn ToolArgs(args: String) -> Element {
         value => rsx! {
             div { class: "ml-1 mt-2 border-l border-foreground/20 pl-3", ToolArg { name: String::new(), value: value } }
         },
+    }
+}
+
+type NestedBlock = (usize, ChatBlock);
+type PlacedBlock = (usize, ChatBlock, Vec<NestedBlock>);
+
+enum TurnItem {
+    Block(PlacedBlock),
+    FinishedTools(Vec<PlacedBlock>),
+}
+
+impl TurnItem {
+    fn over(placed: Vec<PlacedBlock>, live_tool: Option<usize>) -> Vec<Self> {
+        let mut items: Vec<Self> = Vec::new();
+        for block in placed {
+            let foldable =
+                matches!(block.1, ChatBlock::ToolUse { .. }) && live_tool != Some(block.0);
+            if !foldable {
+                items.push(Self::Block(block));
+                continue;
+            }
+            match items.last_mut() {
+                Some(Self::FinishedTools(held)) => held.push(block),
+                _ => items.push(Self::FinishedTools(vec![block])),
+            }
+        }
+        items
+    }
+}
+
+#[component]
+fn FinishedToolCalls(blocks: Vec<PlacedBlock>) -> Element {
+    let count = blocks.len() as i64;
+    rsx! {
+        details { class: "disclosure",
+            summary { class: "flex cursor-pointer select-none items-center gap-2 rounded-xl px-2 py-1 text-sm text-muted-foreground list-none transition-colors hover:bg-foreground/[0.025] [&::-webkit-details-marker]:hidden",
+                span { class: "font-medium",
+                    {translate_with("agent-tool-calls", &[("count", TranslationValue::Number(count))])}
+                }
+                DisclosureIcon {}
+            }
+            div { class: "mt-1 flex flex-col gap-1",
+                for (index , block , children) in blocks {
+                    TurnBlock {
+                        block_index: index,
+                        block,
+                        nested: children,
+                        latest_thinking: false,
+                        latest_tool: false,
+                    }
+                }
+            }
+        }
     }
 }
 

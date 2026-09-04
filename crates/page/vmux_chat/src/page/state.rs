@@ -420,13 +420,6 @@ impl Chat {
         }
     }
 
-    pub fn show_examples(&self) -> bool {
-        self.transcript.items.read().is_empty()
-            && self.queue.queued.read().is_empty()
-            && self.composer.attachments.read().is_empty()
-            && self.composer.transition_attachments.read().is_empty()
-    }
-
     pub fn draft(&self) -> String {
         (self.composer.draft)()
     }
@@ -514,34 +507,14 @@ impl Chat {
 
     pub fn composer_attachments(&self) -> Vec<PromptComposerAttachment> {
         let previews = self.composer.attachment_previews.read();
-        let preview_of = |attachment: &ChatAttachment| {
-            let loaded = previews
-                .get(&attachment.path)
-                .filter(|preview| !preview.preview_data_url.is_empty());
-            match loaded {
-                Some(preview) => preview.preview_data_url.clone(),
-                None => attachment.preview_data_url.clone(),
-            }
-        };
-        let mut pills = Vec::new();
-        for attachment in self.composer.transition_attachments.read().iter() {
-            pills.push(PromptComposerAttachment {
-                key: format!("transition-attachment-{}", attachment.path),
-                name: attachment.name.clone(),
-                label: FilePath(&attachment.name).extension_label(),
-                preview_data_url: preview_of(attachment),
-                remove_index: None,
-            });
-        }
-        for (index, attachment) in self.composer.attachments.read().iter().enumerate() {
-            pills.push(PromptComposerAttachment {
-                key: format!("attachment-pill-{}", attachment.path),
-                name: attachment.name.clone(),
-                label: FilePath(&attachment.name).extension_label(),
-                preview_data_url: preview_of(attachment),
-                remove_index: Some(index),
-            });
-        }
+        let mut pills = PromptComposerAttachment::pinned(
+            &self.composer.transition_attachments.read(),
+            &previews,
+        );
+        pills.extend(PromptComposerAttachment::removable(
+            &self.composer.attachments.read(),
+            &previews,
+        ));
         pills
     }
 

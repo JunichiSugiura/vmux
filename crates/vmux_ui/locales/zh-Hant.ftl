@@ -246,7 +246,8 @@ composer-branch = 分支
 composer-attach-files = 附加檔案 (/upload)
 composer-remove-attachment = 移除附件
 composer-choose-agent = 選擇代理
-composer-worktree = 工作樹
+composer-create-worktree = + 工作樹
+composer-create-worktree-title = 為此專案建立或選擇工作樹
 composer-uncommitted-changes = 未提交的變更
 composer-commits-ahead = 領先上游的提交
 composer-no-git = 無 Git
@@ -577,6 +578,7 @@ agent-tool = 工具
 agent-server = 伺服器
 agent-bytes = { $count } 位元組
 agent-worked-for = 已工作 { $duration }
+agent-tool-calls = { $count } 次工具呼叫
 agent-worked-for-steps = { $count ->
     [one] 已工作 { $duration } · 1 個步驟
    *[other] 已工作 { $duration } · { $count } 個步驟

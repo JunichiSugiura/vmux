@@ -246,7 +246,8 @@ composer-branch = Branch
 composer-attach-files = Bestanden toevoegen (/upload)
 composer-remove-attachment = Bijlage verwijderen
 composer-choose-agent = Agent kiezen
-composer-worktree = Worktree
+composer-create-worktree = + Worktree
+composer-create-worktree-title = Een worktree voor dit project maken of kiezen
 composer-uncommitted-changes = Niet-vastgelegde wijzigingen
 composer-commits-ahead = Commits voor op upstream
 composer-no-git = Geen Git
@@ -577,6 +578,10 @@ agent-tool = Tool
 agent-server = Server
 agent-bytes = { $count } bytes
 agent-worked-for = { $duration } gewerkt
+agent-tool-calls = { $count ->
+    [one] { $count } toolaanroep
+   *[other] { $count } toolaanroepen
+}
 agent-worked-for-steps = { $count ->
     [one] { $duration } gewerkt · 1 stap
    *[other] { $duration } gewerkt · { $count } stappen

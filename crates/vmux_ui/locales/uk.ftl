@@ -246,7 +246,8 @@ composer-branch = Гілка
 composer-attach-files = Прикріпити файли (/upload)
 composer-remove-attachment = Прибрати вкладення
 composer-choose-agent = Вибрати агента
-composer-worktree = Робоче дерево
+composer-create-worktree = + Worktree
+composer-create-worktree-title = Створити або вибрати робоче дерево для цього проєкту
 composer-uncommitted-changes = Незафіксовані зміни
 composer-commits-ahead = Коміти попереду upstream
 composer-no-git = Без Git
@@ -577,6 +578,10 @@ agent-tool = Інструмент
 agent-server = Сервер
 agent-bytes = { $count } байт
 agent-worked-for = Працював { $duration }
+agent-tool-calls = { $count ->
+    [one] { $count } виклик інструмента
+   *[other] { $count } викликів інструментів
+}
 agent-worked-for-steps = { $count ->
     [one] Працював { $duration } · 1 крок
    *[other] Працював { $duration } · { $count } кроків

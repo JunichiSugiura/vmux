@@ -246,7 +246,8 @@ composer-branch = فرع
 composer-attach-files = إرفاق ملفات (/upload)
 composer-remove-attachment = إزالة المرفق
 composer-choose-agent = اختر وكيلاً
-composer-worktree = شجرة عمل
+composer-create-worktree = + شجرة عمل
+composer-create-worktree-title = إنشاء أو اختيار شجرة عمل لهذا المشروع
 composer-uncommitted-changes = تغييرات غير مُودعة
 composer-commits-ahead = إيداعات متقدمة على المصدر
 composer-no-git = بدون Git
@@ -577,6 +578,10 @@ agent-tool = الأداة
 agent-server = الخادم
 agent-bytes = { $count } بايت
 agent-worked-for = عمل لمدة { $duration }
+agent-tool-calls = { $count ->
+    [one] استدعاء أداة واحد
+   *[other] { $count } استدعاءات أدوات
+}
 agent-worked-for-steps = { $count ->
     [one] عمل لمدة { $duration } · خطوة واحدة
    *[other] عمل لمدة { $duration } · { $count } خطوة

@@ -280,6 +280,7 @@ command-placeholder = Введіть URL, шукайте вкладки або >
 command-ex-placeholder = Введіть команду Ex…
 palette-mode-ex = Ex
 palette-mode-command = Команди
+palette-mode-slash = Команда
 palette-mode-path = Файли
 ex-write = Зберегти файл
 ex-write-quit = Зберегти й закрити

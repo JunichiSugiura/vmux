@@ -72,10 +72,16 @@ fn resume_entries(
             } else {
                 session.kind.display_name().to_string()
             };
+            let url = crate::AgentUrl::Cli {
+                kind: session.kind,
+                sid: session.sid.clone(),
+            }
+            .format();
             ResumableSessionEntry {
                 kind: session.kind.as_url_segment().to_string(),
                 sid: session.sid,
                 cwd: session.cwd.to_string_lossy().to_string(),
+                url,
                 title: session.title,
                 subtitle: dir,
                 age_seconds: relative_time_seconds(session.mtime),

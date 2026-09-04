@@ -268,6 +268,7 @@ command-placeholder = URL、タブ名、または > コマンドを入力…
 command-ex-placeholder = Ex コマンドを入力…
 palette-mode-ex = Ex
 palette-mode-command = コマンド
+palette-mode-slash = コマンド
 palette-mode-path = ファイル
 ex-write = ファイルを保存
 ex-write-quit = 保存して閉じる

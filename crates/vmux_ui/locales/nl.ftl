@@ -280,6 +280,7 @@ command-placeholder = Typ een URL, zoek in tabbladen of gebruik > voor opdrachte
 command-ex-placeholder = Typ een Ex-opdracht…
 palette-mode-ex = Ex
 palette-mode-command = Opdrachten
+palette-mode-slash = Opdracht
 palette-mode-path = Bestanden
 ex-write = Bestand opslaan
 ex-write-quit = Opslaan en sluiten

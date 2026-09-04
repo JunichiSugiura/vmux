@@ -35,6 +35,8 @@ use vmux_ui::launcher::style::{
     command_bar_row_overlay_class, result_list_class,
 };
 use vmux_ui::scroll::ScrollIntoView;
+use vmux_wire::chat::{RESUMABLE_SESSIONS_EVENT, ResumableSessions, ResumeListRequest};
+use vmux_wire::command_bar::CommandBarQuery;
 
 mod composer;
 mod media;
@@ -107,6 +109,28 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         use_listener::<StartProjectBranches, _>(START_PROJECT_BRANCHES_EVENT, move |incoming| {
             picking.remember(incoming.project, incoming.branches);
         });
+
+    let _sessions =
+        use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
+            let mut sessions = feeds.sessions;
+            sessions.set(incoming.sessions.clone());
+        });
+    use_effect(move || {
+        let query = (signals.query)();
+        let wants = CommandBarQuery(&query)
+            .slash_token()
+            .is_some_and(|(name, _)| "resume".starts_with(&name.to_lowercase()));
+        let mut asked = feeds.sessions_asked;
+        if !wants {
+            asked.set(false);
+            return;
+        }
+        if *asked.peek() {
+            return;
+        }
+        asked.set(true);
+        let _ = send(&ResumeListRequest);
+    });
 
     let rows = use_memo(move || PaletteRows::of(&state(), &feeds.draft(signals), surface));
     let mut palette_keys = PaletteKeys {

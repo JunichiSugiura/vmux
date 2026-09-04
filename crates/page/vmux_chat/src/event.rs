@@ -4,7 +4,10 @@ pub const COMPOSER_CONTEXT_EVENT: &str = "composer_context";
 pub const CHAT_INITIAL_ITEM_LIMIT: u32 = 48;
 pub const CHAT_HISTORY_PAGE_SIZE: u32 = 40;
 pub const CHAT_HISTORY_MAX_PAGE_SIZE: u32 = 80;
-pub use vmux_wire::chat::{CHAT_KEY_EVENT, ChatKey};
+pub use vmux_wire::chat::{
+    CHAT_KEY_EVENT, ChatKey, RESUMABLE_SESSIONS_EVENT, ResumableSessionEntry, ResumableSessions,
+    ResumeListRequest, ResumeSession, SLASH_COMMANDS_EVENT, SlashCommandEntry, SlashCommands,
+};
 pub use vmux_wire::prompt_media::{
     CHAT_ATTACHMENT_PREVIEWS_EVENT, CHAT_ATTACHMENTS_EVENT, CHAT_MEDIA_ENTRIES_EVENT,
     ChatAttachPaths, ChatAttachment, ChatAttachmentPreviewRequest, ChatAttachments,
@@ -303,73 +306,7 @@ pub struct ChatGoToBranch {
     pub checkout: String,
 }
 
-pub const RESUMABLE_SESSIONS_EVENT: &str = "resumable_sessions";
-pub const SLASH_COMMANDS_EVENT: &str = "slash_commands";
 pub const MODEL_STATE_EVENT: &str = "model_state";
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumableSessionEntry {
-    pub kind: String,
-    pub sid: String,
-    pub cwd: String,
-    pub title: String,
-    pub subtitle: String,
-    pub age_seconds: u64,
-    pub agent_name: String,
-    pub cross_runtime: bool,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumableSessions {
-    pub sessions: Vec<ResumableSessionEntry>,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct SlashCommandEntry {
-    pub name: String,
-    pub description: String,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct SlashCommands {
-    pub commands: Vec<SlashCommandEntry>,
-}
 
 #[derive(
     Clone,
@@ -443,34 +380,6 @@ pub struct ChatOpenPage {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct ResumeListRequest;
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumeSession {
-    pub kind: String,
-    pub sid: String,
-    pub cwd: String,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
 pub struct RuntimeSwitchRequest {
     pub to: String,
 }
@@ -479,34 +388,6 @@ pub use vmux_wire::chat::{
     ChatBlock, ChatItem, ChatPlanStep, ChatSubagent, ChatTurn, ToolName, WORKING_VERB_IDS,
     latest_tool_location,
 };
-
-impl SlashCommands {
-    pub fn for_agent(cross_runtime: bool, has_models: bool) -> Self {
-        let mut commands = vec![
-            SlashCommandEntry {
-                name: "upload".into(),
-                description: "Attach files".into(),
-            },
-            SlashCommandEntry {
-                name: "resume".into(),
-                description: "Resume a past session".into(),
-            },
-        ];
-        if has_models {
-            commands.push(SlashCommandEntry {
-                name: "model".into(),
-                description: "Select model".into(),
-            });
-        }
-        if cross_runtime {
-            commands.push(SlashCommandEntry {
-                name: "cli".into(),
-                description: "Continue this session in the CLI".into(),
-            });
-        }
-        Self { commands }
-    }
-}
 
 #[cfg(test)]
 mod tests {

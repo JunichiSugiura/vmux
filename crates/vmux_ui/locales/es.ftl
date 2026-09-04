@@ -280,6 +280,7 @@ command-placeholder = Escribe una URL, busca pestañas o usa > para comandos…
 command-ex-placeholder = Escribe un comando Ex…
 palette-mode-ex = Ex
 palette-mode-command = Comandos
+palette-mode-slash = Comando
 palette-mode-path = Archivos
 ex-write = Guardar el archivo
 ex-write-quit = Guardar y cerrar

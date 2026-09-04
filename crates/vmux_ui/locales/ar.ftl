@@ -280,6 +280,7 @@ command-placeholder = اكتب عنوان URL أو ابحث في التبويب�
 command-ex-placeholder = اكتب أمر Ex…
 palette-mode-ex = Ex
 palette-mode-command = الأوامر
+palette-mode-slash = أمر
 palette-mode-path = الملفات
 ex-write = حفظ الملف
 ex-write-quit = حفظ ثم إغلاق

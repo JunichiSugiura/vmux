@@ -280,6 +280,7 @@ command-placeholder = 输入 URL、搜索标签页，或输入 > 打开命令…
 command-ex-placeholder = 输入 Ex 命令…
 palette-mode-ex = Ex
 palette-mode-command = 命令
+palette-mode-slash = 命令
 palette-mode-path = 文件
 ex-write = 保存文件
 ex-write-quit = 保存并关闭

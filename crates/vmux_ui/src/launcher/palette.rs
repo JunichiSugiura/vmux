@@ -1,4 +1,5 @@
 use vmux_wire::agent::supports_inline_agent_transition;
+use vmux_wire::chat::SlashCommandEntry;
 use vmux_wire::command_bar::{
     AgentModels, CommandBarActionEvent, CommandBarOpenEvent, CommandBarPick, CommandBarPicker,
     CommandBarPromptContext, CommandBarQuery, ExCommandName, HistoryEntry, PathEntry, is_data_uri,
@@ -11,9 +12,10 @@ use vmux_wire::space::ProjectRow;
 use crate::components::agent_menu::ComposerAgentOption;
 use crate::i18n::translate;
 use crate::launcher::results::{
-    CommandBarResultItem, PickerRows, active_space_index, filter_results, open_session_results,
-    prepend_prompt_targets, prompt_target_matches_query, prompt_target_results, prompt_target_url,
-    space_switch_results, start_page_results, terminal_matches_query,
+    CommandBarResultItem, PickerRows, SlashRows, active_space_index, filter_results,
+    open_session_results, prepend_prompt_targets, prompt_target_matches_query,
+    prompt_target_results, prompt_target_url, space_switch_results, start_page_results,
+    terminal_matches_query,
 };
 use crate::list_nav::MenuDirection;
 
@@ -37,11 +39,20 @@ pub enum PaletteMode {
     Ex,
     Path,
     Url,
+    Slash,
     Picking(CommandBarPicker),
 }
 
 impl PaletteMode {
     pub fn of(query: &str, asserted: Option<CommandBarPicker>) -> Self {
+        Self::read(query, asserted, &[])
+    }
+
+    pub fn read(
+        query: &str,
+        asserted: Option<CommandBarPicker>,
+        slash_commands: &[SlashCommandEntry],
+    ) -> Self {
         if let Some(picker) = asserted {
             return Self::Picking(picker);
         }
@@ -52,6 +63,9 @@ impl PaletteMode {
         if trimmed.starts_with('>') {
             return Self::Command;
         }
+        if Self::names_a_command(query, slash_commands) {
+            return Self::Slash;
+        }
         if trimmed.starts_with('/') || trimmed.starts_with('~') {
             return Self::Path;
         }
@@ -59,6 +73,17 @@ impl PaletteMode {
             return Self::Url;
         }
         Self::Search
+    }
+
+    fn names_a_command(query: &str, slash_commands: &[SlashCommandEntry]) -> bool {
+        let held = CommandBarQuery(query);
+        let Some((name, _)) = held.slash_token() else {
+            return false;
+        };
+        let lowered = name.to_lowercase();
+        slash_commands
+            .iter()
+            .any(|command| command.name.starts_with(&lowered))
     }
 
     pub fn opened(state: &CommandBarOpenEvent) -> Self {
@@ -84,7 +109,7 @@ impl PaletteMode {
         match self {
             Self::Ex => ":",
             Self::Command => ">",
-            Self::Path => "/",
+            Self::Path | Self::Slash => "/",
             Self::Search | Self::Url | Self::Picking(_) => "",
         }
     }
@@ -99,6 +124,7 @@ impl PaletteMode {
             Self::Ex => translate("palette-mode-ex"),
             Self::Command => translate("palette-mode-command"),
             Self::Path => translate("palette-mode-path"),
+            Self::Slash => translate("palette-mode-slash"),
             Self::Picking(picker) => {
                 let id = picker.label();
                 if id.is_empty() {
@@ -122,6 +148,7 @@ pub struct PaletteDraft {
     pub completions_partial: bool,
     pub completions_total: usize,
     pub history: Vec<HistoryEntry>,
+    pub sessions: Vec<vmux_wire::chat::ResumableSessionEntry>,
 }
 
 impl PaletteDraft {
@@ -180,7 +207,8 @@ impl PaletteRows {
     pub fn of(state: &CommandBarOpenEvent, draft: &PaletteDraft, surface: PaletteSurface) -> Self {
         let query = draft.query.as_str();
         let is_start = surface.is_start();
-        let mode = PaletteMode::of(query, state.picker);
+        let slash_commands = state.prompt_context.slash_commands.as_slice();
+        let mode = PaletteMode::read(query, state.picker, slash_commands);
         let prompt_targets = if is_start {
             prompt_target_results(&state.pages, "")
         } else {
@@ -239,6 +267,13 @@ impl PaletteRows {
                 return Vec::new();
             }
             return ExLine::suggestions(query);
+        }
+        if mode == PaletteMode::Slash {
+            return SlashRows::of(
+                query,
+                state.prompt_context.slash_commands.as_slice(),
+                &draft.sessions,
+            );
         }
         if is_start && query.trim().is_empty() {
             return open_session_results(&state.tabs, &state.pages);
@@ -339,6 +374,8 @@ impl PaletteGlyph {
         let glyph = match item {
             CommandBarResultItem::Command { .. }
             | CommandBarResultItem::Ex { .. }
+            | CommandBarResultItem::Slash { .. }
+            | CommandBarResultItem::Resume { .. }
             | CommandBarResultItem::Pick { .. } => Self::Command,
             CommandBarResultItem::Terminal { path } if path.is_empty() => Self::Command,
             CommandBarResultItem::Terminal { .. }
@@ -362,7 +399,7 @@ impl PaletteGlyph {
 
     const fn in_mode(mode: PaletteMode) -> Option<Self> {
         match mode {
-            PaletteMode::Command | PaletteMode::Ex => Some(Self::Command),
+            PaletteMode::Command | PaletteMode::Ex | PaletteMode::Slash => Some(Self::Command),
             PaletteMode::Path => Some(Self::Path),
             PaletteMode::Url => Some(Self::Url),
             PaletteMode::Picking(CommandBarPicker::Space) | PaletteMode::Search => {
@@ -680,6 +717,10 @@ impl PaletteState {
 
     fn acted(&self, item: &CommandBarResultItem) -> Option<CommandBarActionEvent> {
         match item {
+            CommandBarResultItem::Slash { .. } => None,
+            CommandBarResultItem::Resume { entry } => {
+                Some(CommandBarActionEvent::open(&entry.url, self.open_target))
+            }
             CommandBarResultItem::Terminal { path } => Some(CommandBarActionEvent::Terminal {
                 value: path.clone(),
             }),
@@ -908,6 +949,8 @@ impl RowText {
         match item {
             CommandBarResultItem::Command { name, .. } => format!("> {name}"),
             CommandBarResultItem::Ex { name, .. } => format!(":{name}"),
+            CommandBarResultItem::Slash { name, .. } => format!("/{name} "),
+            CommandBarResultItem::Resume { entry } => entry.title.clone(),
             CommandBarResultItem::Pick { label, .. } => label.clone(),
             CommandBarResultItem::Navigate { url } => url.clone(),
             CommandBarResultItem::Search { query, .. } => query.clone(),

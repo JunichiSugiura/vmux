@@ -305,6 +305,7 @@ command-placeholder = Type a URL, search tabs, or > for commands…
 command-ex-placeholder = Type an Ex command…
 palette-mode-ex = Ex
 palette-mode-command = Commands
+palette-mode-slash = Command
 palette-mode-path = Files
 ex-write = Save the file
 ex-write-quit = Save, then close

@@ -10,6 +10,7 @@ use std::rc::Rc;
 use vmux_ui::hooks::{send, use_listener};
 use vmux_ui::launcher::palette::{CompletionQuery, PaletteDraft, PaletteSurface};
 use vmux_ui::platform::sleep_ms;
+use vmux_wire::chat::ResumableSessionEntry;
 
 pub const HOST_SEARCH_DEBOUNCE_MS: u32 = 300;
 
@@ -70,6 +71,8 @@ pub struct PaletteFeeds {
     pub completion_id: Signal<u64>,
     pub suggestions: Signal<Vec<HistoryEntry>>,
     pub suggestion_id: Signal<u64>,
+    pub sessions: Signal<Vec<ResumableSessionEntry>>,
+    pub sessions_asked: Signal<bool>,
 }
 
 pub fn use_palette_feeds() -> PaletteFeeds {
@@ -80,6 +83,8 @@ pub fn use_palette_feeds() -> PaletteFeeds {
         completion_id: use_signal(|| 0u64),
         suggestions: use_signal(Vec::<HistoryEntry>::new),
         suggestion_id: use_signal(|| 0u64),
+        sessions: use_signal(Vec::<ResumableSessionEntry>::new),
+        sessions_asked: use_signal(|| false),
     }
 }
 
@@ -92,6 +97,7 @@ impl PaletteFeeds {
             completions_partial: (self.completions_partial)(),
             completions_total: (self.completions_total)(),
             history: (self.suggestions)(),
+            sessions: (self.sessions)(),
             ..PaletteDraft::default()
         }
     }

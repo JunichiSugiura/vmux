@@ -280,6 +280,7 @@ command-placeholder = Wpisz URL, szukaj kart albo użyj > dla poleceń…
 command-ex-placeholder = Wpisz polecenie Ex…
 palette-mode-ex = Ex
 palette-mode-command = Polecenia
+palette-mode-slash = Polecenie
 palette-mode-path = Pliki
 ex-write = Zapisz plik
 ex-write-quit = Zapisz i zamknij

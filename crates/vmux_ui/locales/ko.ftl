@@ -280,6 +280,7 @@ command-placeholder = URL 입력, 탭 검색 또는 >로 명령 실행…
 command-ex-placeholder = Ex 명령을 입력하세요…
 palette-mode-ex = Ex
 palette-mode-command = 명령
+palette-mode-slash = 명령
 palette-mode-path = 파일
 ex-write = 파일 저장
 ex-write-quit = 저장 후 닫기

@@ -114,6 +114,23 @@ pub fn ResultRow(
                                 }
                                 span { class: result_trailing_slot_class(), "\u{21b5}" }
                             },
+                            ResultItem::Slash { name, hint } => rsx! {
+                                div { class: result_content_row_class(),
+                                    span { class: "shrink-0 font-mono text-sm text-muted-foreground", "/" }
+                                    span { class: "shrink-0 font-mono text-sm text-foreground", "{name}" }
+                                    span { class: "{result_secondary_text_class()} min-w-0 truncate", "{hint}" }
+                                }
+                                span { class: result_trailing_slot_class(), "\u{21b5}" }
+                            },
+                            ResultItem::Resume { entry } => rsx! {
+                                div { class: result_content_row_class(),
+                                    span { class: "shrink-0 text-sm text-muted-foreground", "\u{21ba}" }
+                                    span { class: "min-w-0 truncate text-sm text-foreground", "{entry.title}" }
+                                    span { class: "{result_secondary_text_class()} shrink-0", "{entry.agent_name}" }
+                                    span { class: "{result_secondary_text_class()} min-w-0 truncate", "{entry.subtitle}" }
+                                }
+                                span { class: result_trailing_slot_class(), "\u{21b5}" }
+                            },
                             ResultItem::History { url, title, favicon_url, .. } => rsx! {
                                 div { class: result_content_row_class(),
                                     Favicon {

@@ -154,6 +154,7 @@ impl StartPromptContextParams<'_, '_> {
             uncommitted: info.map(|info| info.uncommitted).unwrap_or(0),
             ahead: info.map(|info| info.ahead).unwrap_or(0),
             projects: Vec::new(),
+            slash_commands: vmux_wire::chat::SlashCommands::for_start().commands,
         }
     }
 }

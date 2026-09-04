@@ -1,10 +1,63 @@
 use crate::i18n::translate;
 use vmux_wire::PageIcon;
+use vmux_wire::chat::ResumableSessionEntry;
 use vmux_wire::command_bar::{
     CommandBarCommandEntry, CommandBarPage, CommandBarPick, CommandBarPickRow, CommandBarPicker,
     CommandBarRecentFile, CommandBarSpace, CommandBarTab, CommandBarWorkDir, HistoryEntry,
     SearchEngine,
 };
+
+pub struct SlashRows;
+
+impl SlashRows {
+    pub fn of(
+        query: &str,
+        commands: &[vmux_wire::chat::SlashCommandEntry],
+        sessions: &[ResumableSessionEntry],
+    ) -> Vec<CommandBarResultItem> {
+        let held = vmux_wire::command_bar::CommandBarQuery(query);
+        let Some((name, rest)) = held.slash_token() else {
+            return Vec::new();
+        };
+        let lowered = name.to_lowercase();
+        let named = commands.iter().find(|command| command.name == lowered);
+        let typed_a_name = query.trim_end().len() != query.len() || !rest.is_empty();
+        if let Some(command) = named
+            && typed_a_name
+            && command.name == "resume"
+        {
+            return Self::sessions(rest, sessions);
+        }
+        let mut rows = Vec::new();
+        for command in commands {
+            if !command.name.starts_with(&lowered) {
+                continue;
+            }
+            rows.push(CommandBarResultItem::Slash {
+                name: command.name.clone(),
+                hint: command.description.clone(),
+            });
+        }
+        rows
+    }
+
+    fn sessions(query: &str, sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
+        let needle = query.trim().to_lowercase();
+        let mut rows = Vec::new();
+        for entry in sessions {
+            if !needle.is_empty()
+                && !entry.title.to_lowercase().contains(&needle)
+                && !entry.subtitle.to_lowercase().contains(&needle)
+            {
+                continue;
+            }
+            rows.push(CommandBarResultItem::Resume {
+                entry: entry.clone(),
+            });
+        }
+        rows
+    }
+}
 
 pub struct PickerRows;
 
@@ -101,6 +154,13 @@ pub enum CommandBarResultItem {
     RecentFile {
         url: String,
         title: String,
+    },
+    Slash {
+        name: String,
+        hint: String,
+    },
+    Resume {
+        entry: ResumableSessionEntry,
     },
     PartialIndex,
     MoreMatches {

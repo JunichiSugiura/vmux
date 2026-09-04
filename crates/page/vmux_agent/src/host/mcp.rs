@@ -10,7 +10,15 @@ pub(crate) const LONG_RUN_TIMEOUT_SECS: u64 = 600;
 pub(crate) const LONG_MCP_TOOL_TIMEOUT_SECS: u64 = LONG_RUN_TIMEOUT_SECS + 60;
 
 pub fn resolve(cwd: &Path, anchor: ProcessId, kind: AgentKind) -> Result<McpServerConfig, String> {
-    resolve_inner(cwd, anchor, false, false, run_timeout_secs_for_kind(kind))
+    let shell = crate::run_terminal::configured_shell();
+    resolve_inner(
+        cwd,
+        anchor,
+        false,
+        false,
+        run_timeout_secs_for_kind(kind),
+        &shell,
+    )
 }
 
 pub fn resolve_acp(
@@ -24,6 +32,7 @@ pub fn resolve_acp(
         true,
         acp_uses_native_terminals(agent_id),
         run_timeout_secs_for_agent_id(agent_id),
+        &crate::run_terminal::configured_shell(),
     )
 }
 
@@ -54,6 +63,7 @@ fn resolve_inner(
     acp_session: bool,
     acp_terminals: bool,
     run_timeout_secs: u64,
+    shell: &str,
 ) -> Result<McpServerConfig, String> {
     let sidecar = vmux_sidecar_path()?;
     let profile = vmux_core::profile::active_profile_name();
@@ -65,6 +75,7 @@ fn resolve_inner(
         acp_session,
         acp_terminals,
         run_timeout_secs,
+        shell,
     )
 }
 
@@ -76,6 +87,7 @@ fn resolve_with_sidecar(
     acp_session: bool,
     acp_terminals: bool,
     run_timeout_secs: u64,
+    shell: &str,
 ) -> Result<McpServerConfig, String> {
     if exec::is_executable_path(sidecar) {
         return Ok(McpServerConfig {
@@ -86,6 +98,7 @@ fn resolve_with_sidecar(
                 acp_session,
                 acp_terminals,
                 run_timeout_secs,
+                shell,
             ),
             cwd: None,
         });
@@ -102,6 +115,7 @@ fn resolve_with_sidecar(
         acp_session,
         acp_terminals,
         run_timeout_secs,
+        shell,
     ));
     Ok(McpServerConfig {
         command: "cargo".to_string(),
@@ -116,6 +130,7 @@ fn mcp_subcommand_args(
     acp_session: bool,
     acp_terminals: bool,
     run_timeout_secs: u64,
+    shell: &str,
 ) -> Vec<String> {
     let mut args = vec![
         "mcp".to_string(),
@@ -126,6 +141,10 @@ fn mcp_subcommand_args(
         "--run-timeout-secs".to_string(),
         run_timeout_secs.to_string(),
     ];
+    if !shell.trim().is_empty() {
+        args.push("--shell".to_string());
+        args.push(shell.to_string());
+    }
     if acp_session {
         args.push("--acp-session".to_string());
     }
@@ -162,7 +181,14 @@ mod tests {
     fn mcp_args_always_append_profile() {
         let anchor = ProcessId::new();
         for profile in ["personal", "gregor"] {
-            let args = mcp_subcommand_args(anchor, profile, false, false, DEFAULT_RUN_TIMEOUT_SECS);
+            let args = mcp_subcommand_args(
+                anchor,
+                profile,
+                false,
+                false,
+                DEFAULT_RUN_TIMEOUT_SECS,
+                "nu",
+            );
             assert!(
                 args.windows(2)
                     .any(|w| w[0] == "--profile" && w[1] == profile)
@@ -173,8 +199,15 @@ mod tests {
     #[test]
     fn acp_args_append_acp_terminals_flag() {
         let anchor = ProcessId::new();
-        let plain = mcp_subcommand_args(anchor, "personal", false, false, DEFAULT_RUN_TIMEOUT_SECS);
-        let acp = mcp_subcommand_args(anchor, "personal", true, true, DEFAULT_RUN_TIMEOUT_SECS);
+        let plain = mcp_subcommand_args(
+            anchor,
+            "personal",
+            false,
+            false,
+            DEFAULT_RUN_TIMEOUT_SECS,
+            "",
+        );
+        let acp = mcp_subcommand_args(anchor, "personal", true, true, DEFAULT_RUN_TIMEOUT_SECS, "");
         assert!(!plain.iter().any(|a| a == "--acp-session"));
         assert!(acp.iter().any(|a| a == "--acp-session"));
         assert!(!plain.iter().any(|a| a == "--acp-terminals"));

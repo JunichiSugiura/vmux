@@ -112,6 +112,7 @@ impl Plugin for AgentSessionPlugin {
             .add_message::<vmux_core::notify::OsNotify>()
             .init_resource::<bevy::ecs::message::Messages<vmux_core::PageOpenRequest>>()
             .add_systems(Startup, session::start_agent_session_watchers)
+            .add_systems(Update, super::run_terminal::remember_configured_shell)
             .add_systems(
                 Update,
                 (

@@ -14,6 +14,7 @@ async fn main() -> std::io::Result<()> {
             acp_session,
             acp_terminals,
             run_timeout_secs,
+            shell,
         }) => {
             commands::mcp::run(
                 anchor,
@@ -21,6 +22,7 @@ async fn main() -> std::io::Result<()> {
                 acp_session,
                 acp_terminals,
                 run_timeout_secs,
+                shell,
             )
             .await
         }

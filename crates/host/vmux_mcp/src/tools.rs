@@ -828,10 +828,34 @@ fn bookmark_folder_create_definition() -> ToolDefinition {
 }
 
 pub fn tool_definitions() -> Vec<ToolDefinition> {
-    tool_definitions_filtered(false, false)
+    tool_definitions_filtered(false, false, "")
 }
 
-pub fn tool_definitions_filtered(acp_session: bool, acp_terminals: bool) -> Vec<ToolDefinition> {
+pub struct ShellNote;
+
+impl ShellNote {
+    pub fn of(shell: &str) -> String {
+        let base = shell
+            .rsplit('/')
+            .next()
+            .unwrap_or(shell)
+            .trim()
+            .to_ascii_lowercase();
+        if base.is_empty() {
+            return String::new();
+        }
+        match base.as_str() {
+            "nu" | "nushell" | "fish" => format!(" The shell is {base}, which is not POSIX."),
+            _ => format!(" The shell is {base}."),
+        }
+    }
+}
+
+pub fn tool_definitions_filtered(
+    acp_session: bool,
+    acp_terminals: bool,
+    shell: &str,
+) -> Vec<ToolDefinition> {
     let mut defs: Vec<ToolDefinition> = vmux_command_mcp::tool_entries()
         .into_iter()
         .chain(McpParamTool::mcp_tool_entries())
@@ -853,7 +877,9 @@ pub fn tool_definitions_filtered(acp_session: bool, acp_terminals: bool) -> Vec<
         defs.push(resume_in_acp_definition());
     }
     if !acp_terminals {
-        defs.push(run_definition());
+        let mut run = run_definition();
+        run.description.push_str(&ShellNote::of(shell));
+        defs.push(run);
     }
     defs.push(request_user_choice_definition());
     defs.push(vault_status_definition());
@@ -1832,7 +1858,7 @@ mod tests {
 
     #[test]
     fn acp_terminals_toolset_hides_run_and_read_terminal_keeps_send() {
-        let names: Vec<String> = tool_definitions_filtered(true, true)
+        let names: Vec<String> = tool_definitions_filtered(true, true, "")
             .into_iter()
             .map(|def| def.name)
             .collect();

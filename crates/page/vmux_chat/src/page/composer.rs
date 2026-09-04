@@ -1,7 +1,6 @@
 use self::menu::{CommandMenu, MediaMenu, ResumeMenu};
 use self::options::{ChatComposerMenus, ChatModelMenu};
 use self::workspace::WorkspaceBadges;
-use super::agent::StatusDot;
 use super::approval::ChoiceList;
 use super::keys::ChatKeys;
 use super::state::Chat;
@@ -90,62 +89,10 @@ fn ComposerFooter(chat: Chat) -> Element {
             badges: Some(rsx! {
                 WorkspaceBadges { chat }
             }),
-            status: Some(rsx! {
-                ComposerStatus {
-                    status: chat.status(),
-                    active_subagents: (chat.activity_counts)().0,
-                    active_tasks: (chat.activity_counts)().1,
-                    queued_count: chat.queue.queued.read().len(),
-                }
-            }),
-        }
-    }
-}
-
-#[component]
-pub fn ComposerStatus(
-    status: String,
-    active_subagents: usize,
-    active_tasks: usize,
-    #[props(default)] queued_count: usize,
-) -> Element {
-    let run_label = match status.as_str() {
-        "streaming" => "Running",
-        "awaiting" => "Approval",
-        "installing" => "Starting",
-        "errored" => "Error",
-        _ => "Ready",
-    };
-    rsx! {
-        div { class: "flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground",
-            span { class: "flex h-7 items-center gap-1.5 rounded-lg px-2",
-                StatusDot { status, size_class: "h-1.5 w-1.5" }
-                "{run_label}"
-            }
-            if active_subagents > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg bg-violet-500/[0.07] px-2 text-violet-600 dark:text-violet-300", title: "Active subagents",
-                    svg {
-                        class: "h-3.5 w-3.5",
-                        view_box: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        stroke_width: "1.8",
-                        stroke_linecap: "round",
-                        stroke_linejoin: "round",
-                        circle { cx: "9", cy: "8", r: "3" }
-                        path { d: "M3.5 19a5.5 5.5 0 0 1 11 0" }
-                        circle { cx: "17", cy: "9", r: "2.5" }
-                        path { d: "M15.5 14.5A4.5 4.5 0 0 1 21 19" }
-                    }
-                    "{active_subagents}"
-                }
-            }
-            if active_tasks > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg px-2", title: "Open plan tasks", "{active_tasks} tasks" }
-            }
-            if queued_count > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg px-2", title: "Queued prompts", "{queued_count} queued" }
-            }
+            status: chat.status(),
+            active_subagents: (chat.activity_counts)().0,
+            active_tasks: (chat.activity_counts)().1,
+            queued_count: chat.queue.queued.read().len(),
         }
     }
 }

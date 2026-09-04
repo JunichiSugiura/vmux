@@ -7,7 +7,7 @@ use crate::components::effort_menu::EffortMenu;
 use crate::components::model_menu::ModelMenu;
 use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker};
 use crate::components::prompt_box::PromptPopupPlacement;
-use crate::i18n::translate;
+use crate::i18n::{TranslationValue, translate, translate_with};
 
 const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-muted-foreground";
 const COMPOSER_CHIP_INTERACTIVE: &str =
@@ -31,7 +31,89 @@ pub struct ComposerBarProps {
     #[props(default)]
     pub badges: Option<Element>,
     #[props(default)]
-    pub status: Option<Element>,
+    #[props(default)]
+    pub status: String,
+    #[props(default)]
+    pub active_subagents: usize,
+    #[props(default)]
+    pub active_tasks: usize,
+    #[props(default)]
+    pub queued_count: usize,
+}
+
+#[component]
+pub fn StatusDot(status: String, size_class: String) -> Element {
+    let tone = match status.as_str() {
+        "streaming" | "interrupted" => "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.65)]",
+        "installing" => "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.65)]",
+        "awaiting" => "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.65)]",
+        "errored" => "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.65)]",
+        _ => "bg-success shadow-[0_0_8px_rgba(16,185,129,0.65)]",
+    };
+    rsx! {
+        span { class: "{size_class} rounded-full {tone}" }
+    }
+}
+
+#[component]
+pub fn ComposerStatus(
+    #[props(default)] status: String,
+    #[props(default)] active_subagents: usize,
+    #[props(default)] active_tasks: usize,
+    #[props(default)] queued_count: usize,
+) -> Element {
+    let run_label = match status.as_str() {
+        "" => String::new(),
+        "streaming" => translate("composer-status-running"),
+        "awaiting" => translate("composer-status-approval"),
+        "installing" => translate("composer-status-starting"),
+        "errored" => translate("composer-status-error"),
+        _ => translate("composer-status-ready"),
+    };
+    rsx! {
+        div { class: "flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground",
+            if !run_label.is_empty() {
+                span { class: "flex h-7 items-center gap-1.5 rounded-lg px-2",
+                    StatusDot { status, size_class: "h-1.5 w-1.5" }
+                    "{run_label}"
+                }
+            }
+            if active_subagents > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg bg-violet-500/[0.07] px-2 text-violet-600 dark:text-violet-300",
+                    title: translate("composer-status-subagents"),
+                    svg {
+                        class: "h-3.5 w-3.5",
+                        view_box: "0 0 24 24",
+                        fill: "none",
+                        stroke: "currentColor",
+                        stroke_width: "1.8",
+                        stroke_linecap: "round",
+                        stroke_linejoin: "round",
+                        circle { cx: "9", cy: "8", r: "3" }
+                        path { d: "M3.5 19a5.5 5.5 0 0 1 11 0" }
+                        circle { cx: "17", cy: "9", r: "2.5" }
+                        path { d: "M15.5 14.5A4.5 4.5 0 0 1 21 19" }
+                    }
+                    "{active_subagents}"
+                }
+            }
+            if active_tasks > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg px-2",
+                    title: translate("composer-status-tasks-title"),
+                    {translate_with("composer-status-tasks", &[("count", TranslationValue::Number(active_tasks as i64))])}
+                }
+            }
+            if queued_count > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg px-2",
+                    title: translate("composer-status-queued-title"),
+                    {translate_with("composer-status-queued", &[("count", TranslationValue::Number(queued_count as i64))])}
+                }
+            }
+        }
+    }
 }
 
 #[component]
@@ -86,6 +168,9 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
         branch,
         badges,
         status,
+        active_subagents,
+        active_tasks,
+        queued_count,
     } = props;
     rsx! {
         div { class: "flex min-w-0 items-center justify-between gap-1",
@@ -129,9 +214,7 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                     {badges}
                 }
             }
-            if let Some(status) = status {
-                {status}
-            }
+            ComposerStatus { status, active_subagents, active_tasks, queued_count }
         }
     }
 }

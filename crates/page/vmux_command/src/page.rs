@@ -224,12 +224,6 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             ahead: composer.ahead,
         }
     };
-    let start_status = rsx! {
-        span { class: "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[10px] text-muted-foreground",
-            span { class: "h-1.5 w-1.5 rounded-full bg-success" }
-            {translate("composer-ready")}
-        }
-    };
     let start_composer_footer = rsx! {
         ComposerBar {
             menu,
@@ -238,7 +232,6 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             project: Some(chips.project),
             branch: chips.branch,
             badges: Some(start_badges),
-            status: Some(start_status),
         }
     };
     let start_menus = rsx! {

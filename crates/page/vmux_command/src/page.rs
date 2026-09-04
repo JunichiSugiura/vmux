@@ -17,9 +17,7 @@ use dioxus::prelude::*;
 use vmux_core::input::{PageKeyContext, Unclaimed};
 use vmux_ui::agent_accent::agent_accent;
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
-use vmux_ui::components::composer_bar::{
-    ComposerBar, ComposerMenus, WorkspaceBadges, use_composer_menu,
-};
+use vmux_ui::components::composer_bar::{ComposerBar, ComposerMenus, use_composer_menu};
 use vmux_ui::components::icon::Icon;
 use vmux_ui::components::prompt_box::{PromptBox, PromptPopup, PromptPopupPlacement};
 use vmux_ui::components::prompt_media_options::PromptMediaOptions;
@@ -216,14 +214,6 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let start_action_enabled = !q.trim().is_empty() || !attachments.read().is_empty();
     let chips = ComposerChips::of(&composer, menu, model_menu_sel);
     let menus = ComposerMenuSet::of(&composer, signals, model_menu_sel, picking);
-    let start_badges = rsx! {
-        WorkspaceBadges {
-            is_git_repo: composer.is_git_repo,
-            workspace_known: !composer.cwd.is_empty(),
-            uncommitted: composer.uncommitted,
-            ahead: composer.ahead,
-        }
-    };
     let start_composer_footer = rsx! {
         ComposerBar {
             menu,
@@ -231,7 +221,10 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             model: chips.model,
             project: Some(chips.project),
             branch: chips.branch,
-            badges: Some(start_badges),
+            is_git_repo: composer.is_git_repo,
+            workspace_known: !composer.cwd.is_empty(),
+            uncommitted: composer.uncommitted,
+            ahead: composer.ahead,
         }
     };
     let start_menus = rsx! {

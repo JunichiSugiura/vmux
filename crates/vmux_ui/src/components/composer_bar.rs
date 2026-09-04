@@ -29,8 +29,15 @@ pub struct ComposerBarProps {
     #[props(default)]
     pub branch: Option<ComposerChip>,
     #[props(default)]
-    pub badges: Option<Element>,
+    pub is_git_repo: bool,
     #[props(default)]
+    pub workspace_known: bool,
+    #[props(default)]
+    pub uncommitted: u32,
+    #[props(default)]
+    pub ahead: u32,
+    #[props(default)]
+    pub on_create_worktree: Option<EventHandler<()>>,
     #[props(default)]
     pub status: String,
     #[props(default)]
@@ -166,7 +173,11 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
         effort,
         project,
         branch,
-        badges,
+        is_git_repo,
+        workspace_known,
+        uncommitted,
+        ahead,
+        on_create_worktree,
         status,
         active_subagents,
         active_tasks,
@@ -210,8 +221,12 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                         open: menu.is(ComposerMenuKind::Branch),
                     }
                 }
-                if let Some(badges) = badges {
-                    {badges}
+                WorkspaceBadges {
+                    is_git_repo,
+                    workspace_known,
+                    uncommitted,
+                    ahead,
+                    on_create_worktree,
                 }
             }
             ComposerStatus { status, active_subagents, active_tasks, queued_count }

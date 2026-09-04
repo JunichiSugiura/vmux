@@ -1,26 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build, sign and package Vmux for iOS as an App Store .ipa. Uploading to TestFlight is opt-in.
-# Imports the distribution certificate from APPLE_IOS_CERTIFICATE /
-# APPLE_IOS_CERTIFICATE_PASSWORD (or `.env`) into a temporary keychain so signing works the same
-# way locally and in CI, mirroring scripts/build-mac-release.sh.
-#
-# Required:
-#   APPLE_TEAM_ID                     ten-character team id
-#   APPLE_IOS_SIGNING_IDENTITY        e.g. "Apple Distribution: Name (XXXXXXXXXX)"
-#   APPLE_IOS_PROVISIONING_PROFILE    base64 of the .mobileprovision for ai.vmux.mobile
-# Required unless the identity is already in the login keychain:
-#   APPLE_IOS_CERTIFICATE             base64 of the distribution .p12
-#   APPLE_IOS_CERTIFICATE_PASSWORD    that .p12's export password
-# Required only when uploading:
-#   APPLE_ID, APPLE_APP_PASSWORD
-# Optional:
-#   VMUX_IOS_BUILD_NUMBER             CFBundleVersion; CI passes the run number
-#   VMUX_IOS_UPLOAD=1                 send the .ipa to App Store Connect; off by default
-#
-# Usage: ./scripts/build-ios-release.sh
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cargo-target-paths.sh"
 
@@ -67,7 +47,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# BSD mktemp only substitutes X's at the end of the template, so use -t and let it name the dir.
 TMP_DIR="$(mktemp -d -t vmux-ios-build)"
 
 if [[ -n "${APPLE_IOS_CERTIFICATE:-}" || -n "${APPLE_IOS_CERTIFICATE_PASSWORD:-}" ]]; then
@@ -103,8 +82,6 @@ if [[ -n "$KEYCHAIN" ]]; then
     CODESIGN_KEYCHAIN_ARGS=(--keychain "$KEYCHAIN")
 fi
 
-# dx auto-provisioning only ever matches "Apple Development:" identities, so the profile is
-# installed and the signing identity passed explicitly instead of letting dx guess.
 PROFILE_FILE="$TMP_DIR/profile.mobileprovision"
 echo "$APPLE_IOS_PROVISIONING_PROFILE" | base64 --decode > "$PROFILE_FILE"
 
@@ -127,9 +104,6 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
 fi
 
 echo "==> Injecting resources"
-# Must happen between build and signing: the icons, launch screen and privacy manifest are part
-# of what gets sealed. `dx bundle` would rebuild and undo this, which is why the .ipa is
-# assembled below rather than by dx.
 VMUX_IOS_PROFILE=release "$ROOT/scripts/inject-ios-resources.sh" "$APP_BUNDLE"
 
 cp -f "$PROFILE_FILE" "$APP_BUNDLE/embedded.mobileprovision"
@@ -160,10 +134,6 @@ cp -R "$APP_BUNDLE" "$PAYLOAD/"
 
 echo "==> Built $IPA"
 
-# Uploading is opt-in rather than opt-out. App Store Connect keeps what it is given: a build
-# cannot be withdrawn once uploaded, and its CFBundleVersion is burned even if the build is
-# rejected, so a mistake here costs a version number rather than a retry. Building and signing
-# are safe to repeat; sending is not, so the sending is what has to be asked for.
 if [[ "${VMUX_IOS_UPLOAD:-}" != "1" ]]; then
     echo "==> Not uploading. Set VMUX_IOS_UPLOAD=1 to send this to App Store Connect."
     exit 0

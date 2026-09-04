@@ -7,10 +7,6 @@ pub struct ContributedCommandChosen {
     pub pane: Option<Entity>,
 }
 
-/// Set when something other than the launcher has taken over the surface it was aimed at.
-///
-/// The launcher is a modal over whichever stack is focused. Opening a tab, pane or stack moves
-/// that focus out from under it, so it has to go.
 #[derive(Resource, Default, Debug)]
 pub struct PendingLaunch {
     pub dismiss_modal: bool,

@@ -376,14 +376,6 @@ impl PageWaker {
     }
 }
 
-/// One pending wake at a time, cleared as each frame starts.
-///
-/// A page wakes the host after every host emit it delivers and after every DOM event it handles,
-/// and the host emits several times per keystroke — so an unthrottled waker turned one keystroke
-/// into several full app updates, and those updates emitted again. Collapsing the wakes a frame
-/// asks for into one leaves the loop event-driven without letting it feed itself. Clearing at the
-/// start of the frame rather than the end is what keeps a change made mid-frame from being lost:
-/// it still schedules the next one.
 static PAGE_WAKE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 impl vmux_native::Wake for PageWaker {

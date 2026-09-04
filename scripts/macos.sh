@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# macOS: build, sign, and run Vmux for development.
-#
-# Development (default): runs target/debug/vmux_desktop after signing it with
-# the stable local codesigning identity used for Keychain access.
-#
-# Usage:
-#   ./scripts/macos.sh           # or: ./scripts/macos.sh dev
-#   ./scripts/macos.sh bundle    # signed local .app + open
-#   ./scripts/macos.sh --help
 
 set -euo pipefail
 

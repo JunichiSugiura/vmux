@@ -1601,12 +1601,6 @@ impl EditorWindow {
     }
 }
 
-/// The buffer lines whose selection, search and word highlights the page can actually show.
-///
-/// These were computed over the whole document on every caret move, so holding `j` in a large
-/// file re-scanned every line to find occurrences of the word under the cursor. The page positions
-/// spans by absolute row and only renders the loaded band, so anything outside it was work for
-/// nodes nobody sees.
 struct HighlightedLines;
 
 impl HighlightedLines {
@@ -1706,12 +1700,6 @@ fn emit_cursor(
     ));
 }
 
-/// How far the viewport slid, and whether the page needs a fresh window because of it.
-///
-/// The page holds an overscan band either side of what it shows and reveals the caret by
-/// scrolling itself, so a caret walking down the file does not need the host to resend the window
-/// for every line — the page asks for more through `FileScrollEvent` once its own band runs
-/// short. Only a jump large enough to land outside that band has to be served eagerly.
 struct DriftedWindow {
     rows: u32,
     overscan: u32,
@@ -1735,11 +1723,6 @@ impl DriftedWindow {
     }
 }
 
-/// Drags the caret along when the window scrolls out from under it, the way `CTRL-E` does.
-///
-/// Scrolling is the one motion that moves the window without moving the caret, so the caret is
-/// the thing that has to give once the window has left it behind. Vim keeps the column and only
-/// surrenders the line, so this places the caret on the same column of the edge row.
 struct ScrolledCursor;
 
 impl ScrolledCursor {

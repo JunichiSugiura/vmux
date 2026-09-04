@@ -9,9 +9,6 @@ publish = false
 base64 = "0.22"
 dioxus-core = "=0.7.9"
 dioxus-html = { version = "=0.7.9", features = ["serialize"] }
-# `binary-protocol` and `sledgehammer` are what gate `MutationState`, the `WriteMutations` sink
-# that turns a render into the byte batch `run_from_bytes` applies. Without both, this crate has
-# nothing to send.
 dioxus-interpreter-js = { version = "=0.7.9", features = [
     "binary-protocol",
     "sledgehammer",
@@ -20,9 +17,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = "0.1"
 
-# The view half, on the two targets that have a window to parent a webview into. Spelled out
-# rather than as the `ui` alias because Cargo resolves dependencies before any build script runs;
-# `build_platform_cfg.rs` requires the manifest and the alias to say the same thing.
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 objc2-quartz-core = { version = "0.3", default-features = false, features = [
     "std",
@@ -48,8 +42,6 @@ objc2-ui-kit = { version = "0.3", default-features = false, features = [
     "UIInterface",
     "UIResponder",
     "UIView",
-    # `UIView::layer` is gated on this, and `raise_above_layers` is the whole reason we reach for
-    # a view at all.
     "objc2-quartz-core",
 ] }
 

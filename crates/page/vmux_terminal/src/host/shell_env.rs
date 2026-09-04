@@ -21,12 +21,6 @@ pub fn login_shell_env(shell: &str) -> &'static [(String, String)] {
         .as_slice()
 }
 
-/// Fill the cache off the main thread, so the first agent spawn does not wait on a login shell.
-///
-/// Capturing runs an interactive login shell and reads it to EOF, which on a full rc chain is
-/// hundreds of milliseconds and on a stuck shell is the whole ten-second timeout. Doing that
-/// inside `poll_service_messages` stalls the frame loop, and with it every terminal already
-/// drawing. Starting at boot means the answer is usually there before anything asks.
 pub fn prewarm_login_shell_env(shell: String) {
     if CACHE.get().is_some() {
         return;

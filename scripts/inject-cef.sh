@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Inject CEF framework into .app bundle via bevy_cef_bundle_app.
-# Called by cargo-packager as before-each-package-command.
-# Only runs when processing DMG format (app already built by then).
-
 if [[ "${CARGO_PACKAGER_FORMAT:-}" != "dmg" ]]; then
     echo "inject-cef: skipping (format=${CARGO_PACKAGER_FORMAT:-unknown}, waiting for dmg)"
     exit 0
@@ -13,7 +9,6 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cargo-target-paths.sh"
 export PATH="${HOME}/.cargo/bin:${PATH}"
-# Wrong CEF_PATH breaks cef-dll-sys; default macOS layout is ~/.local/share.
 unset CEF_PATH
 
 RELEASE_DIR="${VMUX_CARGO_RELEASE_DIR:-$(vmux_cargo_profile_dir "$ROOT" release)}"
@@ -48,9 +43,6 @@ fi
 echo "==> inject-cef: running bevy_cef_bundle_app"
 bevy_cef_bundle_app --app "$APP_BUNDLE" --bundle-id-base "$BUNDLE_ID_BASE" --bin-name vmux_desktop --cef-framework "$CEF_FRAMEWORK" --helper-bin "$HELPER_BIN" --no-sign
 
-# Trim non-English Chromium locale packs to cut bundle size. Must run before
-# the app is (re)signed/notarized below, since editing the framework
-# invalidates its upstream signature.
 CEF_RESOURCES="$APP_BUNDLE/Contents/Frameworks/Chromium Embedded Framework.framework/Resources"
 if [[ -d "$CEF_RESOURCES" ]]; then
     keep_locales=("en.lproj" "en_GB.lproj" "Base.lproj")
@@ -73,7 +65,6 @@ if [[ -d "$CEF_RESOURCES" ]]; then
     fi
 fi
 
-# Copy app icon (cargo-packager handles this via icons config, but ensure it's there)
 ICNS_SRC="$ROOT/packaging/macos/Vmux.icns"
 if [[ -f "$ICNS_SRC" && ! -f "$APP_BUNDLE/Contents/Resources/Vmux.icns" ]]; then
     mkdir -p "$APP_BUNDLE/Contents/Resources"
@@ -100,8 +91,6 @@ if [[ -f "$ICNS_SRC" ]]; then
     done
 fi
 
-# Ship the CEF crash reporter config so Crashpad is enabled. macOS reads it
-# from the top-level app bundle Resources directory.
 CRASH_CFG_SRC="$ROOT/packaging/macos/crash_reporter.cfg"
 if [[ -f "$CRASH_CFG_SRC" ]]; then
     mkdir -p "$APP_BUNDLE/Contents/Resources"

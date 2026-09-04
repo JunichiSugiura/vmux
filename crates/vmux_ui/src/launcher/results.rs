@@ -264,7 +264,6 @@ pub fn prepend_prompt_targets(
     results.splice(at..at, suggestions);
 }
 
-/// The stacks worth switching to, which is every one except the stack already showing.
 pub fn open_session_results(
     tabs: &[CommandBarTab],
     pages: &[CommandBarPage],

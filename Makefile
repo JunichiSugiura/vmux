@@ -57,8 +57,6 @@ ios: mobile-ios-run
 
 android: mobile-android-run
 
-# `inject-ios-resources.sh` reads VMUX_IOS_PROFILE to decide which bundle to write into, so the
-# build has to be told the same thing or the script looks for a bundle dx never produced.
 mobile-ios: ensure-mobile-ios-deps
 	"$(DX_BIN)" build --ios -p vmux_mobile $(if $(filter release,$(VMUX_IOS_PROFILE)),--release)
 	./scripts/inject-ios-resources.sh
@@ -70,13 +68,6 @@ build-ios-release: ensure-ios-release-deps
 ios-release: build-ios-release
 	./scripts/test-ios-bundle-layout.sh --signed
 
-# The icon, launch screen and privacy manifest exist only in a bundle the injector has been over,
-# and `mobile-ios-run` cannot be that bundle: `dx serve` installs what it just built and reinstalls
-# on every reload, so anything added afterwards is gone by the next keystroke. This installs the
-# app as it actually ships, at the cost of the hot-reload loop.
-# `set -e` because make reads the exit status of the last command in the chain: a failed install
-# followed by a launch of whatever was already on the simulator would report success, and show a
-# stale app that looks like the new one.
 ios-local: mobile-ios ensure-booted-simulator
 	@set -e; \
 	. ./scripts/cargo-target-paths.sh; \
@@ -87,8 +78,6 @@ ios-local: mobile-ios ensure-booted-simulator
 mobile-android: ensure-mobile-android-deps
 	"$(DX_BIN)" build --android -p vmux_mobile
 
-# Boot the newest available iPhone, and leave it booted. `dx serve` and `simctl install` both
-# address the simulator as `booted` rather than by name, so both need one and neither brings one up.
 ensure-booted-simulator:
 	@set -e; \
 	if xcrun simctl list devices booted -j | jq -e '[.devices[][] | select(.name | startswith("iPhone"))] | length > 0' >/dev/null; then exit 0; fi; \
@@ -123,14 +112,11 @@ build-release: ensure-mac-deps ensure-package-deps
 release: build-release
 	open "target/release/Vmux.app"
 
-# One-time CEF download (macOS paths; version derived from the cef crate in Cargo.lock)
 setup-cef:
 	@test -n "$(CEF_VERSION)" || { echo "could not resolve cef crate version from Cargo.lock"; exit 1; }
 	"$(CARGO_BIN)" install export-cef-dir@$(CEF_VERSION) --force
 	"$(EXPORT_CEF_BIN)" --force "$$HOME/.local/share"
 
-# Build from vmux-patched bevy_cef_core (required when adding CEF schemes such as vmux://).
-# Installs into the same path `bevy_cef` debug mode loads on macOS.
 install-debug-render-process:
 	CARGO_BIN="$(CARGO_BIN)" CEF_FRAMEWORK_DIR="$(CEF_FRAMEWORK_DIR)" \
 	  ./scripts/install-debug-render-process.sh
@@ -138,7 +124,6 @@ install-debug-render-process:
 seed-target:
 	./scripts/seed-worktree-target.sh
 
-# Get workspace packages excluding vendored patches
 PKGS = $(shell "$(CARGO_BIN)" metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | test("patches") | not) | .name')
 
 lint:
@@ -160,10 +145,6 @@ lint-fix:
 test:
 	$(CARGO_WITH_CEF_CACHE) test --workspace --exclude bevy_cef_core
 
-# Reset vmux *dev* storage for a clean test. Removes the layout store, session,
-# logs, the saved profile display name, and stale dev service sockets (all
-# profiles). KEEPS ~/.vmux (settings + space working dirs) and the dev browser
-# profiles (logins/cache).
 cleanup:
 	@pkill -f "target/debug/vmux_desktop" 2>/dev/null || true
 	@pkill -f "target/debug/vmux_service" 2>/dev/null || true
@@ -226,7 +207,6 @@ cleanup-local:
 	rm -f "$$base/services/"vmux-local.* "$$base/services/"vmux-local-*; \
 	echo "cleanup-local: reset local/release layout (kept settings and browser profiles)"
 
-# Website
 build-website-css:
 	cd website && tailwindcss -i tailwind.input.css -o public/style.css --minify
 
@@ -243,7 +223,6 @@ build-website-release: build-website-css
 	cp website/target/dx/vmux_website/release/web/public/_home/index.html website/target/dx/vmux_website/release/web/public/index.html
 	rm -rf website/target/dx/vmux_website/release/web/public/_home
 
-# Friendly prerequisite report (colors / emoji when terminal); README: make doctor
 doctor:
 	@chmod +x scripts/doctor-mac.sh
 	@CARGO_BIN="$(CARGO_BIN)" RUSTUP_BIN="$(RUSTUP_BIN)" EXPORT_CEF_BIN="$(EXPORT_CEF_BIN)" \
@@ -251,7 +230,6 @@ doctor:
 		BEVY_CEF_BUNDLE_APP_BIN="$(BEVY_CEF_BUNDLE_APP_BIN)" CEF_FRAMEWORK_DIR="$(CEF_FRAMEWORK_DIR)" \
 		CEF_DEBUG_RENDER="$(CEF_DEBUG_RENDER)" ./scripts/doctor-mac.sh
 
-# Non-interactive bootstrap so `make dev` works even after dependency bumps.
 ensure-mac-deps: ensure-native-deps
 
 ensure-native-deps:
@@ -325,9 +303,6 @@ ensure-package-deps:
 		"$(CARGO_BIN)" install bevy_cef_bundle_app --locked --version "$(BEVY_CEF_BUNDLE_APP_VERSION)"; \
 	fi
 
-# altool is not here: it is only reached when VMUX_IOS_UPLOAD asks for an upload, and requiring
-# it up front would refuse a build-and-sign on a machine that can do one. The script checks for
-# it where it uses it.
 ensure-ios-release-deps: ensure-mobile-ios-deps ensure-codesign-deps
 	@echo "Checking iOS release dependencies..."
 	@for tool in actool ibtool; do \

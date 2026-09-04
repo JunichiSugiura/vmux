@@ -2071,11 +2071,6 @@ pub fn Page() -> Element {
     }
 }
 
-/// The list of rendered lines.
-///
-/// Every prop is a signal or a value only a resize changes, so moving the caret leaves them all
-/// equal and Dioxus skips this whole subtree. Without the boundary a caret move re-diffs all
-/// hundred rows to discover that none of them moved.
 #[component]
 fn EditorLines(
     lines: Signal<Vec<FileLine>>,
@@ -2124,12 +2119,6 @@ fn EditorLines(
     }
 }
 
-/// A fixed band of line numbers, so a chunk's identity survives scrolling.
-///
-/// The host replaces the whole window each time it sends one, so without this every row's props
-/// are rebuilt and every row is diffed for a one-line move. Cutting on absolute line number keeps
-/// the boundaries still while the window slides over them: the chunks that lost or gained a line
-/// re-render, and the ones in the middle compare equal and are skipped whole.
 struct LineChunk {
     start: u32,
     rows: Vec<(FileLine, FileLineLayout)>,
@@ -2220,12 +2209,6 @@ fn EditorLineChunk(
     }
 }
 
-/// One rendered line of the file.
-///
-/// This is a component rather than inline rsx because scrolling re-sends the whole window: a
-/// one-line move changes one row and leaves the other hundred identical. As a component each row
-/// memoizes on its props, so the unchanged ones are skipped instead of rebuilding their rsx and
-/// re-diffing every span.
 #[component]
 fn EditorLineRow(
     line: FileLine,

@@ -13,8 +13,6 @@ default = []
 path = "src/lib.rs"
 
 [dependencies]
-# Unconditional, unlike  below: the roster's model is plain ECS over wire types and the
-# phone runs it too. Only the desktop half needs the whole engine.
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
 rkyv = { workspace = true }

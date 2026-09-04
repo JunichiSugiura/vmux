@@ -63,11 +63,6 @@ impl WebView {
         layer.setMasksToBounds(true);
         layer.setMaskedCorners(if all_corners { all } else { bottom });
     }
-    /// Draw the focus ring as the view's own border, inside its rounded corners.
-    ///
-    /// CEF panes get theirs from a sibling layer the browser owns, which a page served by another
-    /// engine has no equivalent of. A border on the layer that already carries the corner radius
-    /// follows the pane exactly and costs nothing to keep in step.
     pub fn set_focus_ring(&self, width: f64, color_rgb: [f32; 3]) {
         use objc2_app_kit::NSColor;
         let wk = self.webview.webview();

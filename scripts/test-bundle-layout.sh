@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Asserts the .app bundle has the expected layout. Exits non-zero on failure.
 set -euo pipefail
 APP="${1:?usage: $0 <path-to-Vmux.app>}"
 

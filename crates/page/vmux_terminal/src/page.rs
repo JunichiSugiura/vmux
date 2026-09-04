@@ -156,9 +156,6 @@ pub fn Page() -> Element {
             vmux_core::scroll::OVERSCAN_FLOOR,
             vmux_core::scroll::OVERSCAN_CAP,
         );
-        // Never past the end of the document. `clear` drops the screen's scrollback, so the rows
-        // that were there are gone rather than changed — nothing arrives to overwrite them, and a
-        // window wide enough to still cover them leaves the cleared screen on display.
         let keep_hi =
             (first + patch.rows as u32 + overscan * 2 + 2).min(patch.total_rows.saturating_sub(1));
         let previous_cursor = cursor.peek().clone();
@@ -292,9 +289,6 @@ pub fn Page() -> Element {
             prompt_draft.set((evt.draft, evt.skipped));
         });
 
-    // The element's own rect, rather than the size the resize event carries: the payload names a
-    // box that is not this element's, so a terminal sized from it reports the wrong row count and
-    // never scrolls to the bottom of a screen it thinks is seven rows tall.
     let locate_container = move || {
         spawn(async move {
             let Some(element) = container() else {

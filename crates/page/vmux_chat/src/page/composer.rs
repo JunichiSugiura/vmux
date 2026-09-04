@@ -49,9 +49,7 @@ fn ChatComposer(chat: Chat) -> Element {
             value: chat.draft(),
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),
-            show_examples: chat.show_examples(),
             placeholder: if chat.choice_pending() { translate("agent-choose-option") } else { translate("command-composer-placeholder") },
-            accent_bg: accent.accent_bg.to_string(),
             accent_color: chat.accent().css,
             accent_gradient: accent.grad.to_string(),
             footer: Some(rsx! {

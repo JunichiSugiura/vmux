@@ -79,8 +79,6 @@ openssl req \
     -keyout "$KEY_FILE" \
     -out "$CERT_FILE" >/dev/null 2>&1
 
-# macOS `security import` cannot read PKCS#12 produced with OpenSSL 3's
-# default AES-256-CBC PBE. Force legacy SHA1/3DES so the import succeeds.
 openssl pkcs12 \
     -export \
     -out "$P12_FILE" \

@@ -1,27 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sign and notarize Vmux.app for macOS distribution.
-#
-# Required environment variables:
-#   APPLE_SIGNING_IDENTITY  - "Developer ID Application: Name (TEAM_ID)"
-#   APPLE_ID                - Apple ID email for notarytool
-#   APPLE_APP_PASSWORD      - App-specific password
-#   APPLE_TEAM_ID           - 10-character team identifier
-#
-# Optional:
-#   APP_BUNDLE              - Path to .app (default: target/release/Vmux.app)
-#   SKIP_NOTARIZE           - Set to "1" to skip notarization (local testing)
-#   VMUX_BUILD_PROFILE      - "release" | "local" | "dev"; selects the
-#                             code-signing identifier suffix for auxiliary
-#                             binaries so the embedded LaunchAgent's
-#                             identifier matches the plist Label (and
-#                             macOS groups it under Vmux.app instead of
-#                             showing a standalone "unidentified developer"
-#                             row in Login Items).
-#   VMUX_GIT_HASH           - identifier suffix for VMUX_BUILD_PROFILE=local;
-#                             defaults to `git rev-parse --short HEAD`.
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${APP_BUNDLE:-$ROOT/target/release/Vmux.app}"
 ENTITLEMENTS="$ROOT/packaging/macos/Vmux.entitlements"
@@ -73,10 +52,7 @@ fi
 
 echo "==> Signing $APP_BUNDLE"
 
-# Sign the CEF framework and helper binaries first (inside-out signing)
-# Find all Mach-O binaries and .dylib files in Frameworks
 find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm +111 \) | while read -r binary; do
-    # Skip non-Mach-O files
     file "$binary" | grep -q "Mach-O" || continue
     echo "  Signing: ${binary#$APP_BUNDLE/}"
     codesign --force --verify --verbose \
@@ -86,7 +62,6 @@ find "$APP_BUNDLE/Contents/Frameworks" -type f \( -name "*.dylib" -o -perm +111 
         "$binary"
 done
 
-# Sign the framework bundle itself
 if [ -d "$APP_BUNDLE/Contents/Frameworks/Chromium Embedded Framework.framework" ]; then
     echo "  Signing: Chromium Embedded Framework.framework"
     codesign --force --verify --verbose \
@@ -101,7 +76,6 @@ if [[ -d "$APP_BUNDLE/Contents/Library" ]]; then
     NESTED_APP_DIRS+=("$APP_BUNDLE/Contents/Library")
 fi
 
-# Sign all CEF and service helper app bundles
 find "${NESTED_APP_DIRS[@]}" -name "*.app" -type d | while read -r helper; do
     echo "  Signing: ${helper#$APP_BUNDLE/}"
     codesign --force --verify --verbose \
@@ -112,9 +86,6 @@ find "${NESTED_APP_DIRS[@]}" -name "*.app" -type d | while read -r helper; do
         "$helper"
 done
 
-# Sign all auxiliary executables in Contents/MacOS (e.g. vmux CLI, vmux_service).
-# Each gets an explicit --identifier in the ai.vmux.* namespace so macOS groups
-# the LaunchAgent under Vmux.app in Login Items instead of as a standalone row.
 find "$APP_BUNDLE/Contents/MacOS" -type f -perm +111 | while read -r binary; do
     file "$binary" | grep -q "Mach-O" || continue
     name="$(basename "$binary")"
@@ -130,7 +101,6 @@ find "$APP_BUNDLE/Contents/MacOS" -type f -perm +111 | while read -r binary; do
         "$binary"
 done
 
-# Sign the main app bundle
 echo "  Signing: Vmux.app"
 codesign --force --verify --verbose \
     ${CODESIGN_KEYCHAIN_ARGS[@]+"${CODESIGN_KEYCHAIN_ARGS[@]}"} \
@@ -139,7 +109,6 @@ codesign --force --verify --verbose \
     --entitlements "$ENTITLEMENTS" \
     "$APP_BUNDLE"
 
-# Verify
 echo "==> Verifying signature"
 codesign --verify --deep --strict --verbose=2 "$APP_BUNDLE"
 
@@ -148,7 +117,6 @@ if [ "${SKIP_NOTARIZE:-}" = "1" ]; then
     exit 0
 fi
 
-# Notarize
 if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
     echo "Error: APPLE_ID, APPLE_APP_PASSWORD, and APPLE_TEAM_ID must be set for notarization." >&2
     exit 1

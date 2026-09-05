@@ -1,3 +1,4 @@
+use super::composer::options::ChatMenuSet;
 use super::state::Chat;
 use crate::event::{ApprovalDecision, CHAT_KEY_EVENT, ChatItem, ChatKey};
 use crate::format::composer::{
@@ -7,6 +8,7 @@ use dioxus::prelude::*;
 use vmux_core::input::{KeyStroke, PageKeyContext, Unclaimed};
 use vmux_ui::caret::{EventSelection, byte_offset_to_utf16};
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, focus_prompt_end};
+use vmux_ui::components::composer_bar::ComposerMenuKind;
 use vmux_ui::hooks::{
     KeyClaim, MenuDirection, choice_number_index, move_selection, send, use_key_claim, use_listener,
 };
@@ -213,6 +215,7 @@ impl ChatKeys {
 enum ChatList {
     Approval,
     Choice,
+    ComposerMenu(ComposerMenuKind),
     Media,
     Session,
     Model,
@@ -226,6 +229,9 @@ impl ChatList {
         }
         if !chat.run.choice_options.read().is_empty() {
             return Some(Self::Choice);
+        }
+        if let Some(kind) = chat.menu.opened() {
+            return Some(Self::ComposerMenu(kind));
         }
         if chat.media_menu_open() {
             return Some(Self::Media);
@@ -250,6 +256,7 @@ impl ChatList {
         match self {
             Self::Approval => APPROVAL_OPTION_COUNT,
             Self::Choice => chat.run.choice_options.read().len(),
+            Self::ComposerMenu(kind) => ChatMenuSet::of(chat).rows(kind),
             Self::Media => chat.media.entries.read().len(),
             Self::Session => chat.filtered_sessions().len(),
             Self::Model => chat.filtered_models().len(),
@@ -265,6 +272,10 @@ impl ChatList {
     }
 
     fn move_by(self, chat: Chat, direction: MenuDirection) {
+        if let Self::ComposerMenu(kind) = self {
+            chat.menu.step(direction, ChatMenuSet::of(chat).rows(kind));
+            return;
+        }
         let mut selection = self.selection(chat);
         let landed = move_selection(*selection.peek(), self.len(chat), direction);
         selection.set(landed);
@@ -284,6 +295,11 @@ impl ChatList {
             Self::Choice => {
                 if index < chat.run.choice_options.peek().len() {
                     chat.answer_choice(index);
+                }
+            }
+            Self::ComposerMenu(kind) => {
+                if ChatMenuSet::of(chat).choose(kind, index) {
+                    chat.menu.close();
                 }
             }
             Self::Media => {

@@ -8,6 +8,7 @@ use crate::components::model_menu::ModelMenu;
 use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker};
 use crate::components::prompt_box::PromptPopupPlacement;
 use crate::i18n::{TranslationValue, translate, translate_with};
+use crate::list_nav::MenuDirection;
 
 const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted-foreground";
 const COMPOSER_CHIP_LABEL_TIGHT: &str = "@max-[34rem]:hidden";
@@ -262,6 +263,7 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
         project,
         branch,
     } = props;
+    let cursor = menu.cursor();
     rsx! {
         if menu.is(ComposerMenuKind::Agent) {
             if let Some(data) = agent {
@@ -269,6 +271,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     options: data.options,
                     selected_url: data.selected_url,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |url: String| {
                         menu.close();
                         data.on_select.call(url);
@@ -283,8 +287,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     models: data.models,
                     current_model_id: data.current_model_id,
-                    selected: data.selected,
-                    on_hover: data.on_hover,
+                    selected: cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |entry: ModelOptionEntry| {
                         menu.close();
                         data.on_select.call(entry);
@@ -299,6 +303,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     levels: data.levels,
                     selected: data.selected,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |level: String| {
                         menu.close();
                         data.on_select.call(level);
@@ -313,6 +319,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     projects: data.projects,
                     loaded: data.loaded,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_pick: move |pick: ProjectPick| {
                         menu.close();
                         data.on_pick.call(pick);
@@ -332,6 +340,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     project: data.project,
                     branches: data.branches,
                     loaded: data.loaded,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_pick: move |pick: ProjectPick| {
                         menu.close();
                         data.on_pick.call(pick);
@@ -511,8 +521,6 @@ pub struct AgentMenuData {
 pub struct ModelMenuData {
     pub models: Vec<ModelOptionEntry>,
     pub current_model_id: String,
-    pub selected: usize,
-    pub on_hover: EventHandler<usize>,
     pub on_select: EventHandler<ModelOptionEntry>,
 }
 
@@ -542,11 +550,13 @@ pub struct BranchMenuData {
 #[derive(Clone, Copy, PartialEq)]
 pub struct ComposerMenu {
     open: Signal<Option<ComposerMenuKind>>,
+    cursor: Signal<usize>,
 }
 
 pub fn use_composer_menu() -> ComposerMenu {
     ComposerMenu {
         open: use_signal(|| None),
+        cursor: use_signal(|| 0),
     }
 }
 
@@ -559,8 +569,34 @@ impl ComposerMenu {
         self.opened() == Some(kind)
     }
 
+    pub fn cursor(&self) -> usize {
+        (self.cursor)()
+    }
+
+    pub fn point_at(&self, index: usize) {
+        let mut cursor = self.cursor;
+        if *cursor.peek() != index {
+            cursor.set(index);
+        }
+    }
+
+    pub fn step(&self, direction: MenuDirection, rows: usize) {
+        if rows == 0 {
+            return;
+        }
+        let mut cursor = self.cursor;
+        let at = (*cursor.peek()).min(rows - 1);
+        let next = match direction {
+            MenuDirection::Next => (at + 1).min(rows - 1),
+            MenuDirection::Previous => at.saturating_sub(1),
+        };
+        cursor.set(next);
+    }
+
     pub fn toggle(&self, kind: ComposerMenuKind) -> bool {
         let mut open = self.open;
+        let mut cursor = self.cursor;
+        cursor.set(0);
         if *open.peek() == Some(kind) {
             open.set(None);
             return false;
@@ -571,6 +607,8 @@ impl ComposerMenu {
 
     pub fn close(&self) {
         let mut open = self.open;
+        let mut cursor = self.cursor;
+        cursor.set(0);
         if open.peek().is_some() {
             open.set(None);
         }

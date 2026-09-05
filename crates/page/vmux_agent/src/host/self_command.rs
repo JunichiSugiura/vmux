@@ -18,8 +18,9 @@ use crate::session::AgentSession;
 use super::command::requested_focus_for_origin;
 use super::follow::file_touch_url;
 use super::run_terminal::{
-    AgentCwd, AgentPane, AgentTerminalRegions, PendingRunTerminalSpawn, PendingRunTerminalSpawns,
-    RunCommand, RunPlacementPolicy, RunTerminal, RunTerminalBucketPanes, RunTerminalCandidate,
+    AgentCwd, AgentPane, AgentTerminalRegions, PagerEnv, PendingRunTerminalSpawn,
+    PendingRunTerminalSpawns, RunCommand, RunPlacementPolicy, RunTerminal, RunTerminalBucketPanes,
+    RunTerminalCandidate,
 };
 use super::workspace::{
     AgentTabWorktreeContext, PendingAgentChoice, PendingAgentChoiceAction, PendingWorkspacePicker,
@@ -304,7 +305,12 @@ pub(super) fn handle_agent_self_commands(
                 match terminal {
                     Some(pid) => match RunTerminal::new(*pid).launch(&term_pids, &launch_q) {
                         Ok(launch) => {
-                            run.queue(&mut writers.terminal_reinput, *pid, &launch);
+                            run.queue(
+                                &mut writers.terminal_reinput,
+                                *pid,
+                                &launch,
+                                PagerEnv::Inherited,
+                            );
                             AgentCommandResult::Text(pid.to_string())
                         }
                         Err(error) => AgentCommandResult::Error(error),
@@ -387,7 +393,12 @@ pub(super) fn handle_agent_self_commands(
                                     candidate.pid
                                 ));
                             };
-                            run.queue(&mut writers.terminal_reinput, candidate.pid, launch);
+                            run.queue(
+                                &mut writers.terminal_reinput,
+                                candidate.pid,
+                                launch,
+                                PagerEnv::Set,
+                            );
                             regions.run_terminals.insert(*anchor, candidate.pid);
                             regions.run_panes.insert(*anchor, candidate.pane);
                             AgentPane::new(candidate.pane).touch_spawn_seq(

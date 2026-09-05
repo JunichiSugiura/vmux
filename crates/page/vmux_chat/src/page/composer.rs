@@ -106,4 +106,4 @@ fn ComposerFooter(chat: Chat) -> Element {
 }
 
 mod menu;
-mod options;
+pub(crate) mod options;

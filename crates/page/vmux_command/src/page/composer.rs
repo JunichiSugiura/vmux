@@ -21,12 +21,7 @@ pub struct ComposerChips {
 }
 
 impl ComposerChips {
-    pub fn of(
-        composer: &ComposerState,
-        menu: ComposerMenu,
-        mut model_menu_sel: Signal<usize>,
-        mut picking: ProjectPicking,
-    ) -> Self {
+    pub fn of(composer: &ComposerState, menu: ComposerMenu, mut picking: ProjectPicking) -> Self {
         if composer.loading {
             return Self {
                 agent: ComposerChip::loading(),
@@ -49,7 +44,6 @@ impl ComposerChips {
             false => Some(
                 ComposerChip::ready(composer.model_name.clone(), translate("agent-change-model"))
                     .opens(EventHandler::new(move |()| {
-                        model_menu_sel.set(0);
                         menu.toggle(ComposerMenuKind::Model);
                     })),
             ),
@@ -129,6 +123,7 @@ impl ProjectPicking {
     }
 }
 
+#[derive(Clone)]
 pub struct ComposerMenuSet {
     pub agent: AgentMenuData,
     pub model: ModelMenuData,
@@ -140,7 +135,6 @@ impl ComposerMenuSet {
     pub fn of(
         composer: &ComposerState,
         mut signals: PaletteSignals,
-        mut model_menu_sel: Signal<usize>,
         picking: ProjectPicking,
     ) -> Self {
         let agent = AgentMenuData {
@@ -155,8 +149,6 @@ impl ComposerMenuSet {
         let model = ModelMenuData {
             models: composer.model_options.clone(),
             current_model_id: composer.model_current_id.clone(),
-            selected: model_menu_sel(),
-            on_hover: EventHandler::new(move |index| model_menu_sel.set(index)),
             on_select: EventHandler::new(move |model: ModelOptionEntry| {
                 let _ = send(&StartSelectModel {
                     agent_key: agent_key.clone(),
@@ -190,5 +182,69 @@ impl ComposerMenuSet {
             project,
             branch,
         }
+    }
+
+    pub fn rows(&self, kind: ComposerMenuKind) -> usize {
+        match kind {
+            ComposerMenuKind::Agent => self.agent.options.len(),
+            ComposerMenuKind::Model => self.model.models.len(),
+            ComposerMenuKind::Effort => 0,
+            ComposerMenuKind::Project => self.roots().len() + 1,
+            ComposerMenuKind::Branch => self.branch.branches.len(),
+        }
+    }
+
+    pub fn choose(&self, kind: ComposerMenuKind, index: usize) -> bool {
+        match kind {
+            ComposerMenuKind::Agent => {
+                let Some(option) = self.agent.options.get(index) else {
+                    return false;
+                };
+                self.agent.on_select.call(option.url.clone());
+            }
+            ComposerMenuKind::Model => {
+                let Some(model) = self.model.models.get(index) else {
+                    return false;
+                };
+                self.model.on_select.call(model.clone());
+            }
+            ComposerMenuKind::Effort => return false,
+            ComposerMenuKind::Project => {
+                let roots = self.roots();
+                if index == roots.len() {
+                    self.project.on_choose_another.call(());
+                    return true;
+                }
+                let Some(project) = roots.get(index) else {
+                    return false;
+                };
+                self.project.on_pick.call(ProjectPick {
+                    project: project.path.clone(),
+                    branch: String::new(),
+                    checkout: String::new(),
+                });
+            }
+            ComposerMenuKind::Branch => {
+                let Some(branch) = self.branch.branches.get(index) else {
+                    return false;
+                };
+                self.branch.on_pick.call(ProjectPick {
+                    project: self.branch.project.clone(),
+                    branch: branch.branch.clone(),
+                    checkout: branch.checkout.clone(),
+                });
+            }
+        }
+        true
+    }
+
+    fn roots(&self) -> Vec<&vmux_wire::space::ProjectRow> {
+        let mut roots = Vec::new();
+        for project in &self.project.projects {
+            if project.depth == 0 {
+                roots.push(project);
+            }
+        }
+        roots
     }
 }

@@ -2,8 +2,7 @@ use dioxus::prelude::*;
 use vmux_wire::room::ModelOptionEntry;
 
 use crate::components::prompt_box::{
-    PROMPT_MENU_ROW, PROMPT_MENU_ROW_IDLE, PROMPT_MENU_ROW_SELECTED, PromptPopup,
-    PromptPopupPlacement,
+    PROMPT_MENU_ROW, PromptMenuRow, PromptPopup, PromptPopupPlacement,
 };
 use crate::i18n::translate;
 
@@ -26,7 +25,7 @@ pub fn ModelMenu(
                     div {
                         key: "model{i}",
                         id: "agent-selector-item-{i}",
-                        class: if i == selected { format!("{PROMPT_MENU_ROW} {PROMPT_MENU_ROW_SELECTED} cursor-pointer flex-col items-stretch gap-0.5") } else { format!("{PROMPT_MENU_ROW} {PROMPT_MENU_ROW_IDLE} cursor-pointer flex-col items-stretch gap-0.5") },
+                        class: "{PromptMenuRow::class(i == selected)} cursor-pointer flex-col items-stretch gap-0.5",
                         onmouseenter: move |_| on_hover.call(i),
                         onclick: {
                             let model = model.clone();

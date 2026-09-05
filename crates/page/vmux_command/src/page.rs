@@ -101,7 +101,6 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         on_activity.call(());
     });
 
-    let model_menu_sel = use_signal(|| 0usize);
     let mut picking = use_project_picking();
     let _project_branches =
         use_listener::<StartProjectBranches, _>(START_PROJECT_BRANCHES_EVENT, move |incoming| {
@@ -252,8 +251,8 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let start_accent = accent.unwrap_or_else(|| agent_accent("vibe"));
     let start_prompt_attachments = media.composer_attachments();
     let start_action_enabled = !q.trim().is_empty() || !attachments.read().is_empty();
-    let chips = ComposerChips::of(&composer, menu, model_menu_sel, picking);
-    let menus = ComposerMenuSet::of(&composer, signals, model_menu_sel, picking);
+    let chips = ComposerChips::of(&composer, menu, picking);
+    let menus = ComposerMenuSet::of(&composer, signals, picking);
     let start_composer_footer = rsx! {
         ComposerBar {
             menu,
@@ -271,15 +270,16 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         ComposerMenus {
             menu,
             placement: PromptPopupPlacement::Downward,
-            agent: Some(menus.agent),
-            model: Some(menus.model),
-            project: Some(menus.project),
-            branch: Some(menus.branch),
+            agent: Some(menus.agent.clone()),
+            model: Some(menus.model.clone()),
+            project: Some(menus.project.clone()),
+            branch: Some(menus.branch.clone()),
         }
     };
 
     let start_keydown = {
         let palette = palette.clone();
+        let menus = menus.clone();
         move |e: KeyboardEvent| {
             if Readline::chord(&e, signals.query, &palette.ghost, PROMPT_INPUT_ID) {
                 return;
@@ -311,12 +311,24 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             let go_down = direction == Some(MenuDirection::Next);
             let go_up = direction == Some(MenuDirection::Previous);
 
-            if menu.opened().is_some()
-                && (e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC))
-            {
-                e.prevent_default();
-                menu.close();
-                return;
+            if let Some(kind) = menu.opened() {
+                if e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC) {
+                    e.prevent_default();
+                    menu.close();
+                    return;
+                }
+                if let Some(direction) = direction {
+                    e.prevent_default();
+                    menu.step(direction, menus.rows(kind));
+                    return;
+                }
+                if e.key() == Key::Enter && !e.modifiers().shift() {
+                    e.prevent_default();
+                    if menus.choose(kind, menu.cursor()) {
+                        menu.close();
+                    }
+                    return;
+                }
             }
 
             if media_menu_open && media.handle_key(&e, go_down, go_up, signals.query) {

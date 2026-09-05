@@ -4966,9 +4966,7 @@ fn sync_open_editors(
     mut commands: Commands,
 ) {
     for (entity, fv, mut st) in &mut q {
-        if !fv.path.is_dir() {
-            crate::explorer_model::note_open(&mut st.open_editors, &fv.path);
-        }
+        crate::explorer_model::note_open(&mut st.open_editors, &fv.path);
         commands.entity(entity).insert(OpenEditorsDirty);
     }
 }
@@ -5009,6 +5007,7 @@ fn emit_open_editors(
                 path: path.to_string_lossy().into_owned(),
                 active,
                 dirty,
+                is_dir: path.is_dir(),
             });
         }
         commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -6294,7 +6293,17 @@ mod explorer_tests {
             },
         });
         let st = app.world().get::<ExplorerState>(e).unwrap();
-        assert_eq!(st.open_editors, vec![b]);
+        assert_eq!(st.open_editors, vec![b.clone()]);
+        let dir = PathBuf::from("/proj/src");
+        app.world_mut().get_mut::<FileView>(e).unwrap().path = dir.clone();
+        app.update();
+        let st = app.world().get::<ExplorerState>(e).unwrap();
+        assert_eq!(
+            st.open_editors,
+            vec![b, dir],
+            "a directory the reader navigated to needs a tab of its own, or the only way out \
+             of the navigator is to open another file"
+        );
     }
 
     #[test]

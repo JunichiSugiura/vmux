@@ -3406,7 +3406,7 @@ fn EditorTab(tab: EditorTabItem) -> Element {
             class,
             title: "{tab.path}",
             onclick: move |_| command.open(),
-            TypeIcon { path: tab.path.clone(), is_dir: false, class: "h-4 w-4 shrink-0 opacity-80" }
+            TypeIcon { path: tab.path.clone(), is_dir: tab.is_dir, class: "h-4 w-4 shrink-0 opacity-80" }
             span { class: "truncate", "{tab.name}" }
             if !tab.context.is_empty() {
                 span { class: "shrink-0 truncate text-[10px] text-muted-foreground/70", "{tab.context}" }

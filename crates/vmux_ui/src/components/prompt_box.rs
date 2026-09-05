@@ -16,6 +16,19 @@ pub const PROMPT_MENU_ROW_IDLE: &str = "transition hover:bg-foreground/[0.06]";
 pub const PROMPT_MENU_ROW_SELECTED: &str = "bg-foreground/[0.08]";
 pub const PROMPT_MENU_INDENT: &str = "pl-8";
 
+pub struct PromptMenuRow;
+
+impl PromptMenuRow {
+    const CURSOR: &'static str = "bg-cyan-400/12 shadow-[inset_2px_0_0_0_rgb(34,211,238)]";
+
+    pub fn class(at_cursor: bool) -> String {
+        match at_cursor {
+            true => format!("{PROMPT_MENU_ROW} {}", Self::CURSOR),
+            false => format!("{PROMPT_MENU_ROW} {PROMPT_MENU_ROW_IDLE}"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum PromptPopupPlacement {
     #[default]

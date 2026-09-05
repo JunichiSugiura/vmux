@@ -715,6 +715,7 @@ pub struct EditorTabItem {
     pub path: String,
     pub active: bool,
     pub dirty: bool,
+    pub is_dir: bool,
 }
 
 impl EditorTabItem {
@@ -736,6 +737,7 @@ impl EditorTabItem {
                 path: item.path.clone(),
                 active: item.active,
                 dirty: item.dirty,
+                is_dir: item.is_dir,
             });
         }
         tabs
@@ -766,6 +768,7 @@ mod editor_tab_tests {
             path: path.to_string(),
             active: false,
             dirty: false,
+            is_dir: false,
         }
     }
 

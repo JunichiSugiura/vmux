@@ -852,6 +852,11 @@ impl Chat {
     }
 
     pub fn dismiss_selector(&self) {
+        if self.menu.opened().is_some() {
+            self.menu.close();
+            focus_prompt_end(PROMPT_INPUT_ID);
+            return;
+        }
         let mut draft = self.composer.draft;
         let mut menu_sel = self.slash.menu_sel;
         let value = draft.peek().clone();

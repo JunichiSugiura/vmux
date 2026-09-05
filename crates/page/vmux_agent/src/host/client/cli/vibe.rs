@@ -111,6 +111,10 @@ impl CliAgentStrategy for VibeStrategy {
         list_vibe_sessions(&self.sessions_root())
     }
 
+    fn latest_message(&self, transcript: &Path) -> String {
+        vibe_latest_message(transcript)
+    }
+
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {
         load_vibe_transcript(&self.sessions_root(), session_id)
     }
@@ -366,6 +370,7 @@ fn list_vibe_sessions(root: &Path) -> Vec<ResumableSession> {
             kind: AgentKind::Vibe,
             sid: short_id.to_string(),
             cwd,
+            transcript: path.join("messages.jsonl"),
             mtime,
             title,
             cross_runtime: true,
@@ -424,6 +429,32 @@ fn load_vibe_transcript(root: &Path, session_id: &str) -> Result<Vec<Message>, S
         ));
     }
     Ok(messages)
+}
+
+fn vibe_latest_message(path: &Path) -> String {
+    for line in crate::client::cli::strategy::SessionTail::lines_of(path)
+        .iter()
+        .rev()
+    {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("injected").and_then(serde_json::Value::as_bool) == Some(true) {
+            continue;
+        }
+        if value.get("role").and_then(serde_json::Value::as_str) != Some("user") {
+            continue;
+        }
+        let Some(text) = value.get("content").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        return text.lines().collect::<Vec<_>>().join(" ");
+    }
+    String::new()
 }
 
 #[cfg(test)]

@@ -588,6 +588,19 @@ pub struct RepoInfo {
 }
 
 impl RepoInfo {
+    pub fn project_root(&self) -> &Path {
+        self.common_dir.parent().unwrap_or(&self.repo_root)
+    }
+
+    pub fn project_name(&self) -> String {
+        let named = self
+            .project_root()
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty());
+        named.unwrap_or_else(|| self.name.clone())
+    }
+
     fn name_from_remote(url: &str) -> Option<String> {
         let name = url
             .trim()
@@ -598,6 +611,95 @@ impl RepoInfo {
         (!name.is_empty()).then(|| name.to_string())
     }
 }
+pub struct RepoLabel {
+    pub project: String,
+    pub branch: String,
+}
+
+impl RepoLabel {
+    pub fn of(dir: &Path) -> Option<Self> {
+        let git_dir = Self::git_dir_of(dir)?;
+        let common = Self::common_dir_of(&git_dir);
+        let project = common
+            .parent()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Some(Self {
+            project,
+            branch: Self::branch_in(&git_dir).unwrap_or_default(),
+        })
+    }
+
+    fn git_dir_of(dir: &Path) -> Option<PathBuf> {
+        for base in dir.ancestors() {
+            let dot = base.join(".git");
+            let Ok(meta) = std::fs::symlink_metadata(&dot) else {
+                continue;
+            };
+            if meta.is_dir() {
+                return Some(dot);
+            }
+            if !meta.is_file() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&dot).ok()?;
+            let named = text.lines().find_map(|line| line.strip_prefix("gitdir:"))?;
+            let named = PathBuf::from(named.trim());
+            if named.is_absolute() {
+                return Some(named);
+            }
+            return Some(base.join(named));
+        }
+        None
+    }
+
+    fn common_dir_of(git_dir: &Path) -> PathBuf {
+        let Ok(text) = std::fs::read_to_string(git_dir.join("commondir")) else {
+            return git_dir.to_path_buf();
+        };
+        let named = PathBuf::from(text.trim());
+        if named.is_absolute() {
+            return named;
+        }
+        let joined = git_dir.join(named);
+        joined.canonicalize().unwrap_or(joined)
+    }
+
+    fn branch_in(git_dir: &Path) -> Option<String> {
+        let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
+        let named = head.trim().strip_prefix("ref: refs/heads/")?;
+        (!named.is_empty()).then(|| named.to_string())
+    }
+}
+
+pub struct LinkedRepoRoot;
+
+impl LinkedRepoRoot {
+    pub fn of(dir: &Path) -> Option<PathBuf> {
+        let (dirs, _, ok) = git_read(
+            dir,
+            &[
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-dir",
+                "--git-common-dir",
+            ],
+        )
+        .ok()?;
+        if !ok {
+            return None;
+        }
+        let mut dirs = dirs.lines().map(PathBuf::from);
+        let git_dir = dirs.next()?;
+        let common_dir = dirs.next()?;
+        if git_dir == common_dir {
+            return None;
+        }
+        Some(common_dir.parent()?.to_path_buf())
+    }
+}
+
 pub fn repo_info(dir: &Path) -> Option<RepoInfo> {
     let (status, _, ok) = git_read(dir, &["status", "--porcelain=v2", "--branch"]).ok()?;
     if !ok {

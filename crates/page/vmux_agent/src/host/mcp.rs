@@ -273,6 +273,7 @@ mod tests {
             false,
             false,
             DEFAULT_RUN_TIMEOUT_SECS,
+            "/bin/zsh",
         )
         .unwrap();
         let _ = std::fs::remove_dir_all(&temp);
@@ -294,7 +295,9 @@ mod tests {
                 "--profile",
                 "personal",
                 "--run-timeout-secs",
-                "50"
+                "50",
+                "--shell",
+                "/bin/zsh"
             ]
         );
         assert_eq!(config.cwd, Some(workspace));
@@ -316,6 +319,7 @@ mod tests {
             false,
             false,
             DEFAULT_RUN_TIMEOUT_SECS,
+            "/bin/zsh",
         )
         .unwrap();
         let _ = std::fs::remove_dir_all(&temp);

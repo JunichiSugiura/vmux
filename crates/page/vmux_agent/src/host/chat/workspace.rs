@@ -165,12 +165,15 @@ fn composer_context_from_input(
                 .map(|worktree| worktree.branch.clone())
         })
         .unwrap_or_default();
-    let workspace_name = input
-        .cwd
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| input.cwd.to_string_lossy().into_owned());
+    let workspace_name = match info {
+        Some(info) => info.project_name(),
+        None => input
+            .cwd
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| input.cwd.to_string_lossy().into_owned()),
+    };
     ComposerContext {
         cwd: input.cwd.to_string_lossy().into_owned(),
         workspace_name,
@@ -198,14 +201,20 @@ struct BranchRead {
     task: bevy::tasks::Task<Vec<ChatBranch>>,
 }
 
-fn on_chat_branches_request(trigger: On<BinReceive<ChatBranchesRequest>>, mut commands: Commands) {
+fn on_chat_branches_request(
+    trigger: On<BinReceive<ChatBranchesRequest>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut commands: Commands,
+) {
     let webview = trigger.event().webview;
     let project = trigger.event().payload.project.trim().to_string();
     if project.is_empty() {
         return;
     }
     let root = std::path::PathBuf::from(&project);
+    let wake = vmux_core::host::wake::Wake::of(proxy);
     let task = bevy::tasks::IoTaskPool::get().spawn(async move {
+        let _wake = wake;
         let Ok(holders) = vmux_git::worktree::branch_holders(&root) else {
             return Vec::new();
         };

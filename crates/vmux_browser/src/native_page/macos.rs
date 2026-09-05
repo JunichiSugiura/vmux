@@ -168,11 +168,18 @@ fn place_native_pages(
     pages: Query<(), With<HostsPage>>,
     capturing: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     settings: Res<AppSettings>,
+    proxy: Option<Res<EventLoopProxyWrapper>>,
 ) {
     let Some(mut hosted) = hosted else {
         return;
     };
+    let held = hosted.0.len();
     hosted.0.retain(|entity, _| pages.contains(*entity));
+    if hosted.0.len() != held
+        && let Some(proxy) = proxy
+    {
+        let _ = proxy.send_event(WinitUserEvent::WakeUp);
+    }
     let window = window.single().ok();
     let capturing = !capturing.is_empty();
     let all_corners = frames.all_corners();

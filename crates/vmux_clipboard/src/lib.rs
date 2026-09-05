@@ -33,7 +33,3 @@ pub fn read_image_tiff() -> Option<Vec<u8>> {
 pub fn image_file_path() -> Option<String> {
     Clipboard::image_file_path()
 }
-
-pub fn pasteboard_types() -> Vec<String> {
-    Clipboard::pasteboard_types()
-}

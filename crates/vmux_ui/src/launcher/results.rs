@@ -10,33 +10,51 @@ use vmux_wire::command_bar::{
 pub struct SlashRows;
 
 impl SlashRows {
+    const PENDING_ROWS: usize = 7;
+
     pub fn of(
         query: &str,
         commands: &[vmux_wire::chat::SlashCommandEntry],
         sessions: &[ResumableSessionEntry],
+        pending: bool,
     ) -> Vec<CommandBarResultItem> {
         let held = vmux_wire::command_bar::CommandBarQuery(query);
         let Some((name, rest)) = held.slash_token() else {
             return Vec::new();
         };
         let lowered = name.to_lowercase();
-        let named = commands.iter().find(|command| command.name == lowered);
-        let typed_a_name = query.trim_end().len() != query.len() || !rest.is_empty();
-        if let Some(command) = named
-            && typed_a_name
+        let mut matching = Vec::new();
+        for command in commands {
+            if command.name.starts_with(&lowered) {
+                matching.push(command);
+            }
+        }
+        let settled = match matching.as_slice() {
+            [only] => Some(*only),
+            _ => commands.iter().find(|command| command.name == lowered),
+        };
+        if let Some(command) = settled
             && command.name == "resume"
         {
+            if sessions.is_empty() && pending {
+                return Self::pending();
+            }
             return Self::sessions(rest, sessions);
         }
         let mut rows = Vec::new();
-        for command in commands {
-            if !command.name.starts_with(&lowered) {
-                continue;
-            }
+        for command in matching {
             rows.push(CommandBarResultItem::Slash {
                 name: command.name.clone(),
                 hint: command.description.clone(),
             });
+        }
+        rows
+    }
+
+    fn pending() -> Vec<CommandBarResultItem> {
+        let mut rows = Vec::new();
+        for row in 0..Self::PENDING_ROWS {
+            rows.push(CommandBarResultItem::ResumePending { row });
         }
         rows
     }
@@ -161,6 +179,9 @@ pub enum CommandBarResultItem {
     },
     Resume {
         entry: ResumableSessionEntry,
+    },
+    ResumePending {
+        row: usize,
     },
     PartialIndex,
     MoreMatches {
@@ -321,7 +342,24 @@ pub fn prepend_prompt_targets(
         .iter()
         .take_while(|item| matches!(item, CommandBarResultItem::Terminal { .. }))
         .count();
-    results.splice(at..at, suggestions);
+    let mut leading = Vec::new();
+    let mut rest = Vec::new();
+    for target in suggestions {
+        match leading.is_empty() {
+            true => leading.push(target),
+            false => rest.push(target),
+        }
+    }
+    let mut after = at + leading.len();
+    results.splice(at..at, leading);
+    for (index, item) in results.iter().enumerate() {
+        if matches!(item, CommandBarResultItem::File { .. }) {
+            after = index + 1;
+        }
+    }
+    let tail = results.split_off(after);
+    results.extend(rest);
+    results.extend(tail);
 }
 
 pub fn open_session_results(

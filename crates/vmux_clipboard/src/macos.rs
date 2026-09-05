@@ -52,42 +52,34 @@ impl super::Clipboard {
 
     pub(super) fn image_file_path() -> Option<String> {
         use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
+        use objc2_foundation::NSURL;
         let url_type = unsafe { NSPasteboardTypeFileURL };
         let pasteboard = NSPasteboard::generalPasteboard();
-        let mut urls = Vec::new();
+        let mut candidates = Vec::new();
         if let Some(text) = pasteboard.stringForType(url_type) {
-            urls.push(text.to_string());
+            candidates.push(text);
         }
         if let Some(items) = pasteboard.pasteboardItems() {
             for index in 0..items.count() {
                 if let Some(text) = items.objectAtIndex(index).stringForType(url_type) {
-                    urls.push(text.to_string());
+                    candidates.push(text);
                 }
             }
         }
-        for url in urls {
-            let Ok(parsed) = url::Url::parse(&url) else {
+        for candidate in candidates {
+            let Some(url) = NSURL::URLWithString(&candidate) else {
                 continue;
             };
-            let Ok(path) = parsed.to_file_path() else {
+            let resolved = url.filePathURL().unwrap_or(url);
+            let Some(path) = resolved.path() else {
                 continue;
             };
+            let path = std::path::PathBuf::from(path.to_string());
             if path_looks_like_image(&path) {
                 return Some(path.to_string_lossy().into_owned());
             }
         }
         None
-    }
-
-    pub(super) fn pasteboard_types() -> Vec<String> {
-        use objc2_app_kit::NSPasteboard;
-        let mut named = Vec::new();
-        if let Some(types) = NSPasteboard::generalPasteboard().types() {
-            for index in 0..types.count() {
-                named.push(types.objectAtIndex(index).to_string());
-            }
-        }
-        named
     }
 }
 

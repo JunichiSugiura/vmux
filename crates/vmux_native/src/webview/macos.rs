@@ -1,7 +1,10 @@
+use objc2::MainThreadMarker;
+use objc2::rc::Retained;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSView, NSWindowOrderingMode,
 };
+use objc2_web_kit::WKWebViewConfiguration;
 use tracing::{error, warn};
 use wry::WebViewExtMacOS;
 
@@ -111,5 +114,39 @@ impl WebView {
         if !window.makeFirstResponder(Some(view)) {
             warn!("vmux_native: the window refused first responder, this page cannot be typed in");
         }
+    }
+}
+
+pub struct SharedWebProcess;
+
+impl SharedWebProcess {
+    pub fn configuration() -> Option<Retained<WKWebViewConfiguration>> {
+        let marker = MainThreadMarker::new()?;
+        let config = unsafe { WKWebViewConfiguration::new(marker) };
+        pool::SharedPool::attach_to(&config, marker);
+        Some(config)
+    }
+}
+
+#[allow(deprecated)]
+mod pool {
+    use objc2::MainThreadMarker;
+    use objc2::rc::Retained;
+    use objc2_web_kit::{WKProcessPool, WKWebViewConfiguration};
+    use std::cell::OnceCell;
+
+    pub struct SharedPool;
+
+    impl SharedPool {
+        pub fn attach_to(config: &WKWebViewConfiguration, marker: MainThreadMarker) {
+            POOL.with(|pool| {
+                let shared = pool.get_or_init(|| unsafe { WKProcessPool::new(marker) });
+                unsafe { config.setProcessPool(shared) };
+            });
+        }
+    }
+
+    thread_local! {
+        static POOL: OnceCell<Retained<WKProcessPool>> = const { OnceCell::new() };
     }
 }

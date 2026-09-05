@@ -127,17 +127,21 @@ impl Chat {
         let _models = use_listener::<ModelState, _>(MODEL_STATE_EVENT, move |state| {
             let mut models = chat.models.models;
             let mut current_model_id = chat.models.current_model_id;
+            let mut default_model_id = chat.models.default_model_id;
             let mut current_model = chat.models.current_model;
             let mut loaded = chat.models.loaded;
             let mut levels = chat.effort.levels;
             let mut current = chat.effort.current;
+            let mut default_level = chat.effort.default_level;
             let mut agent_key = chat.effort.agent_key;
             let mut menu_sel = chat.slash.menu_sel;
             models.set(state.models.clone());
             current_model_id.set(state.current_model_id.clone());
+            default_model_id.set(state.default_model_id.clone());
             current_model.set(state.current_model_name.clone());
             levels.set(state.effort_levels.clone());
             current.set(state.effort_current.clone());
+            default_level.set(state.effort_default.clone());
             agent_key.set(state.agent_key.clone());
             menu_sel.set(0);
             loaded.set(true);
@@ -150,13 +154,8 @@ impl Chat {
         });
         let _branches =
             use_listener::<ChatProjectBranches, _>(CHAT_PROJECT_BRANCHES_EVENT, move |incoming| {
-                if !chat.projects.awaits(&incoming.project) {
-                    return;
-                }
-                let mut branches = chat.projects.branches;
-                let mut branches_for = chat.projects.branches_for;
-                branches.set(incoming.branches.clone());
-                branches_for.set(incoming.project.clone());
+                chat.projects
+                    .remember(incoming.project.clone(), incoming.branches.clone());
             });
         let _sessions =
             use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
@@ -318,7 +317,7 @@ impl Chat {
             should_fetch_resume(&(self.composer.draft)(), &self.slash.commands.read());
         if should_fetch && !requested() {
             loading.set(true);
-            if send(&ResumeListRequest).is_err() {
+            if send(&ResumeListRequest { offset: 0 }).is_err() {
                 loading.set(false);
             }
             requested.set(true);
@@ -561,6 +560,13 @@ impl Chat {
         if name.is_empty() {
             return None;
         }
+        let label = match (self.models.current_model_id)() == (self.models.default_model_id)() {
+            true => translate_with(
+                "agent-option-default",
+                &[("value", TranslationValue::String(&name))],
+            ),
+            false => name,
+        };
         let chat = *self;
         let open = EventHandler::new(move |()| {
             let mut draft = chat.composer.draft;
@@ -570,7 +576,7 @@ impl Chat {
             menu_sel.set(0);
             focus_prompt_end(PROMPT_INPUT_ID);
         });
-        Some(ComposerChip::ready(name, translate("agent-change-model")).opens(open))
+        Some(ComposerChip::ready(label, translate("agent-change-model")).opens(open))
     }
 
     pub fn effort_chip(&self) -> Option<ComposerChip> {
@@ -581,10 +587,15 @@ impl Chat {
             return None;
         }
         let selected = (self.effort.current)();
-        let label = if selected.is_empty() {
-            translate("agent-effort")
-        } else {
-            selected
+        let label = match selected.is_empty() {
+            false => selected,
+            true => translate_with(
+                "agent-option-default",
+                &[(
+                    "value",
+                    TranslationValue::String(&(self.effort.default_level)()),
+                )],
+            ),
         };
         let chat = *self;
         let open = EventHandler::new(move |()| {
@@ -628,17 +639,30 @@ impl Chat {
         if !context.is_git_repo {
             return None;
         }
+        let chat = *self;
+        let owner = context.cwd.clone();
+        let open = EventHandler::new(move |()| {
+            chat.open_menu(ComposerMenuKind::Branch);
+            if chat.menu.is(ComposerMenuKind::Branch) && !owner.is_empty() {
+                let _ = send(&ChatBranchesRequest {
+                    project: owner.clone(),
+                });
+            }
+        });
         if context.branch.is_empty() {
-            return Some(ComposerChip::ready(
-                translate("composer-git"),
-                translate("composer-git-repository"),
-            ));
+            return Some(
+                ComposerChip::ready(
+                    translate("composer-git"),
+                    translate("composer-git-repository"),
+                )
+                .opens(open),
+            );
         }
         let title = translate_with(
             "composer-branch-name",
             &[("branch", TranslationValue::String(&context.branch))],
         );
-        Some(ComposerChip::ready(context.branch, title))
+        Some(ComposerChip::ready(context.branch, title).opens(open))
     }
 }
 
@@ -673,6 +697,7 @@ impl Chat {
         }
         at_bottom.set(true);
         draft.set(String::new());
+        vmux_ui::caret::TextCaret::in_field(PROMPT_INPUT_ID).clear();
         attachments.set(Vec::new());
         history_cursor.set(None);
         history_scratch.set(String::new());
@@ -978,6 +1003,7 @@ pub fn use_media_picker() -> MediaPicker {
 pub struct ModelPicker {
     pub models: Signal<Vec<ModelOptionEntry>>,
     pub current_model_id: Signal<String>,
+    pub default_model_id: Signal<String>,
     pub current_model: Signal<String>,
     pub loaded: Signal<bool>,
 }
@@ -986,6 +1012,7 @@ pub fn use_model_picker() -> ModelPicker {
     ModelPicker {
         models: use_signal(Vec::new),
         current_model_id: use_signal(String::new),
+        default_model_id: use_signal(String::new),
         current_model: use_signal(String::new),
         loaded: use_signal(|| false),
     }
@@ -994,7 +1021,6 @@ pub fn use_model_picker() -> ModelPicker {
 #[derive(Clone, Copy, PartialEq)]
 pub struct ProjectPicker {
     pub loaded: Signal<bool>,
-    pub expanded: Signal<String>,
     pub branches: Signal<Vec<ChatBranch>>,
     pub branches_for: Signal<String>,
 }
@@ -1002,31 +1028,17 @@ pub struct ProjectPicker {
 pub fn use_project_picker() -> ProjectPicker {
     ProjectPicker {
         loaded: use_signal(|| false),
-        expanded: use_signal(String::new),
         branches: use_signal(Vec::new),
         branches_for: use_signal(String::new),
     }
 }
 
 impl ProjectPicker {
-    pub fn awaits(&self, project: &str) -> bool {
-        self.expanded.peek().as_str() == project
-    }
-
-    pub fn expand(&self, project: &str) {
-        let mut expanded = self.expanded;
-        if expanded.peek().as_str() == project {
-            expanded.set(String::new());
-            return;
-        }
-        expanded.set(project.to_string());
-        if self.branches_for.peek().as_str() != project {
-            let mut branches = self.branches;
-            branches.set(Vec::new());
-        }
-        let _ = send(&ChatBranchesRequest {
-            project: project.to_string(),
-        });
+    pub fn remember(&self, project: String, branches: Vec<ChatBranch>) {
+        let mut held = self.branches;
+        let mut held_for = self.branches_for;
+        held.set(branches);
+        held_for.set(project);
     }
 }
 
@@ -1034,6 +1046,7 @@ impl ProjectPicker {
 pub struct EffortPicker {
     pub levels: Signal<Vec<String>>,
     pub current: Signal<String>,
+    pub default_level: Signal<String>,
     pub agent_key: Signal<String>,
 }
 
@@ -1041,6 +1054,7 @@ pub fn use_effort_picker() -> EffortPicker {
     EffortPicker {
         levels: use_signal(Vec::new),
         current: use_signal(String::new),
+        default_level: use_signal(String::new),
         agent_key: use_signal(String::new),
     }
 }

@@ -42,6 +42,10 @@ impl Keymap for VscodeKeymap {
             }
         };
 
+        if let Some(command) = k.lsp_action() {
+            return vec![command];
+        }
+
         if m.ctrl && !m.meta && !m.alt && k.key == " " {
             return vec![TriggerCompletion];
         }
@@ -146,9 +150,6 @@ impl Keymap for VscodeKeymap {
             "Delete" => vec![DeleteForward],
             "Enter" => vec![InsertNewline],
             "Tab" => vec![InsertTab],
-            "F12" if m.shift => vec![FindReferences],
-            "F12" => vec![GotoDefinition],
-            "F2" => vec![BeginRename],
             _ => vec![],
         }
     }

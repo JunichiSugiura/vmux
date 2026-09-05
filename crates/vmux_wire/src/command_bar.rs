@@ -295,6 +295,15 @@ pub struct CommandBarPromptContext {
     pub slash_commands: Vec<crate::chat::SlashCommandEntry>,
 }
 
+impl CommandBarPromptContext {
+    pub fn unrooted() -> Self {
+        Self {
+            slash_commands: crate::chat::SlashCommands::for_start().commands,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(
     Clone,
     Debug,

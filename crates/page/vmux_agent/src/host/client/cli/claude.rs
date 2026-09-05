@@ -106,6 +106,10 @@ impl CliAgentStrategy for ClaudeStrategy {
         list_claude_sessions(&self.sessions_root())
     }
 
+    fn latest_message(&self, transcript: &Path) -> String {
+        claude_latest_message(transcript)
+    }
+
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {
         load_claude_transcript(&self.sessions_root(), session_id)
     }
@@ -239,13 +243,16 @@ fn list_claude_sessions(root: &Path) -> Vec<ResumableSession> {
             let mtime = std::fs::metadata(&path)
                 .and_then(|m| m.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            let (cwd, title) = claude_cwd_and_title(&path, stem);
+            let Some(head) = ClaudeHead::of(&path, stem) else {
+                continue;
+            };
             out.push(ResumableSession {
                 kind: AgentKind::Claude,
                 sid: stem.to_string(),
-                cwd,
+                cwd: head.cwd,
+                transcript: path,
                 mtime,
-                title,
+                title: head.title,
                 cross_runtime: true,
             });
         }
@@ -253,34 +260,73 @@ fn list_claude_sessions(root: &Path) -> Vec<ResumableSession> {
     out
 }
 
-fn claude_cwd_and_title(path: &Path, stem: &str) -> (PathBuf, String) {
-    use std::io::{BufRead, BufReader};
-    let mut cwd: Option<PathBuf> = None;
-    let mut title: Option<String> = None;
-    if let Ok(file) = std::fs::File::open(path) {
-        for line in BufReader::new(file).lines().take(40).filter_map(Result::ok) {
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if cwd.is_none()
-                && let Some(c) = v.get("cwd").and_then(|c| c.as_str())
-            {
-                cwd = Some(PathBuf::from(c));
-            }
-            if title.is_none()
-                && v.get("type").and_then(|t| t.as_str()) == Some("user")
-                && let Some(text) = user_message_text(&v)
-            {
-                title = Some(text);
-            }
-            if cwd.is_some() && title.is_some() {
-                break;
+struct ClaudeHead {
+    cwd: PathBuf,
+    title: String,
+}
+
+impl ClaudeHead {
+    fn of(path: &Path, stem: &str) -> Option<Self> {
+        use std::io::{BufRead, BufReader};
+        let mut cwd: Option<PathBuf> = None;
+        let mut title: Option<String> = None;
+        if let Ok(file) = std::fs::File::open(path) {
+            for line in BufReader::new(file).lines().take(40).filter_map(Result::ok) {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if cwd.is_none()
+                    && let Some(c) = v.get("cwd").and_then(|c| c.as_str())
+                {
+                    cwd = Some(PathBuf::from(c));
+                }
+                if v.get("type").and_then(|t| t.as_str()) != Some("user") {
+                    continue;
+                }
+                if title.is_none() {
+                    if Self::is_driven_by_sdk(&v) {
+                        return None;
+                    }
+                    title = user_message_text(&v);
+                }
+                if cwd.is_some() && title.is_some() {
+                    break;
+                }
             }
         }
+        let cwd = cwd.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default());
+        let title = title.unwrap_or_else(|| stem.split('-').next().unwrap_or(stem).to_string());
+        Some(Self { cwd, title })
     }
-    let cwd = cwd.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default());
-    let title = title.unwrap_or_else(|| stem.split('-').next().unwrap_or(stem).to_string());
-    (cwd, title)
+
+    fn is_driven_by_sdk(v: &Value) -> bool {
+        let source = v.get("promptSource").and_then(Value::as_str).unwrap_or("");
+        let entry = v.get("entrypoint").and_then(Value::as_str).unwrap_or("");
+        source == "sdk" || entry.starts_with("sdk")
+    }
+}
+
+fn claude_latest_message(path: &Path) -> String {
+    for line in crate::client::cli::strategy::SessionTail::lines_of(path)
+        .iter()
+        .rev()
+    {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some("user") {
+            continue;
+        }
+        let Some(text) = user_message_text(&v) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() || text.starts_with("<system-reminder>") {
+            continue;
+        }
+        return text.to_string();
+    }
+    String::new()
 }
 
 fn user_message_text(v: &Value) -> Option<String> {

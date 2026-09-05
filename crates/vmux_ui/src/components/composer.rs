@@ -156,7 +156,7 @@ pub fn PromptComposer(
                                 img {
                                     src: "{attachment.preview_data_url}",
                                     alt: "{attachment.name}",
-                                    class: "h-14 w-14 rounded-lg object-cover ring-1 ring-inset ring-foreground/10",
+                                    class: "h-24 w-auto max-w-72 rounded-xl object-cover ring-1 ring-inset ring-foreground/10",
                                 }
                             }
                             if let Some(remove_index) = attachment.remove_index {

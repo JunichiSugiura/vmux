@@ -224,10 +224,23 @@ pub struct RepoInfoCache {
     wake: Option<bevy::winit::EventLoopProxy<WinitUserEvent>>,
 }
 
+const WATCH_DRAIN_BUDGET: usize = 256;
+const CANONICAL_CAP: usize = 4096;
+
 impl RepoInfoCache {
+    fn wake_soon(&self) {
+        let Some(wake) = &self.wake else {
+            return;
+        };
+        let _ = wake.send_event(WinitUserEvent::WakeUp);
+    }
+
     fn canonical_path(&mut self, path: &Path) -> PathBuf {
         if let Some(known) = self.canonical.get(path) {
             return known.clone();
+        }
+        if self.canonical.len() >= CANONICAL_CAP {
+            self.canonical.clear();
         }
         if let Some(guessed) = self.guessed.get(path)
             && guessed.worth_reusing()
@@ -649,7 +662,12 @@ fn drain_git_watch(
         return;
     };
     let mut changed = HashSet::new();
-    while let Ok(result) = watch.rx.try_recv() {
+    let mut drained = 0;
+    while drained < WATCH_DRAIN_BUDGET {
+        let Ok(result) = watch.rx.try_recv() else {
+            break;
+        };
+        drained += 1;
         let Ok(event) = result else {
             continue;
         };
@@ -657,8 +675,11 @@ fn drain_git_watch(
             continue;
         }
         for path in event.paths {
-            changed.insert(canon(&path));
+            changed.insert(repo_info.canonical_path(&path));
         }
+    }
+    if drained == WATCH_DRAIN_BUDGET {
+        repo_info.wake_soon();
     }
     if changed.is_empty() {
         return;

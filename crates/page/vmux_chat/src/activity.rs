@@ -145,6 +145,12 @@ impl ToolPresentation {
                 .unwrap_or(name)
                 .replace('_', " "),
         };
+        if label.trim().is_empty() {
+            return Self {
+                icon,
+                label: translate("agent-tool-calling"),
+            };
+        }
         Self { icon, label }
     }
 }

@@ -13,9 +13,41 @@ pub struct ResumableSession {
     pub kind: AgentKind,
     pub sid: String,
     pub cwd: PathBuf,
+    pub transcript: PathBuf,
     pub mtime: SystemTime,
     pub title: String,
     pub cross_runtime: bool,
+}
+
+pub(crate) struct SessionTail;
+
+impl SessionTail {
+    const BUDGET: u64 = 256 * 1024;
+
+    pub(crate) fn lines_of(path: &Path) -> Vec<String> {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let Ok(mut file) = std::fs::File::open(path) else {
+            return Vec::new();
+        };
+        let Ok(end) = file.seek(SeekFrom::End(0)) else {
+            return Vec::new();
+        };
+        let from = end.saturating_sub(Self::BUDGET);
+        if file.seek(SeekFrom::Start(from)).is_err() {
+            return Vec::new();
+        }
+        let mut read = Vec::new();
+        if file.read_to_end(&mut read).is_err() {
+            return Vec::new();
+        }
+        let text = String::from_utf8_lossy(&read);
+        let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+        if from > 0 && !lines.is_empty() {
+            lines.remove(0);
+        }
+        lines
+    }
 }
 
 pub(crate) fn lines_skipping_invalid_utf8<R: std::io::BufRead>(
@@ -49,6 +81,10 @@ pub trait CliAgentStrategy: AgentStrategy {
     fn detect_end_time(&self, session_id: &str) -> bool;
     fn list_sessions(&self) -> Vec<ResumableSession> {
         Vec::new()
+    }
+
+    fn latest_message(&self, _transcript: &Path) -> String {
+        String::new()
     }
 
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {

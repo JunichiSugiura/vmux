@@ -28,12 +28,18 @@ vmux_ui = { path = "../vmux_ui", default-features = false }
 wry = { version = "0.53", features = ["transparent"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
     "std",
     "NSAppearance",
     "NSResponder",
     "NSView",
     "NSWindow",
+] }
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "WKProcessPool",
+    "WKWebViewConfiguration",
 ] }
 
 [target.'cfg(target_os = "ios")'.dependencies]

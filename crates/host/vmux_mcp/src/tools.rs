@@ -423,7 +423,13 @@ terminal bucket and spirals new panes predictably. \
 sequential steps that share one shell, in order). \
 \
 `focus` (default false = keep focus on your own pane) applies when opening a new terminal. The command \
-is typed into an interactive shell, so the terminal stays usable afterwards."
+is typed into an interactive shell, so the terminal stays usable afterwards. \
+\
+`shell`: hand the command to a named interpreter instead of writing it in the user's shell — \
+`bash`, `sh`, `python3`, `node`, `ruby`, anything on PATH. Name the program ALONE: vmux adds the \
+flag that makes it read a script (`-c`, `-e`, `eval`) and quotes the script for the user's shell, \
+so `command` is the script itself, newlines and all, and never carries `-c` or `-e` of its own. \
+Omit `shell` to write in the user's own shell."
                 .into(),
         input_schema: serde_json::json!({
             "type": "object",
@@ -431,6 +437,7 @@ is typed into an interactive shell, so the terminal stays usable afterwards."
             "additionalProperties": false,
             "properties": {
                 "command": {"type": "string"},
+                "shell": {"type": "string"},
                 "terminal": {"type": "string"},
                 "beside": {"type": "string"},
                 "mode": {"enum": ["auto", "split", "stack"]},
@@ -844,10 +851,24 @@ impl ShellNote {
         if base.is_empty() {
             return String::new();
         }
-        match base.as_str() {
-            "nu" | "nushell" | "fish" => format!(" The shell is {base}, which is not POSIX."),
-            _ => format!(" The shell is {base}."),
+        let differences = match base.as_str() {
+            "nu" | "nushell" => concat!(
+                " Write nushell, not POSIX: redirect both streams with `out+err>` (`2>&1` is a parse error),",
+                " substitute with `(cmd)` not `$(cmd)`, set variables with `$env.NAME = \"value\"` not `export`,",
+                " and use `| ignore` rather than `> /dev/null` to discard output."
+            ),
+            "fish" => concat!(
+                " Write fish, not POSIX: redirect both streams with `&>`, set variables with `set -x NAME value`",
+                " not `export`, and note that `&&` and `||` are `; and` and `; or`."
+            ),
+            _ => "",
+        };
+        if differences.is_empty() {
+            return format!(" The shell is {base}.");
         }
+        format!(
+            " The shell is {base}.{differences} To run a POSIX script instead, invoke `bash -c \"...\"` as the command."
+        )
     }
 }
 
@@ -915,6 +936,15 @@ pub fn dispatch_with_anchor(
     name: &str,
     arguments: Value,
     anchor: Option<vmux_client::protocol::ProcessId>,
+) -> Result<DispatchTarget, String> {
+    dispatch_in_shell(name, arguments, anchor, "")
+}
+
+pub fn dispatch_in_shell(
+    name: &str,
+    arguments: Value,
+    anchor: Option<vmux_client::protocol::ProcessId>,
+    host_shell: &str,
 ) -> Result<DispatchTarget, String> {
     use vmux_client::protocol::AgentPaneDirection;
     let name = name.strip_prefix("vmux_").unwrap_or(name);
@@ -997,6 +1027,12 @@ pub fn dispatch_with_anchor(
         if command.trim().is_empty() {
             return Err("run.command is empty".to_string());
         }
+        let command = match arguments.get("shell").and_then(Value::as_str) {
+            Some(interpreter) if !interpreter.trim().is_empty() => {
+                crate::host_quote::HostQuote::handing_to(host_shell, interpreter, &command)?
+            }
+            _ => command,
+        };
         let placement_override = ["mode", "direction", "beside"]
             .iter()
             .any(|key| arguments.get(*key).is_some_and(|value| !value.is_null()));
@@ -1477,6 +1513,19 @@ pub fn dispatch_with_anchor(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_run_tool_teaches_the_shell_it_will_actually_use() {
+        let plain = super::ShellNote::of("/bin/zsh");
+        assert_eq!(plain, " The shell is zsh.");
+
+        let nu = super::ShellNote::of("/opt/homebrew/bin/nu");
+        assert!(nu.contains("out+err>"), "{nu}");
+        assert!(nu.contains("bash -c"), "{nu}");
+
+        assert_eq!(super::ShellNote::of(""), "");
+        assert_eq!(super::ShellNote::of("   "), "");
+    }
     use super::*;
     use vmux_client::protocol::{AgentCommand, AgentQuery};
 

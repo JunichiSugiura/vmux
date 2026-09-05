@@ -149,6 +149,7 @@ pub struct PaletteDraft {
     pub completions_total: usize,
     pub history: Vec<HistoryEntry>,
     pub sessions: Vec<vmux_wire::chat::ResumableSessionEntry>,
+    pub sessions_pending: bool,
 }
 
 impl PaletteDraft {
@@ -273,6 +274,7 @@ impl PaletteRows {
                 query,
                 state.prompt_context.slash_commands.as_slice(),
                 &draft.sessions,
+                draft.sessions_pending,
             );
         }
         if is_start && query.trim().is_empty() {
@@ -384,6 +386,7 @@ impl PaletteGlyph {
             | CommandBarResultItem::WorkDir { .. }
             | CommandBarResultItem::PartialIndex
             | CommandBarResultItem::MoreMatches { .. }
+            | CommandBarResultItem::ResumePending { .. }
             | CommandBarResultItem::RecentFile { .. } => Self::Path,
             CommandBarResultItem::Stack { .. } | CommandBarResultItem::History { .. } => Self::Url,
             CommandBarResultItem::Navigate { url } => {
@@ -545,6 +548,7 @@ pub struct Submission {
     pub close: bool,
     pub action: Option<CommandBarActionEvent>,
     pub inline_target: Option<String>,
+    pub retype: Option<String>,
 }
 
 impl Submission {
@@ -553,6 +557,7 @@ impl Submission {
             close: true,
             action: Some(action),
             inline_target: None,
+            retype: None,
         }
     }
 
@@ -561,6 +566,16 @@ impl Submission {
             close: false,
             action: Some(action),
             inline_target: None,
+            retype: None,
+        }
+    }
+
+    fn retyping(query: impl Into<String>) -> Self {
+        Self {
+            close: false,
+            action: None,
+            inline_target: None,
+            retype: Some(query.into()),
         }
     }
 }
@@ -697,13 +712,18 @@ impl PaletteState {
                 close: true,
                 action: Some(action),
                 inline_target,
+                retype: None,
             };
         }
 
+        if let CommandBarResultItem::Slash { name, .. } = item {
+            return Submission::retyping(format!("/{name} "));
+        }
         Submission {
             close: true,
             action: self.acted(item),
             inline_target,
+            retype: None,
         }
     }
 
@@ -765,7 +785,9 @@ impl PaletteState {
                 &engine.search_url(query),
                 self.open_target,
             )),
-            CommandBarResultItem::PartialIndex | CommandBarResultItem::MoreMatches { .. } => None,
+            CommandBarResultItem::PartialIndex
+            | CommandBarResultItem::MoreMatches { .. }
+            | CommandBarResultItem::ResumePending { .. } => None,
         }
     }
 
@@ -805,6 +827,9 @@ impl PaletteState {
     }
 
     pub fn submit_start(&self, attachments: &[ChatAttachment]) -> Submission {
+        if self.mode == PaletteMode::Slash && self.rows.is_empty() {
+            return Submission::default();
+        }
         if self.query.trim().is_empty() && !attachments.is_empty() {
             if let Some(item) = self.default_target.as_ref() {
                 return self.activate(item, attachments);
@@ -837,6 +862,9 @@ impl PaletteState {
     }
 
     pub fn submit_action(&self, attachments: &[ChatAttachment]) -> Submission {
+        if self.mode == PaletteMode::Slash && self.rows.is_empty() {
+            return Submission::default();
+        }
         if let Some(item) = self
             .row(self.selected)
             .filter(|item| !self.start_prompt_mode || self.accepts_typed(item))
@@ -938,11 +966,25 @@ struct RowText;
 
 impl RowText {
     fn over(item: Option<&CommandBarResultItem>, query: &str) -> Option<String> {
-        let text = Self::of(item?, query);
+        let item = item?;
+        if Self::names_itself_in_the_row(item) {
+            return None;
+        }
+        let text = Self::of(item, query);
         if text == query {
             return None;
         }
         Some(text)
+    }
+
+    fn names_itself_in_the_row(item: &CommandBarResultItem) -> bool {
+        matches!(
+            item,
+            CommandBarResultItem::File { .. }
+                | CommandBarResultItem::Editor { .. }
+                | CommandBarResultItem::WorkDir { .. }
+                | CommandBarResultItem::Resume { .. }
+        )
     }
 
     fn of(item: &CommandBarResultItem, query: &str) -> String {
@@ -966,9 +1008,9 @@ impl RowText {
             CommandBarResultItem::File { path, .. } => path.clone(),
             CommandBarResultItem::WorkDir { path, .. } => path.clone(),
             CommandBarResultItem::RecentFile { title, url } => Self::titled(title, url),
-            CommandBarResultItem::PartialIndex | CommandBarResultItem::MoreMatches { .. } => {
-                query.to_string()
-            }
+            CommandBarResultItem::PartialIndex
+            | CommandBarResultItem::MoreMatches { .. }
+            | CommandBarResultItem::ResumePending { .. } => query.to_string(),
         }
     }
 
@@ -1135,8 +1177,17 @@ impl FileRows {
             files.extend(rest);
             files
         } else {
-            rest.extend(files);
-            rest
+            let mut ahead = Vec::with_capacity(rest.len());
+            let mut fallbacks = Vec::new();
+            for item in rest {
+                match item {
+                    CommandBarResultItem::Search { .. } => fallbacks.push(item),
+                    _ => ahead.push(item),
+                }
+            }
+            ahead.extend(files);
+            ahead.extend(fallbacks);
+            ahead
         };
         if completions.partial {
             merged.push(CommandBarResultItem::PartialIndex);
@@ -1632,6 +1683,21 @@ mod tests {
     }
 
     #[test]
+    fn a_command_with_nothing_to_show_yet_never_becomes_a_web_search() {
+        let state = Launcher::state();
+        let mut bar = PaletteState::start(&state, PaletteDraft::typed("/resume"));
+        bar.mode = PaletteMode::Slash;
+        bar.rows = Vec::new();
+
+        let submitted = bar.submit_start(&[]);
+
+        assert!(
+            submitted.action.is_none(),
+            "the list is still loading, so Enter must wait rather than search the web for the command"
+        );
+    }
+
+    #[test]
     fn navigation_overlays_the_highlighted_row_and_still_edits_the_typed_text() {
         let state = Launcher::state();
 
@@ -1648,6 +1714,20 @@ mod tests {
         );
         assert_eq!(prompting.row_text, None);
         assert_eq!(prompting.query, "fix the failing test");
+
+        let path = RowText::over(
+            Some(&CommandBarResultItem::File {
+                path: "/Users/jun/projects/common/src/lib.rs".into(),
+                is_dir: false,
+                project: "vmx-198".into(),
+                relative: "common/src/lib.rs".into(),
+            }),
+            "lib.rs",
+        );
+        assert_eq!(
+            path, None,
+            "the row already names the file and where it lives, so painting its path over the query only hides what was typed"
+        );
     }
 
     #[test]

@@ -18,6 +18,7 @@ pub fn EditorBreadcrumbs(
     leaf_is_dir: bool,
     outline: Vec<OutlineRow>,
     caret_line: u32,
+    #[props(default)] on_leave: Option<EventHandler<()>>,
 ) -> Element {
     let menus = CrumbMenus {
         open: use_signal(|| None::<CrumbMenu>),
@@ -145,6 +146,15 @@ pub fn EditorBreadcrumbs(
                             }
                         }
                     }
+                }
+            }
+
+            if let Some(leave) = on_leave {
+                button {
+                    class: "ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-foreground/[0.08] hover:text-foreground",
+                    title: translate("editor-close-directory"),
+                    onclick: move |_| leave.call(()),
+                    "\u{00d7}"
                 }
             }
 

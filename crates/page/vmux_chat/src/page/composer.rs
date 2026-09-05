@@ -42,9 +42,10 @@ pub(super) fn ChatDock(chat: Chat) -> Element {
 fn ChatComposer(chat: Chat) -> Element {
     let accent = agent_accent(&chat.agent());
     let keys = use_context::<ChatKeys>();
+    let drafted = chat.draft();
     rsx! {
         PromptComposer {
-            value: chat.draft(),
+            value: drafted,
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),
             placeholder: if chat.choice_pending() { translate("agent-choose-option") } else { translate("command-composer-placeholder") },

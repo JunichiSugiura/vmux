@@ -28,7 +28,7 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
             class: "absolute inset-0 overflow-hidden",
             style: "font:{FONT_PX}px monospace;line-height:{FONT_PX}px;color:{trail};",
 
-            style { {RainColumn::KEYFRAMES} }
+            style { dangerous_inner_html: RainColumn::KEYFRAMES }
 
             for index in 0..COLUMNS {
                 {

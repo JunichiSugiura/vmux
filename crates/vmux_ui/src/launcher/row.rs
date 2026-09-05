@@ -125,11 +125,33 @@ pub fn ResultRow(
                             ResultItem::Resume { entry } => rsx! {
                                 div { class: result_content_row_class(),
                                     span { class: "shrink-0 text-sm text-muted-foreground", "\u{21ba}" }
-                                    span { class: "min-w-0 truncate text-sm text-foreground", "{entry.title}" }
-                                    span { class: "{result_secondary_text_class()} shrink-0", "{entry.agent_name}" }
-                                    span { class: "{result_secondary_text_class()} min-w-0 truncate", "{entry.subtitle}" }
+                                    div { class: "flex min-w-0 flex-1 flex-col gap-0.5",
+                                        span { class: "min-w-0 truncate text-sm text-foreground", "{entry.title}" }
+                                        if !entry.latest.is_empty() {
+                                            span { class: "{result_secondary_text_class()} min-w-0 truncate", "{entry.latest}" }
+                                        }
+                                    }
+                                    if !entry.agent_name.is_empty() {
+                                        span { class: "{result_shortcut_badge_class()} shrink-0", "{entry.agent_name}" }
+                                    }
+                                    if !entry.project.is_empty() {
+                                        span { class: "{result_shortcut_badge_class()} shrink-0", "{entry.project}" }
+                                    }
+                                    if !entry.branch.is_empty() {
+                                        span { class: "{result_shortcut_badge_class()} shrink-0 font-mono", "{entry.branch}" }
+                                    }
                                 }
                                 span { class: result_trailing_slot_class(), "\u{21b5}" }
+                            },
+                            ResultItem::ResumePending { row } => rsx! {
+                                div { class: "{result_content_row_class()} animate-pulse",
+                                    span { class: "shrink-0 text-sm text-muted-foreground/40", "\u{21ba}" }
+                                    div { class: "flex min-w-0 flex-1 flex-col gap-1.5",
+                                        div { class: "h-3 rounded bg-muted-foreground/20 {SkeletonWidth::title(*row)}" }
+                                        div { class: "h-2.5 rounded bg-muted-foreground/10 {SkeletonWidth::latest(*row)}" }
+                                    }
+                                }
+                                span { class: result_trailing_slot_class() }
                             },
                             ResultItem::History { url, title, favicon_url, .. } => rsx! {
                                 div { class: result_content_row_class(),
@@ -321,6 +343,21 @@ pub fn ResultRow(
                             },
             }
         }
+    }
+}
+
+struct SkeletonWidth;
+
+impl SkeletonWidth {
+    const TITLE: [&'static str; 4] = ["w-2/5", "w-3/5", "w-1/2", "w-7/12"];
+    const LATEST: [&'static str; 4] = ["w-3/4", "w-1/2", "w-5/6", "w-2/3"];
+
+    fn title(row: usize) -> &'static str {
+        Self::TITLE[row % Self::TITLE.len()]
+    }
+
+    fn latest(row: usize) -> &'static str {
+        Self::LATEST[row % Self::LATEST.len()]
     }
 }
 

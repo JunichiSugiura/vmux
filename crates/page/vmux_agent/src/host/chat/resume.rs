@@ -23,6 +23,7 @@ impl Plugin for ChatResumePlugin {
             ResumeSession,
             RuntimeSwitchRequest,
         )>::for_hosts(&["agent", "start"]))
+            .init_resource::<ResumableScan>()
             .add_observer(on_resume_list_request)
             .add_observer(on_resume_session)
             .add_observer(on_runtime_switch_request)
@@ -36,7 +37,13 @@ impl Plugin for ChatResumePlugin {
 #[derive(Component)]
 struct ResumeListTask {
     webview: Entity,
-    task: Task<ResumableSessions>,
+    task: Task<ResumeListAnswer>,
+}
+
+struct ResumeListAnswer {
+    sessions: ResumableSessions,
+    scanned: Option<Vec<crate::client::cli::strategy::ResumableSession>>,
+    labels: RepoLabels,
 }
 
 #[derive(Component)]
@@ -54,42 +61,67 @@ fn relative_time_seconds(mtime: std::time::SystemTime) -> u64 {
         .unwrap_or(0)
 }
 
+#[derive(Clone, Default)]
+struct RepoLabels {
+    by_dir: std::collections::HashMap<std::path::PathBuf, (String, String)>,
+}
+
+impl RepoLabels {
+    fn of(&mut self, cwd: &std::path::Path, fallback: &str) -> (String, String) {
+        if let Some(held) = self.by_dir.get(cwd) {
+            return held.clone();
+        }
+        let read = match vmux_git::worktree::RepoLabel::of(cwd) {
+            Some(label) => (label.project, label.branch),
+            None => (fallback.to_string(), String::new()),
+        };
+        self.by_dir.insert(cwd.to_path_buf(), read.clone());
+        read
+    }
+}
+
 fn resume_entries(
     sessions: Vec<crate::client::cli::strategy::ResumableSession>,
     active_kind: Option<AgentKind>,
     active_name: &str,
+    labels: &mut RepoLabels,
+    strategies: &AgentStrategies,
 ) -> Vec<ResumableSessionEntry> {
-    sessions
-        .into_iter()
-        .map(|session| {
-            let dir = session
-                .cwd
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_else(|| session.cwd.to_string_lossy().to_string());
-            let agent_name = if Some(session.kind) == active_kind && !active_name.is_empty() {
-                active_name.to_string()
-            } else {
-                session.kind.display_name().to_string()
-            };
-            let url = crate::AgentUrl::Cli {
-                kind: session.kind,
-                sid: session.sid.clone(),
-            }
-            .format();
-            ResumableSessionEntry {
-                kind: session.kind.as_url_segment().to_string(),
-                sid: session.sid,
-                cwd: session.cwd.to_string_lossy().to_string(),
-                url,
-                title: session.title,
-                subtitle: dir,
-                age_seconds: relative_time_seconds(session.mtime),
-                agent_name,
-                cross_runtime: session.cross_runtime,
-            }
-        })
-        .collect()
+    let mut entries = Vec::new();
+    for session in sessions {
+        let dir = session
+            .cwd
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| session.cwd.to_string_lossy().to_string());
+        let agent_name = if Some(session.kind) == active_kind && !active_name.is_empty() {
+            active_name.to_string()
+        } else {
+            session.kind.display_name().to_string()
+        };
+        let url = crate::AgentUrl::Cli {
+            kind: session.kind,
+            sid: session.sid.clone(),
+        }
+        .format();
+        let (project, branch) = labels.of(&session.cwd, &dir);
+        let latest = strategies.latest_message(session.kind, &session.transcript);
+        entries.push(ResumableSessionEntry {
+            kind: session.kind.as_url_segment().to_string(),
+            sid: session.sid,
+            cwd: session.cwd.to_string_lossy().to_string(),
+            url,
+            title: session.title,
+            latest,
+            subtitle: dir,
+            age_seconds: relative_time_seconds(session.mtime),
+            agent_name,
+            project,
+            branch,
+            cross_runtime: session.cross_runtime,
+        });
+    }
+    entries
 }
 
 fn foreign_handoff_target(
@@ -120,49 +152,158 @@ fn resume_agent_name(
         .unwrap_or_default()
 }
 
+#[derive(Resource, Default)]
+struct ResumableScan {
+    sessions: Vec<crate::client::cli::strategy::ResumableSession>,
+    labels: RepoLabels,
+    read_at: Option<std::time::Instant>,
+}
+
+impl ResumableScan {
+    const FRESH_FOR: std::time::Duration = std::time::Duration::from_secs(20);
+
+    fn is_fresh(&self) -> bool {
+        self.read_at
+            .is_some_and(|at| at.elapsed() < Self::FRESH_FOR)
+    }
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct ResumeAsk<'w, 's> {
+    child_of: Query<'w, 's, &'static ChildOf>,
+    acp_sessions: Query<'w, 's, &'static AcpSession>,
+    agent_sessions: Query<'w, 's, &'static AgentSession>,
+    profiles: Query<'w, 's, &'static Profile>,
+    spaces: Query<'w, 's, (), With<vmux_layout::space::Space>>,
+    ids: Query<'w, 's, &'static vmux_layout::space::SpaceId>,
+    settings: Option<Res<'w, vmux_setting::AppSettings>>,
+}
+
+impl ResumeAsk<'_, '_> {
+    fn agent_of(&self, webview: Entity) -> (Option<AgentKind>, String) {
+        let stack = self.child_of.get(webview).ok().map(ChildOf::parent);
+        let acp = stack.and_then(|stack| self.acp_sessions.get(stack).ok());
+        let kind = acp
+            .and_then(|acp| acp_agent_kind(&acp.agent_id))
+            .or_else(|| {
+                stack.and_then(|stack| {
+                    self.agent_sessions
+                        .get(stack)
+                        .ok()
+                        .map(|session| session.kind)
+                })
+            });
+        let name = resume_agent_name(
+            stack.and_then(|stack| self.profiles.get(stack).ok()),
+            kind,
+            acp.map(|acp| acp.agent_id.as_str()),
+        );
+        (kind, name)
+    }
+
+    fn project_of(&self, webview: Entity) -> Option<std::path::PathBuf> {
+        let settings = self.settings.as_deref()?;
+        let space_id =
+            vmux_layout::space::space_id_of(webview, &self.child_of, &self.spaces, &self.ids)?;
+        let dir = settings.space(&space_id)?.active_dir()?;
+        (!dir.is_empty()).then(|| std::path::PathBuf::from(dir))
+    }
+}
+
+struct Preferred;
+
+impl Preferred {
+    fn first(
+        sessions: &[crate::client::cli::strategy::ResumableSession],
+        kind: Option<AgentKind>,
+        project: Option<&std::path::Path>,
+    ) -> Vec<crate::client::cli::strategy::ResumableSession> {
+        if kind.is_none() && project.is_none() {
+            return sessions.to_vec();
+        }
+        let mut ranked: Vec<_> = sessions.to_vec();
+        ranked.sort_by_key(|session| {
+            let in_project = project.is_some_and(|dir| session.cwd.starts_with(dir));
+            let same_agent = kind.is_some_and(|kind| session.kind == kind);
+            (!in_project, !same_agent)
+        });
+        ranked
+    }
+}
+
 fn on_resume_list_request(
     trigger: On<BinReceive<ResumeListRequest>>,
     strategies: Option<Res<AgentStrategies>>,
-    child_of: Query<&ChildOf>,
-    acp_sessions: Query<&AcpSession>,
-    agent_sessions: Query<&AgentSession>,
-    profiles: Query<&Profile>,
+    ask: ResumeAsk,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    scan: Res<ResumableScan>,
     mut commands: Commands,
 ) {
     let webview = trigger.event().webview;
+    let wake = vmux_core::host::wake::Wake::of(proxy);
     let strategies = strategies.map(|s| (*s).clone()).unwrap_or_default();
-    let stack = child_of.get(webview).ok().map(ChildOf::parent);
-    let acp = stack.and_then(|stack| acp_sessions.get(stack).ok());
-    let kind = acp
-        .and_then(|acp| acp_agent_kind(&acp.agent_id))
-        .or_else(|| {
-            stack.and_then(|stack| agent_sessions.get(stack).ok().map(|session| session.kind))
-        });
-    let agent_name = resume_agent_name(
-        stack.and_then(|stack| profiles.get(stack).ok()),
-        kind,
-        acp.map(|acp| acp.agent_id.as_str()),
-    );
+    let (kind, agent_name) = ask.agent_of(webview);
+    let project = ask.project_of(webview);
+    let offset = trigger.event().payload.offset;
+    let mut labels = scan.labels.clone();
+    let held = scan.is_fresh().then(|| {
+        let total = scan.sessions.len() as u32;
+        let ranked = Preferred::first(&scan.sessions, kind, project.as_deref());
+        let page: Vec<_> = ranked
+            .into_iter()
+            .skip(offset as usize)
+            .take(ResumableSessions::PAGE as usize)
+            .collect();
+        (page, total)
+    });
     let task = IoTaskPool::get().spawn(async move {
-        let sessions = resume_entries(strategies.list_all_sessions(), kind, &agent_name);
-        ResumableSessions { sessions }
+        let _wake = wake;
+        let (page, total, scanned) = match held {
+            Some((page, total)) => (page, total, None),
+            None => {
+                let all = strategies.list_all_sessions().await;
+                let total = all.len() as u32;
+                let page = Preferred::first(&all, kind, project.as_deref())
+                    .into_iter()
+                    .skip(offset as usize)
+                    .take(ResumableSessions::PAGE as usize)
+                    .collect();
+                (page, total, Some(all))
+            }
+        };
+        let built = resume_entries(page, kind, &agent_name, &mut labels, &strategies);
+        ResumeListAnswer {
+            sessions: ResumableSessions {
+                sessions: built,
+                offset,
+                total,
+            },
+            scanned,
+            labels,
+        }
     });
     commands.spawn(ResumeListTask { webview, task });
 }
 
 fn drain_resume_list_tasks(
     mut tasks: Query<(Entity, &mut ResumeListTask)>,
+    mut scan: ResMut<ResumableScan>,
     mut commands: Commands,
 ) {
     for (entity, mut task) in &mut tasks {
-        let Some(sessions) = future::block_on(future::poll_once(&mut task.task)) else {
+        let Some(answer) = future::block_on(future::poll_once(&mut task.task)) else {
             continue;
         };
         commands.entity(entity).despawn();
+        scan.labels = answer.labels;
+        if let Some(scanned) = answer.scanned {
+            scan.sessions = scanned;
+            scan.read_at = Some(std::time::Instant::now());
+        }
         commands.trigger(BinHostEmitEvent::from_rkyv(
             task.webview,
             RESUMABLE_SESSIONS_EVENT,
-            &sessions,
+            &answer.sessions,
         ));
     }
 }
@@ -331,6 +472,7 @@ mod tests {
             kind,
             sid: sid.into(),
             cwd: "/work".into(),
+            transcript: "/work/none.jsonl".into(),
             mtime: SystemTime::UNIX_EPOCH,
             title: sid.into(),
             cross_runtime: kind_supports_cross_runtime(kind),
@@ -342,6 +484,8 @@ mod tests {
             ],
             Some(AgentKind::Claude),
             "Antigravity",
+            &mut RepoLabels::default(),
+            &AgentStrategies::default(),
         );
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].agent_name, "Antigravity");

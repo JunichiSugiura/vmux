@@ -135,6 +135,10 @@ impl CliAgentStrategy for CodexStrategy {
         list_codex_sessions(&self.sessions_root())
     }
 
+    fn latest_message(&self, transcript: &Path) -> String {
+        codex_latest_message(transcript)
+    }
+
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {
         load_codex_transcript(&self.sessions_root(), session_id)
     }
@@ -459,12 +463,42 @@ fn list_codex_sessions(root: &Path) -> Vec<ResumableSession> {
             kind: AgentKind::Codex,
             sid: head.payload.id.clone(),
             cwd: PathBuf::from(&head.payload.cwd),
+            transcript: path.to_path_buf(),
             mtime,
             title,
             cross_runtime: true,
         });
     });
     out
+}
+
+fn codex_latest_message(path: &Path) -> String {
+    for line in crate::client::cli::strategy::SessionTail::lines_of(path)
+        .iter()
+        .rev()
+    {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if value.get("type").and_then(serde_json::Value::as_str) != Some("event_msg") {
+            continue;
+        }
+        let Some(payload) = value.get("payload") else {
+            continue;
+        };
+        if payload.get("type").and_then(serde_json::Value::as_str) != Some("user_message") {
+            continue;
+        }
+        let Some(text) = payload.get("message").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        return text.lines().collect::<Vec<_>>().join(" ");
+    }
+    String::new()
 }
 
 fn load_codex_transcript(root: &Path, session_id: &str) -> Result<Vec<Message>, String> {

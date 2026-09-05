@@ -138,9 +138,10 @@ pub fn resolve_placement(
     }
 
     if let Some(anchor) = newest_nonagent_leaf(leaves) {
+        let axis = longer_axis(anchor.size);
         return Placement::Spiral {
             anchor: anchor.pane,
-            axis: longer_axis(anchor.size),
+            axis,
         };
     }
 

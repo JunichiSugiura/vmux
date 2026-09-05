@@ -31,6 +31,17 @@ pub struct KeyInput {
     pub repeat: bool,
 }
 
+impl KeyInput {
+    pub fn lsp_action(&self) -> Option<EditCommand> {
+        match self.key.as_str() {
+            "F12" if self.mods.shift => Some(EditCommand::FindReferences),
+            "F12" => Some(EditCommand::GotoDefinition),
+            "F2" => Some(EditCommand::BeginRename),
+            _ => None,
+        }
+    }
+}
+
 pub trait Keymap: Send + Sync {
     fn handle(&mut self, k: &KeyInput) -> Vec<EditCommand>;
     fn mode(&self) -> EditMode;

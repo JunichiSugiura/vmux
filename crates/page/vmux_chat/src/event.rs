@@ -33,6 +33,7 @@ pub struct QueuedPromptSnapshot {
     pub id: u64,
     pub text: String,
     pub attachment_names: Vec<String>,
+    pub attachment_paths: Vec<String>,
 }
 
 #[derive(
@@ -321,9 +322,11 @@ pub const MODEL_STATE_EVENT: &str = "model_state";
 pub struct ModelState {
     pub current_model_id: String,
     pub current_model_name: String,
+    pub default_model_id: String,
     pub models: Vec<ModelOptionEntry>,
     pub agent_key: String,
     pub effort_current: String,
+    pub effort_default: String,
     pub effort_levels: Vec<String>,
 }
 
@@ -411,11 +414,13 @@ mod tests {
                     id: 4,
                     text: "a".into(),
                     attachment_names: vec!["image.png".into()],
+                    attachment_paths: vec!["/tmp/image.png".into()],
                 },
                 QueuedPromptSnapshot {
                     id: 9,
                     text: "b".into(),
                     attachment_names: Vec::new(),
+                    attachment_paths: Vec::new(),
                 },
             ],
             paused: true,
@@ -695,16 +700,23 @@ mod tests {
                 sid: "sid-9".into(),
                 cwd: "/w".into(),
                 title: "fix bug".into(),
+                latest: "and the tests".into(),
                 subtitle: "w".into(),
                 age_seconds: 7200,
                 agent_name: "Claude".into(),
+                project: "w".into(),
+                branch: "main".into(),
                 cross_runtime: true,
+                url: "vmux://agent/claude/sid-9".into(),
             }],
+            offset: 0,
+            total: 1,
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&v).unwrap();
         let back = rkyv::from_bytes::<ResumableSessions, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(back.sessions.len(), 1);
         assert_eq!(back.sessions[0].sid, "sid-9");
+        assert_eq!(back.sessions[0].latest, "and the tests");
         assert_eq!(back.sessions[0].agent_name, "Claude");
         assert!(back.sessions[0].cross_runtime);
     }

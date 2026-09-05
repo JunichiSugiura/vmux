@@ -91,14 +91,12 @@ impl ComposerChips {
 
 #[derive(Clone, Copy)]
 pub struct ProjectPicking {
-    pub expanded: Signal<String>,
     pub branches: Signal<Vec<ProjectBranch>>,
     pub branches_for: Signal<String>,
 }
 
 pub fn use_project_picking() -> ProjectPicking {
     ProjectPicking {
-        expanded: use_signal(String::new),
         branches: use_signal(Vec::<ProjectBranch>::new),
         branches_for: use_signal(String::new),
     }
@@ -108,18 +106,6 @@ impl ProjectPicking {
     pub fn remember(&mut self, project: String, branches: Vec<ProjectBranch>) {
         self.branches.set(branches);
         self.branches_for.set(project);
-    }
-
-    fn expand(&mut self, path: String) {
-        if *self.expanded.peek() == path {
-            self.expanded.set(String::new());
-            return;
-        }
-        self.expanded.set(path.clone());
-        if *self.branches_for.peek() != path {
-            self.branches.set(Vec::new());
-        }
-        let _ = send(&StartBranchesRequest { project: path });
     }
 
     fn go_to(pick: ProjectPick) {
@@ -169,13 +155,9 @@ impl ComposerMenuSet {
             }),
         };
         let cwd = composer.cwd.clone();
-        let mut expanding = picking;
         let project = ProjectMenuData {
             projects: composer.projects.clone(),
-            expanded: (picking.expanded)(),
-            branches: (picking.branches)(),
-            branches_for: (picking.branches_for)(),
-            on_expand: EventHandler::new(move |path: String| expanding.expand(path)),
+            loaded: !composer.projects.is_empty(),
             on_pick: EventHandler::new(ProjectPicking::go_to),
             on_choose_another: EventHandler::new(move |()| {
                 let _ = send(&StartSelectWorkspace {

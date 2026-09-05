@@ -9,7 +9,8 @@ use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker
 use crate::components::prompt_box::PromptPopupPlacement;
 use crate::i18n::{TranslationValue, translate, translate_with};
 
-const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-muted-foreground";
+const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted-foreground";
+const COMPOSER_CHIP_LABEL_TIGHT: &str = "@max-[34rem]:hidden";
 const COMPOSER_CHIP_INTERACTIVE: &str =
     "transition hover:bg-foreground/[0.08] hover:text-foreground";
 const COMPOSER_CHIP_OPEN: &str = "transition bg-foreground/[0.12] text-foreground";
@@ -184,7 +185,7 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
         queued_count,
     } = props;
     rsx! {
-        div { class: "flex min-w-0 items-center justify-between gap-1",
+        div { class: "@container flex min-w-0 items-center justify-between gap-1",
             div { class: "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
                 if let Some(chip) = agent {
                     ComposerChipSlot {
@@ -312,10 +313,7 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                 ProjectPicker {
                     placement,
                     projects: data.projects,
-                    expanded: data.expanded,
-                    branches: data.branches,
-                    branches_for: data.branches_for,
-                    on_expand: data.on_expand,
+                    loaded: data.loaded,
                     on_pick: move |pick: ProjectPick| {
                         menu.close();
                         data.on_pick.call(pick);
@@ -359,7 +357,7 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
         return rsx! {
             span { class: COMPOSER_CHIP, title: "{chip.title}",
                 ComposerChipIcon { kind }
-                span { class: label_class, "{chip.label}" }
+                span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
             }
         };
     };
@@ -374,7 +372,7 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
             onmousedown: move |event| event.prevent_default(),
             onclick: move |_| on_open.call(()),
             ComposerChipIcon { kind }
-            span { class: label_class, "{chip.label}" }
+            span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
             svg {
                 class: if open { "h-3 w-3 shrink-0 rotate-180 opacity-70 transition-transform duration-200 ease-out" } else { "h-3 w-3 shrink-0 opacity-50 transition-transform duration-200 ease-out" },
                 view_box: "0 0 24 24",
@@ -391,7 +389,29 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
 fn ComposerChipIcon(kind: ComposerMenuKind) -> Element {
     let class = "h-3.5 w-3.5 shrink-0";
     match kind {
-        ComposerMenuKind::Agent | ComposerMenuKind::Model => rsx! {
+        ComposerMenuKind::Agent => rsx! {
+            svg {
+                class,
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "1.8",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                rect {
+                    x: "4",
+                    y: "8",
+                    width: "16",
+                    height: "11",
+                    rx: "3",
+                }
+                path { d: "M12 4.5v3.5" }
+                circle { cx: "12", cy: "3.5", r: "1.2" }
+                path { d: "M9 13v1.5" }
+                path { d: "M15 13v1.5" }
+            }
+        },
+        ComposerMenuKind::Model => rsx! {
             svg {
                 class,
                 view_box: "0 0 24 24",
@@ -507,10 +527,7 @@ pub struct EffortMenuData {
 #[derive(Clone, PartialEq)]
 pub struct ProjectMenuData {
     pub projects: Vec<ProjectRow>,
-    pub expanded: String,
-    pub branches: Vec<ProjectBranch>,
-    pub branches_for: String,
-    pub on_expand: EventHandler<String>,
+    pub loaded: bool,
     pub on_pick: EventHandler<ProjectPick>,
     pub on_choose_another: EventHandler<()>,
 }

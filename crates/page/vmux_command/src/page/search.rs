@@ -73,6 +73,8 @@ pub struct PaletteFeeds {
     pub suggestion_id: Signal<u64>,
     pub sessions: Signal<Vec<ResumableSessionEntry>>,
     pub sessions_asked: Signal<bool>,
+    pub sessions_total: Signal<u32>,
+    pub sessions_loading: Signal<bool>,
 }
 
 pub fn use_palette_feeds() -> PaletteFeeds {
@@ -85,6 +87,8 @@ pub fn use_palette_feeds() -> PaletteFeeds {
         suggestion_id: use_signal(|| 0u64),
         sessions: use_signal(Vec::<ResumableSessionEntry>::new),
         sessions_asked: use_signal(|| false),
+        sessions_total: use_signal(|| 0u32),
+        sessions_loading: use_signal(|| false),
     }
 }
 
@@ -98,6 +102,7 @@ impl PaletteFeeds {
             completions_total: (self.completions_total)(),
             history: (self.suggestions)(),
             sessions: (self.sessions)(),
+            sessions_pending: (self.sessions_loading)(),
             ..PaletteDraft::default()
         }
     }

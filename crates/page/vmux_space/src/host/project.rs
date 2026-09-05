@@ -5,6 +5,7 @@ pub struct SpaceProjectPlugin;
 impl Plugin for SpaceProjectPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<ExpandedProjectDirs>()
+            .init_resource::<RepoRoots>()
             .init_resource::<vmux_command::snapshot::CommandBarProjectRoots>()
             .add_observer(on_project_tree_toggle)
             .add_systems(
@@ -221,15 +222,47 @@ impl SpaceProjects<'_, '_> {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct SpaceOfTab<'w, 's> {
+    child_of: Query<'w, 's, &'static ChildOf>,
+    spaces: Query<'w, 's, (), With<vmux_layout::space::Space>>,
+    ids: Query<'w, 's, &'static vmux_layout::space::SpaceId>,
+}
+
+impl SpaceOfTab<'_, '_> {
+    fn of(&self, tab: Entity) -> Option<String> {
+        vmux_layout::space::space_id_of(tab, &self.child_of, &self.spaces, &self.ids)
+    }
+}
+
+#[derive(Resource, Default)]
+struct RepoRoots(std::collections::HashMap<String, Option<String>>);
+
+impl RepoRoots {
+    fn of(&mut self, dir: &str) -> Option<String> {
+        if let Some(held) = self.0.get(dir) {
+            return held.clone();
+        }
+        let found = Self::read(dir);
+        self.0.insert(dir.to_string(), found.clone());
+        found
+    }
+
+    fn read(dir: &str) -> Option<String> {
+        let root = vmux_git::worktree::LinkedRepoRoot::of(std::path::Path::new(dir))?;
+        let root = root.to_string_lossy().into_owned();
+        (root != dir && !root.is_empty()).then_some(root)
+    }
+}
+
 fn remember_space_project(
     bound: Query<
         (Entity, &vmux_layout::tab::TabWorkspace),
         Changed<vmux_layout::tab::TabWorkspace>,
     >,
     worktrees: Query<&vmux_layout::tab::TabWorktree>,
-    child_of: Query<&ChildOf>,
-    spaces: Query<(), With<vmux_layout::space::Space>>,
-    ids: Query<&vmux_layout::space::SpaceId>,
+    space_of_tab: SpaceOfTab,
+    mut roots: ResMut<RepoRoots>,
     settings: Option<ResMut<vmux_setting::AppSettings>>,
     mut saves: MessageWriter<vmux_setting::SettingsSaveRequest>,
 ) {
@@ -244,27 +277,26 @@ fn remember_space_project(
         if dir.is_empty() {
             continue;
         }
-        let Some(space_id) = vmux_layout::space::space_id_of(tab, &child_of, &spaces, &ids) else {
+        let Some(space_id) = space_of_tab.of(tab) else {
             continue;
         };
-        let repo_root = worktrees
+        let held = worktrees
             .get(tab)
             .ok()
-            .map(|worktree| worktree.repo_root.trim())
-            .filter(|root| !root.is_empty() && *root != dir);
-        let mut changed = false;
-        {
-            let settings = settings.bypass_change_detection();
-            if let Some(root) = repo_root {
-                changed |= settings
-                    .remember_space_project(&space_id, vmux_setting::SpaceProject::at(root));
-            }
-            let project = match repo_root {
-                Some(root) => vmux_setting::SpaceProject::under(dir, root),
-                None => vmux_setting::SpaceProject::at(dir),
-            };
-            changed |= settings.remember_space_project(&space_id, project);
-        }
+            .map(|worktree| worktree.repo_root.trim().to_string())
+            .filter(|root| !root.is_empty() && root != dir);
+        let repo_root = match held {
+            Some(root) => Some(root),
+            None => roots.of(dir),
+        };
+        let repo_root = repo_root.as_deref();
+        let project = match repo_root {
+            Some(root) => vmux_setting::SpaceProject::checked_out(root, dir),
+            None => vmux_setting::SpaceProject::at(dir),
+        };
+        let changed = settings
+            .bypass_change_detection()
+            .remember_space_project(&space_id, project);
         if changed {
             settings.set_changed();
             saves.write(vmux_setting::SettingsSaveRequest);
@@ -370,13 +402,13 @@ mod tests {
             self.app.update();
         }
 
-        fn parents(&self, space_id: &str) -> Vec<Option<String>> {
+        fn checkouts(&self, space_id: &str) -> Vec<Option<String>> {
             self.app
                 .world()
                 .resource::<vmux_setting::AppSettings>()
                 .spaces
                 .get(space_id)
-                .map(|space| space.projects.iter().map(|p| p.parent.clone()).collect())
+                .map(|space| space.projects.iter().map(|p| p.checkout.clone()).collect())
                 .unwrap_or_default()
         }
 
@@ -519,18 +551,18 @@ mod tests {
     }
 
     #[test]
-    fn a_worktree_registers_under_the_repository_it_came_from() {
+    fn a_worktree_becomes_the_checkout_of_the_repository_it_came_from() {
         let mut fixture = Fixture::start("work");
         fixture.select_worktree("/worktrees/a1b2", "/repo/dashboard");
 
         assert_eq!(
             fixture.listed("work"),
-            ["/repo/dashboard", "/worktrees/a1b2"],
-            "the repository is listed too, or the worktree has nothing to nest under"
+            ["/repo/dashboard"],
+            "a worktree is a checkout of its repository, not a project of its own"
         );
         assert_eq!(
-            fixture.parents("work"),
-            [None, Some("/repo/dashboard".to_string())]
+            fixture.checkouts("work"),
+            [Some("/worktrees/a1b2".to_string())]
         );
         assert_eq!(
             fixture.remembered("work").as_deref(),
@@ -540,22 +572,21 @@ mod tests {
     }
 
     #[test]
-    fn a_worktree_that_arrives_after_its_repository_gains_the_link() {
+    fn a_worktree_listed_plainly_folds_into_its_repository_once_it_is_known() {
         let mut fixture = Fixture::start("work");
         fixture.select("/worktrees/a1b2");
-        assert_eq!(fixture.parents("work"), [None]);
+        assert_eq!(fixture.listed("work"), ["/worktrees/a1b2"]);
 
         fixture.select_worktree("/worktrees/a1b2", "/repo/dashboard");
 
         assert_eq!(
             fixture.listed("work"),
-            ["/worktrees/a1b2", "/repo/dashboard"],
-            "the directory keeps the place it was first seen in"
+            ["/repo/dashboard"],
+            "the plain entry is replaced, never left beside the repository"
         );
         assert_eq!(
-            fixture.parents("work"),
-            [Some("/repo/dashboard".to_string()), None],
-            "a directory already listed plainly gains its parent in place"
+            fixture.checkouts("work"),
+            [Some("/worktrees/a1b2".to_string())]
         );
     }
 

@@ -16,6 +16,7 @@ pub mod page_open;
 pub mod profile;
 pub mod team;
 pub mod terminal;
+pub mod wake;
 pub mod workspace;
 
 pub use archive::{

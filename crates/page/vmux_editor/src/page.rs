@@ -73,6 +73,7 @@ pub fn Page() -> Element {
     let mut parent_path = use_signal(String::new);
     let mut selected = use_signal(|| 0usize);
     let mut came_from = use_signal(String::new);
+    let mut left_file = use_signal(String::new);
     let mut back_dir = use_signal(|| Option::<String>::None);
     let mut show_hidden = use_signal(|| true);
     let mut mode = use_signal(|| Mode::Text);
@@ -623,6 +624,9 @@ pub fn Page() -> Element {
             git_has_diff.set(false);
             git_line_markers.set(HashMap::new());
         }
+        if mode() != Mode::Dir {
+            left_file.set(git_path());
+        }
         git_path.set(d.abs_path);
         git_nonce.set(git_nonce() + 1);
         mode.set(Mode::Dir);
@@ -894,7 +898,10 @@ pub fn Page() -> Element {
                             }
                             "h" | "ArrowLeft" | "Escape" => {
                                 let pp = parent_path();
-                                if !pp.is_empty() {
+                                if pp.is_empty() && !left_file().is_empty() {
+                                    e.prevent_default();
+                                    open_path(left_file());
+                                } else if !pp.is_empty() {
                                     e.prevent_default();
                                     let came = path();
                                     came_from.set(came.clone());
@@ -1145,6 +1152,8 @@ pub fn Page() -> Element {
                 leaf_is_dir: mode() == Mode::Dir,
                 outline: breadcrumb_outline,
                 caret_line: breadcrumb_caret_line,
+                on_leave: (mode() == Mode::Dir && !left_file().is_empty())
+                    .then(|| EventHandler::new(move |()| open_path(left_file()))),
             }
 
             {

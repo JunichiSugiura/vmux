@@ -52,7 +52,16 @@ impl WebView {
         let dom = Dom::mount(page.component, instance, &embed);
         let message = PageMessage::new(page, embed.outbox, dom.reads(), embed.waker);
         let routes = PageRoutes::new(page, dom.clone(), embed.assets);
-        let webview = wry::WebViewBuilder::new()
+        let builder = wry::WebViewBuilder::new();
+        #[cfg(target_os = "macos")]
+        let builder = match macos::SharedWebProcess::configuration() {
+            Some(config) => {
+                use wry::WebViewBuilderExtMacos;
+                builder.with_webview_configuration(config)
+            }
+            None => builder,
+        };
+        let webview = builder
             .with_transparent(page.transparent)
             .with_initialization_script(WRY_HOST_SHIM)
             .with_asynchronous_custom_protocol("vmux".into(), move |_id, request, responder| {
@@ -62,7 +71,6 @@ impl WebView {
             .with_url(page.document_url())
             .with_bounds(bounds)
             .build_as_child(window)?;
-
         Ok(Self { webview, dom })
     }
 

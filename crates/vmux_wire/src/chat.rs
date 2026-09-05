@@ -348,9 +348,12 @@ pub struct ResumableSessionEntry {
     pub cwd: String,
     pub url: String,
     pub title: String,
+    pub latest: String,
     pub subtitle: String,
     pub age_seconds: u64,
     pub agent_name: String,
+    pub project: String,
+    pub branch: String,
     pub cross_runtime: bool,
 }
 #[derive(
@@ -365,6 +368,20 @@ pub struct ResumableSessionEntry {
 )]
 pub struct ResumableSessions {
     pub sessions: Vec<ResumableSessionEntry>,
+    pub offset: u32,
+    pub total: u32,
+}
+
+impl ResumableSessions {
+    pub const PAGE: u32 = 50;
+
+    pub fn reaches(&self) -> u32 {
+        self.offset + self.sessions.len() as u32
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.reaches() < self.total
+    }
 }
 #[derive(
     Clone,
@@ -405,7 +422,9 @@ pub struct SlashCommands {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct ResumeListRequest;
+pub struct ResumeListRequest {
+    pub offset: u32,
+}
 #[derive(
     Clone,
     Debug,

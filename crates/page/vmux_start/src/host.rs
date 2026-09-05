@@ -127,22 +127,26 @@ impl StartPromptContextParams<'_, '_> {
         info: Option<&vmux_git::worktree::RepoInfo>,
     ) -> CommandBarPromptContext {
         let Some(tab) = tab else {
-            return default();
+            return CommandBarPromptContext::unrooted();
         };
         let Ok((_, _, worktree)) = self.tabs.get(tab) else {
-            return default();
+            return CommandBarPromptContext::unrooted();
         };
         let cwd = self.cwd(Some(tab));
         if cwd.is_empty() {
-            return default();
+            return CommandBarPromptContext::unrooted();
         }
         let path = std::path::Path::new(&cwd);
-        CommandBarPromptContext {
-            workspace_name: path
+        let named = match info {
+            Some(info) => info.project_name(),
+            None => path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| cwd.clone()),
+        };
+        CommandBarPromptContext {
+            workspace_name: named,
             cwd,
             is_git_repo: info.is_some(),
             is_worktree: info.is_some_and(|info| info.is_worktree),
@@ -154,7 +158,7 @@ impl StartPromptContextParams<'_, '_> {
             uncommitted: info.map(|info| info.uncommitted).unwrap_or(0),
             ahead: info.map(|info| info.ahead).unwrap_or(0),
             projects: Vec::new(),
-            slash_commands: vmux_wire::chat::SlashCommands::for_start().commands,
+            ..CommandBarPromptContext::unrooted()
         }
     }
 }
@@ -364,6 +368,9 @@ fn on_start_go_to_branch(
         return;
     };
     ChosenProject { path: root.clone() }.apply(tab, &mut tabs, &mut commands);
+    if evt.branch.trim().is_empty() {
+        return;
+    }
     commands.entity(tab).insert(TabWorktree {
         repo_root: root.to_string_lossy().into_owned(),
         checkout_dir: String::new(),

@@ -48,10 +48,6 @@ pub fn note_open(list: &mut Vec<PathBuf>, path: &Path) {
     }
 }
 
-pub fn close(list: &mut Vec<PathBuf>, path: &Path) {
-    list.retain(|p| p.as_path() != path);
-}
-
 pub fn is_markdown(path: &std::path::Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
@@ -253,15 +249,6 @@ mod tests {
         note_open(&mut list, &PathBuf::from("/b"));
         note_open(&mut list, &PathBuf::from("/a"));
         assert_eq!(list, vec![PathBuf::from("/a"), PathBuf::from("/b")]);
-    }
-
-    #[test]
-    fn close_removes_and_absent_is_noop() {
-        let mut list = vec![PathBuf::from("/a"), PathBuf::from("/b")];
-        close(&mut list, &PathBuf::from("/a"));
-        assert_eq!(list, vec![PathBuf::from("/b")]);
-        close(&mut list, &PathBuf::from("/zzz"));
-        assert_eq!(list, vec![PathBuf::from("/b")]);
     }
 
     #[test]

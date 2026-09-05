@@ -207,6 +207,14 @@ CEF. Even the command bar, which used to be its own webview, is now a panel draw
 the layout page; the entity that survives holds only the state thirty-odd readers ask
 "is the bar open" through.
 
+Every one of those webviews is handed a `WKWebViewConfiguration` carrying one shared
+`WKProcessPool`, which cut the cost of building a webview from 25–40 ms to 2–6 ms. Why it
+helps is not settled: `WKProcessPool` is deprecated on the grounds that extra instances no
+longer do anything, and a running app still shows one WebContent process per page rather
+than one overall, so the obvious explanation — that the pool collapses those processes and
+skips their font enumeration — is not what is happening. The `#[allow(deprecated)]` stays
+because the number is reproducible; treat the mechanism as unknown rather than as described.
+
 **Content pages are still CEF.** `Browser::new` is the leaf that carries them — windowed,
 natively focused — so scrolling an `https://` page costs what Chrome costs. CEF also still
 backs the extension bridge pages, and the windowless path it paints offscreen.

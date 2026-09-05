@@ -57,8 +57,4 @@ impl super::Clipboard {
     pub(super) fn image_file_path() -> Option<String> {
         None
     }
-
-    pub(super) fn pasteboard_types() -> Vec<String> {
-        Vec::new()
-    }
 }

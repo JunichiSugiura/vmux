@@ -75,6 +75,7 @@ async fn handle_message(
                 acp_session,
                 acp_terminals,
                 run_block_timeout,
+                shell,
             )
             .await
         }
@@ -127,6 +128,7 @@ async fn tool_call_result(
     acp_session: bool,
     acp_terminals: bool,
     run_block_timeout: Duration,
+    host_shell: &str,
 ) -> Result<Value, String> {
     let name = params
         .get("name")
@@ -158,7 +160,7 @@ async fn tool_call_result(
         return Ok(vault_status_response(vmux_profile::vault::status()));
     }
 
-    match crate::tools::dispatch_with_anchor(name, arguments, anchor)? {
+    match crate::tools::dispatch_in_shell(name, arguments, anchor, host_shell)? {
         crate::tools::DispatchTarget::Command(command @ AgentCommand::Run { .. })
         | crate::tools::DispatchTarget::Command(
             command @ AgentCommand::RunWithPlacementOverride { .. },

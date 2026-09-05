@@ -111,7 +111,17 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let _sessions =
         use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
             let mut sessions = feeds.sessions;
-            sessions.set(incoming.sessions.clone());
+            let mut total = feeds.sessions_total;
+            let mut loading = feeds.sessions_loading;
+            total.set(incoming.total);
+            loading.set(false);
+            if incoming.offset == 0 {
+                sessions.set(incoming.sessions.clone());
+                return;
+            }
+            let mut held = sessions.peek().clone();
+            held.extend(incoming.sessions.iter().cloned());
+            sessions.set(held);
         });
     use_effect(move || {
         let query = (signals.query)();
@@ -127,7 +137,25 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             return;
         }
         asked.set(true);
-        let _ = send(&ResumeListRequest);
+        let mut sessions = feeds.sessions;
+        let mut loading = feeds.sessions_loading;
+        sessions.set(Vec::new());
+        loading.set(true);
+        let _ = send(&ResumeListRequest { offset: 0 });
+    });
+    use_effect(move || {
+        let selected = (signals.selected)() as u32;
+        let loaded = feeds.sessions.read().len() as u32;
+        let total = (feeds.sessions_total)();
+        if loaded == 0 || loaded >= total || *feeds.sessions_loading.peek() {
+            return;
+        }
+        if selected + 10 < loaded {
+            return;
+        }
+        let mut loading = feeds.sessions_loading;
+        loading.set(true);
+        let _ = send(&ResumeListRequest { offset: loaded });
     });
 
     let rows = use_memo(move || PaletteRows::of(&state(), &feeds.draft(signals), surface));
@@ -163,6 +191,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     });
 
     let apply = move |submission: Submission| {
+        if let Some(typed) = submission.retype {
+            let mut signals = signals;
+            signals.retype(typed);
+            focus_prompt_end(PROMPT_INPUT_ID);
+            return;
+        }
         if submission.close {
             on_close.call(());
         }

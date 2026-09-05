@@ -6,6 +6,7 @@ use vmux_wire::prompt_media::ChatAttachment;
 use crate::components::prompt_box::PromptBox;
 use crate::file_icon::FilePath;
 use crate::i18n::translate;
+use crate::ime::use_ime_guard;
 
 pub const PROMPT_INPUT_ID: &str = "vmux-prompt-input";
 
@@ -102,6 +103,7 @@ pub fn PromptComposer(
             div { class: "truncate text-[10px] text-muted-foreground/55", {translate("command-send")} }
         })
     });
+    let ime = use_ime_guard();
     let has_ghost = ghost.is_some();
     let overlaid = !overlay.is_empty();
     let typed_text_class = if overlaid { "text-transparent" } else { "" };
@@ -156,7 +158,7 @@ pub fn PromptComposer(
                                 img {
                                     src: "{attachment.preview_data_url}",
                                     alt: "{attachment.name}",
-                                    class: "h-24 w-auto max-w-72 rounded-xl object-cover ring-1 ring-inset ring-foreground/10",
+                                    class: "h-24 w-auto max-w-72 rounded-xl object-cover",
                                 }
                             }
                             if let Some(remove_index) = attachment.remove_index {
@@ -219,7 +221,14 @@ pub fn PromptComposer(
                         value: "{value}",
                         oninput: move |event| on_input.call(event.value()),
                         onpaste: move |_| on_paste.call(()),
-                        onkeydown: move |event| on_keydown.call(event),
+                        oncompositionstart: move |_| ime.start(),
+                        oncompositionend: move |_| ime.commit(),
+                        onkeydown: move |event| {
+                            if ime.swallows(&event) {
+                                return;
+                            }
+                            on_keydown.call(event);
+                        },
                     }
                 }
             }

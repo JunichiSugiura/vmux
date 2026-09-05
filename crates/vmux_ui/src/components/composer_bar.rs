@@ -71,12 +71,11 @@ pub fn ComposerStatus(
     #[props(default)] queued_count: usize,
 ) -> Element {
     let run_label = match status.as_str() {
-        "" => String::new(),
         "streaming" => translate("composer-status-running"),
         "awaiting" => translate("composer-status-approval"),
         "installing" => translate("composer-status-starting"),
         "errored" => translate("composer-status-error"),
-        _ => translate("composer-status-ready"),
+        _ => String::new(),
     };
     rsx! {
         div { class: "flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground",

@@ -206,7 +206,7 @@ impl Chat {
         if messages_changed
             && let Ok(parsed) = serde_json::from_str::<Vec<ChatItem>>(&snapshot.messages_json)
         {
-            self.request_attachment_previews(&parsed);
+            self.request_transcript_previews(&parsed);
             let mut items = transcript.items;
             let mut recent_json = transcript.recent_messages_json;
             let mut recent_start = transcript.recent_messages_start;
@@ -226,6 +226,7 @@ impl Chat {
         set_if_changed(transcript.messages_total, snapshot.messages_total);
         set_if_changed(self.run.status, snapshot.status.clone());
         set_if_changed(self.run.error, snapshot.error.clone());
+        self.request_queue_previews(&snapshot.queued);
         set_if_changed(self.queue.queued, snapshot.queued.clone());
         set_if_changed(self.composer.transition_preview, String::new());
         set_if_changed(self.composer.transition_attachments, Vec::new());
@@ -272,7 +273,7 @@ impl Chat {
         let Ok(older) = serde_json::from_str::<Vec<ChatItem>>(&page.items_json) else {
             return;
         };
-        self.request_attachment_previews(&older);
+        self.request_transcript_previews(&older);
         let metrics = scroll::metrics(transcript.scroll_container);
         let mut items = transcript.items;
         let mut loaded_start = transcript.loaded_start;
@@ -285,25 +286,40 @@ impl Chat {
         }
     }
 
-    fn request_attachment_previews(&self, items: &[ChatItem]) {
-        let previews = self.composer.attachment_previews;
-        let mut requests = self.composer.attachment_preview_requests;
-        let known = previews.peek().keys().cloned().collect::<HashSet<_>>();
-        let mut requested = requests.peek().clone();
+    fn request_transcript_previews(&self, items: &[ChatItem]) {
         let mut paths = Vec::new();
         for item in items {
             let ChatItem::User { attachments, .. } = item else {
                 continue;
             };
             for attachment in attachments {
-                if !attachment.mime_type.starts_with("image/")
-                    || known.contains(&attachment.path)
-                    || !requested.insert(attachment.path.clone())
-                {
-                    continue;
+                if attachment.mime_type.starts_with("image/") {
+                    paths.push(attachment.path.clone());
                 }
-                paths.push(attachment.path.clone());
             }
+        }
+        self.request_attachment_previews(paths);
+    }
+
+    fn request_queue_previews(&self, queued: &[QueuedPromptSnapshot]) {
+        let mut paths = Vec::new();
+        for prompt in queued {
+            paths.extend(prompt.image_paths());
+        }
+        self.request_attachment_previews(paths);
+    }
+
+    fn request_attachment_previews(&self, wanted: Vec<String>) {
+        let previews = self.composer.attachment_previews;
+        let mut requests = self.composer.attachment_preview_requests;
+        let known = previews.peek().keys().cloned().collect::<HashSet<_>>();
+        let mut requested = requests.peek().clone();
+        let mut paths = Vec::new();
+        for path in wanted {
+            if known.contains(&path) || !requested.insert(path.clone()) {
+                continue;
+            }
+            paths.push(path);
         }
         if !paths.is_empty() && send(&ChatAttachmentPreviewRequest { paths }).is_ok() {
             requests.set(requested);
@@ -687,16 +703,22 @@ impl Chat {
                 size: attachment.size,
             });
         }
+        let sent = text.len();
         if send(&ChatSubmit {
             text,
             attachments: to_submit,
         })
         .is_err()
         {
+            dioxus::logger::tracing::warn!("vmx198 submit: send failed, draft kept");
             return;
         }
         at_bottom.set(true);
         draft.set(String::new());
+        dioxus::logger::tracing::warn!(
+            "vmx198 submit: sent {sent} bytes, draft now {} bytes",
+            draft.peek().len()
+        );
         vmux_ui::caret::TextCaret::in_field(PROMPT_INPUT_ID).clear();
         attachments.set(Vec::new());
         history_cursor.set(None);
@@ -848,6 +870,7 @@ impl Chat {
         let mut history_scratch = self.composer.history_scratch;
         let mut menu_sel = self.slash.menu_sel;
         self.menu.close();
+        dioxus::logger::tracing::warn!("vmx198 edit_draft: {} bytes", value.len());
         draft.set(value);
         history_cursor.set(None);
         history_scratch.set(String::new());

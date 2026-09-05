@@ -42,7 +42,7 @@ fn QueuedAttachments(
                         title: "{name}",
                         loading: "lazy",
                         decoding: "async",
-                        class: "h-16 w-auto max-w-48 rounded-lg object-cover ring-1 ring-inset ring-foreground/10",
+                        class: "h-16 w-auto max-w-48 rounded-lg object-cover",
                     }
                 }
             }

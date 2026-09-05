@@ -139,7 +139,7 @@ fn UserAttachment(
         return rsx! {
             figure {
                 key: "message-attachment-{attachment.path}",
-                class: "w-full overflow-hidden rounded-xl bg-black/10 ring-1 ring-inset ring-foreground/10",
+                class: "w-full overflow-hidden rounded-xl",
                 title: "{attachment.name}",
                 img {
                     src: "{preview_data_url}",

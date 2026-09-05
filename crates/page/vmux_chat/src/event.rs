@@ -36,6 +36,18 @@ pub struct QueuedPromptSnapshot {
     pub attachment_paths: Vec<String>,
 }
 
+impl QueuedPromptSnapshot {
+    pub fn image_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for path in &self.attachment_paths {
+            if vmux_ui::file_icon::FilePath(path).is_image() {
+                paths.push(path.clone());
+            }
+        }
+        paths
+    }
+}
+
 #[derive(
     Clone,
     Debug,

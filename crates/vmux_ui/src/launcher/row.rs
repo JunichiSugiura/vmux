@@ -131,14 +131,22 @@ pub fn ResultRow(
                                             span { class: "{result_secondary_text_class()} min-w-0 truncate", "{entry.latest}" }
                                         }
                                     }
-                                    if !entry.agent_name.is_empty() {
-                                        span { class: "{result_shortcut_badge_class()} shrink-0", "{entry.agent_name}" }
+                                    ResumeFacet {
+                                        caption: translate("resume-column-agent"),
+                                        value: entry.agent_name.clone(),
                                     }
-                                    if !entry.project.is_empty() {
-                                        span { class: "{result_shortcut_badge_class()} shrink-0", "{entry.project}" }
+                                    ResumeFacet {
+                                        caption: translate("resume-column-project"),
+                                        value: entry.project.clone(),
                                     }
-                                    if !entry.branch.is_empty() {
-                                        span { class: "{result_shortcut_badge_class()} shrink-0 font-mono", "{entry.branch}" }
+                                    ResumeFacet {
+                                        caption: translate("resume-column-branch"),
+                                        value: entry.branch.clone(),
+                                        mono: true,
+                                    }
+                                    ResumeFacet {
+                                        caption: translate("resume-column-updated"),
+                                        value: SessionAge(entry.age_seconds).label(),
                                     }
                                 }
                                 span { class: result_trailing_slot_class(), "\u{21b5}" }
@@ -343,6 +351,67 @@ pub fn ResultRow(
                             },
             }
         }
+    }
+}
+
+#[component]
+fn ResumeFacet(caption: String, value: String, #[props(default)] mono: bool) -> Element {
+    if value.is_empty() {
+        return rsx! {};
+    }
+    let value_class = match mono {
+        true => "max-w-28 truncate font-mono text-[11px] leading-tight text-foreground/80",
+        false => "max-w-28 truncate text-[11px] leading-tight text-foreground/80",
+    };
+    rsx! {
+        div { class: "flex shrink-0 flex-col items-start gap-0.5",
+            span { class: "text-[9px] uppercase leading-none tracking-wide text-muted-foreground/50",
+                "{caption}"
+            }
+            span { class: "{value_class}", "{value}" }
+        }
+    }
+}
+
+pub struct SessionAge(pub u64);
+
+impl SessionAge {
+    const MINUTE: u64 = 60;
+    const HOUR: u64 = 60 * Self::MINUTE;
+    const DAY: u64 = 24 * Self::HOUR;
+    const WEEK: u64 = 7 * Self::DAY;
+    const MONTH: u64 = 30 * Self::DAY;
+    const YEAR: u64 = 365 * Self::DAY;
+
+    pub fn label(self) -> String {
+        let (id, count) = self.unit();
+        if count == 0 {
+            return translate(id);
+        }
+        translate_with(id, &[("count", TranslationValue::Number(count as i64))])
+    }
+
+    fn unit(self) -> (&'static str, u64) {
+        let seconds = self.0;
+        if seconds < Self::MINUTE {
+            return ("resume-age-now", 0);
+        }
+        if seconds < Self::HOUR {
+            return ("resume-age-minutes", seconds / Self::MINUTE);
+        }
+        if seconds < Self::DAY {
+            return ("resume-age-hours", seconds / Self::HOUR);
+        }
+        if seconds < Self::WEEK {
+            return ("resume-age-days", seconds / Self::DAY);
+        }
+        if seconds < Self::MONTH {
+            return ("resume-age-weeks", seconds / Self::WEEK);
+        }
+        if seconds < Self::YEAR {
+            return ("resume-age-months", seconds / Self::MONTH);
+        }
+        ("resume-age-years", seconds / Self::YEAR)
     }
 }
 

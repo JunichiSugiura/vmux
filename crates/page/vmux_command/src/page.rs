@@ -108,6 +108,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             picking.remember(incoming.project, incoming.branches);
         });
 
+    use_effect(move || {
+        picking.read_ahead(&vmux_ui::launcher::palette::ActiveProject::of(
+            &state().prompt_context,
+        ));
+    });
+
     let _sessions =
         use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
             let mut sessions = feeds.sessions;
@@ -246,7 +252,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let start_accent = accent.unwrap_or_else(|| agent_accent("vibe"));
     let start_prompt_attachments = media.composer_attachments();
     let start_action_enabled = !q.trim().is_empty() || !attachments.read().is_empty();
-    let chips = ComposerChips::of(&composer, menu, model_menu_sel);
+    let chips = ComposerChips::of(&composer, menu, model_menu_sel, picking);
     let menus = ComposerMenuSet::of(&composer, signals, model_menu_sel, picking);
     let start_composer_footer = rsx! {
         ComposerBar {

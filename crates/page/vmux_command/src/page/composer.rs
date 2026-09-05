@@ -25,6 +25,7 @@ impl ComposerChips {
         composer: &ComposerState,
         menu: ComposerMenu,
         mut model_menu_sel: Signal<usize>,
+        mut picking: ProjectPicking,
     ) -> Self {
         if composer.loading {
             return Self {
@@ -70,10 +71,8 @@ impl ComposerChips {
                         composer.branch_title.clone(),
                     )
                     .opens(EventHandler::new(move |()| {
-                        if menu.toggle(ComposerMenuKind::Branch) && !owner.is_empty() {
-                            let _ = send(&StartBranchesRequest {
-                                project: owner.clone(),
-                            });
+                        if menu.toggle(ComposerMenuKind::Branch) {
+                            picking.read_ahead(&owner);
                         }
                     })),
                 )
@@ -93,12 +92,14 @@ impl ComposerChips {
 pub struct ProjectPicking {
     pub branches: Signal<Vec<ProjectBranch>>,
     pub branches_for: Signal<String>,
+    asked_for: Signal<String>,
 }
 
 pub fn use_project_picking() -> ProjectPicking {
     ProjectPicking {
         branches: use_signal(Vec::<ProjectBranch>::new),
         branches_for: use_signal(String::new),
+        asked_for: use_signal(String::new),
     }
 }
 
@@ -106,6 +107,16 @@ impl ProjectPicking {
     pub fn remember(&mut self, project: String, branches: Vec<ProjectBranch>) {
         self.branches.set(branches);
         self.branches_for.set(project);
+    }
+
+    pub fn read_ahead(&mut self, project: &str) {
+        if project.is_empty() || *self.asked_for.peek() == project {
+            return;
+        }
+        self.asked_for.set(project.to_string());
+        let _ = send(&StartBranchesRequest {
+            project: project.to_string(),
+        });
     }
 
     fn go_to(pick: ProjectPick) {

@@ -2994,7 +2994,6 @@ fn BookmarkEntry(
             }),
     );
     let remove_index = 3 + move_targets.len();
-    let title_class = format!("min-w-0 flex-1 {} text-ui", dir_truncate_class(&title));
     let drag_item = BookmarkDragItem::Bookmark {
         uuid: row.uuid.clone(),
     };
@@ -3031,26 +3030,30 @@ fn BookmarkEntry(
                             let item = drag_item.clone();
                             move |event| begin_bookmark_drag(drag_state, &event, item.clone())
                         },
-                        SheetEntryRow {
-                            active: false,
-                            onclick: {
-                                let u = url_open.clone();
-                                move |event: MouseEvent| {
-                                    if bookmark_drag_blocks_click(drag_state) {
-                                        event.prevent_default();
-                                        event.stop_propagation();
-                                        return;
+                        SidebarTreeRowGroup {
+                            SidebarTreeRow {
+                                path: row.metadata.url.clone(),
+                                label: title.clone(),
+                                is_dir: false,
+                                title: title.clone(),
+                                leading: rsx! {
+                                    PageIconView {
+                                        icon: row.metadata.icon.clone(),
+                                        url: row.metadata.url.clone(),
+                                        img_class: "h-3.5 w-3.5 shrink-0 rounded-sm object-contain".to_string(),
+                                        icon_class: "h-3.5 w-3.5 shrink-0 text-muted-foreground".to_string(),
                                     }
-                                    open_bookmark(u.clone());
-                                }
-                            },
-                            PageIconView {
-                                icon: row.metadata.icon.clone(),
-                                url: row.metadata.url.clone(),
-                                img_class: "h-4 w-4 shrink-0 rounded-sm object-contain".to_string(),
-                                icon_class: "h-4 w-4 shrink-0 text-muted-foreground".to_string(),
+                                },
+                                on_activate: {
+                                    let u = url_open.clone();
+                                    move |()| {
+                                        if bookmark_drag_blocks_click(drag_state) {
+                                            return;
+                                        }
+                                        open_bookmark(u.clone());
+                                    }
+                                },
                             }
-                            span { class: "{title_class}", "{title}" }
                         }
                     }
                 }
@@ -3602,21 +3605,6 @@ fn StackIcon(icon: PageIcon, url: String, title: String) -> Element {
 fn SideSheetContextMenuContent(children: Element) -> Element {
     rsx! {
         ContextMenuContent { attributes: vec![], {children} }
-    }
-}
-
-#[component]
-fn SheetEntryRow(active: bool, onclick: EventHandler<MouseEvent>, children: Element) -> Element {
-    rsx! {
-        div {
-            class: if active {
-                "glass group flex h-9 cursor-default items-center gap-2 rounded-md px-2"
-            } else {
-                "group flex h-9 cursor-pointer items-center gap-2 rounded-md px-2 border border-transparent text-muted-foreground hover:bg-glass-hover hover:text-foreground"
-            },
-            onclick: move |e| onclick.call(e),
-            {children}
-        }
     }
 }
 

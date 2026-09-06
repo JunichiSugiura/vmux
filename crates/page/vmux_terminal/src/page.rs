@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 use crate::event::*;
-use crate::matrix_rain::MatrixRain;
 use crate::render_model::{
     cursor_cell_style, span_background_overlay, span_classes, span_inline_style,
     span_looks_like_suggestion,
@@ -17,6 +16,7 @@ use vmux_ui::agent_accent::agent_accent;
 use vmux_ui::favicon::Favicon;
 use vmux_ui::hooks::{send, use_key_claim, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
+use vmux_ui::matrix_rain::MatrixRain;
 use vmux_ui::prompt_ghost::PromptGhost;
 
 const CONTAINER_ID: &str = "term-container";

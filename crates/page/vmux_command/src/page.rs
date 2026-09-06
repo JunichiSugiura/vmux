@@ -353,7 +353,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 return;
             }
 
-            let wanted = match recall.recalling() {
+            let wanted = match recall.recalling(&palette.query) {
                 true => PromptHistoryDirection::of(direction),
                 false => {
                     let (start, end) = EventSelection::in_field(PROMPT_INPUT_ID);
@@ -447,9 +447,8 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     footer: Some(start_composer_footer),
                     action_title: translate("command-send"),
                     action_enabled: start_action_enabled,
-                    on_input: move |value: String| {
+                    on_input: move |value| {
                         menu.close();
-                        recall.forget_place(&value);
                         signals.retype(value);
                     },
                     on_keydown: start_keydown,

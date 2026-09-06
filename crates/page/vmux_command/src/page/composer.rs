@@ -123,17 +123,13 @@ impl PromptRecall {
         });
     }
 
-    pub fn recalling(&self) -> bool {
-        self.cursor.peek().is_some()
+    pub fn recalling(&self, current: &str) -> bool {
+        self.place_in(current).is_some()
     }
 
-    pub fn forget_place(&mut self, typed: &str) {
-        if self.cursor.peek().is_none() || self.handed.peek().as_str() == typed {
-            return;
-        }
-        self.cursor.set(None);
-        self.scratch.set(String::new());
-        self.handed.set(String::new());
+    fn place_in(&self, current: &str) -> Option<usize> {
+        let cursor = (*self.cursor.peek())?;
+        (self.handed.peek().as_str() == current).then_some(cursor)
     }
 
     pub fn walk(&mut self, direction: PromptHistoryDirection, current: &str) -> Option<String> {
@@ -143,7 +139,7 @@ impl PromptRecall {
         }
         let (value, next, scratch) = move_prompt_history(
             &history,
-            *self.cursor.peek(),
+            self.place_in(current),
             &self.scratch.peek().clone(),
             current,
             direction,

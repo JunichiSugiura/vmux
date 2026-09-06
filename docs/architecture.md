@@ -215,6 +215,17 @@ than one overall, so the obvious explanation — that the pool collapses those p
 skips their font enumeration — is not what is happening. The `#[allow(deprecated)]` stays
 because the number is reproducible; treat the mechanism as unknown rather than as described.
 
+They are also told `allowsLinkPreview = NO`, which reads like a nicety and is not. It is
+what removes AppKit's force-click gesture recogniser. Left on, every press asks WebKit for
+an immediate-action hit test; WebKit answers by building the dictionary popup's
+`TextIndicator`, which needs a raster snapshot from the GPU process and waits for it on a
+semaphore **on the page's main thread**. Measured on the composer chips that cost the
+better part of a second on roughly one press in five, worst on the chip whose tooltip
+carries a whole worktree path, because that offers the longest range to snapshot. The
+press was delivered, the thread then stopped, and mousedown, mouseup and click all arrived
+together when it came back — which is why it reads as a dropped click rather than a slow
+one. No page here wants force-click inside its own chrome.
+
 **Content pages are still CEF.** `Browser::new` is the leaf that carries them — windowed,
 natively focused — so scrolling an `https://` page costs what Chrome costs. CEF also still
 backs the extension bridge pages, and the windowless path it paints offscreen.

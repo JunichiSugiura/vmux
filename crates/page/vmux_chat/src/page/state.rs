@@ -703,22 +703,16 @@ impl Chat {
                 size: attachment.size,
             });
         }
-        let sent = text.len();
         if send(&ChatSubmit {
             text,
             attachments: to_submit,
         })
         .is_err()
         {
-            dioxus::logger::tracing::warn!("vmx198 submit: send failed, draft kept");
             return;
         }
         at_bottom.set(true);
         draft.set(String::new());
-        dioxus::logger::tracing::warn!(
-            "vmx198 submit: sent {sent} bytes, draft now {} bytes",
-            draft.peek().len()
-        );
         vmux_ui::caret::TextCaret::in_field(PROMPT_INPUT_ID).clear();
         attachments.set(Vec::new());
         history_cursor.set(None);
@@ -875,7 +869,6 @@ impl Chat {
         let mut history_scratch = self.composer.history_scratch;
         let mut menu_sel = self.slash.menu_sel;
         self.menu.close();
-        dioxus::logger::tracing::warn!("vmx198 edit_draft: {} bytes", value.len());
         draft.set(value);
         history_cursor.set(None);
         history_scratch.set(String::new());

@@ -71,6 +71,8 @@ impl WebView {
             .with_url(page.document_url())
             .with_bounds(bounds)
             .build_as_child(window)?;
+        #[cfg(target_os = "macos")]
+        macos::ImmediateAction::forbid(&webview);
         Ok(Self { webview, dom })
     }
 

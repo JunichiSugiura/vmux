@@ -117,6 +117,16 @@ impl WebView {
     }
 }
 
+pub struct ImmediateAction;
+
+impl ImmediateAction {
+    pub fn forbid(webview: &wry::WebView) {
+        use wry::WebViewExtMacOS;
+
+        unsafe { webview.webview().setAllowsLinkPreview(false) };
+    }
+}
+
 pub struct SharedWebProcess;
 
 impl SharedWebProcess {

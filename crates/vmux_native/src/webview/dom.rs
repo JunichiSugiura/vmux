@@ -311,12 +311,6 @@ impl PageHost for SurfaceHost {
         });
     }
 
-    fn clear_element_text(&self, element_id: &str) {
-        self.request(DomRequest::ClearText {
-            element: element_id.to_string(),
-        });
-    }
-
     fn toggle_media(&self, element_id: &str) {
         self.request(DomRequest::ToggleMedia {
             element: element_id.to_string(),

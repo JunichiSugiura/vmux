@@ -23,8 +23,6 @@ pub trait PageHost {
 
     fn select_element_text(&self, _element_id: &str) {}
 
-    fn clear_element_text(&self, _element_id: &str) {}
-
     fn toggle_media(&self, _element_id: &str) {}
 
     fn offer_element_text(&self, _element_id: &str) {}
@@ -120,10 +118,6 @@ impl Host {
     pub(crate) fn caret_to_end(id: &str) {
         let _ = Self::with_installed(|host| host.caret_to_end(id));
     }
-    pub(crate) fn clear_element_text(id: &str) {
-        let _ = Self::with_installed(|host| host.clear_element_text(id));
-    }
-
     #[cfg(ui)]
     pub(crate) fn toggle_media(id: &str) {
         let _ = Self::with_installed(|host| host.toggle_media(id));

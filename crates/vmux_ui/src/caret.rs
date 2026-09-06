@@ -36,10 +36,6 @@ impl TextCaret {
         crate::transport::Host::select_element_text(self.element_id);
     }
 
-    pub fn clear(self) {
-        crate::transport::Host::clear_element_text(self.element_id);
-    }
-
     pub fn select_all_from_start_next_frame(self) {
         crate::transport::Host::offer_element_text(self.element_id);
     }

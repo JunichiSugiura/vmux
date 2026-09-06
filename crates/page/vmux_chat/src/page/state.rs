@@ -713,7 +713,6 @@ impl Chat {
         }
         at_bottom.set(true);
         draft.set(String::new());
-        vmux_ui::caret::TextCaret::in_field(PROMPT_INPUT_ID).clear();
         attachments.set(Vec::new());
         history_cursor.set(None);
         history_scratch.set(String::new());

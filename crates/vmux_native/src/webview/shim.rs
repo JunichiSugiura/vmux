@@ -156,9 +156,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
           try { el.showPopover(); } catch (e) {}
         }
         break;
-      case 'clearText':
-        el.value = '';
-        break;
       case 'toggleMedia':
         if (el.paused) { el.play(); } else { el.pause(); }
         break;

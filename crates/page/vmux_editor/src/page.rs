@@ -25,7 +25,7 @@ use vmux_core::media::MediaKind;
 use vmux_git::event::{GIT_CHANGED_EVENT, GitChangedEvent};
 use vmux_git::ui::{DiffView, GitFooter, GitStatusFeed};
 use vmux_git::view::EditorDiffMarker;
-use vmux_ui::caret::{EventSelection, TextCaret};
+use vmux_ui::caret::EventSelection;
 use vmux_ui::components::icon::Icon;
 use vmux_ui::file_icon::TypeIcon;
 use vmux_ui::focus::FocusClaim;
@@ -135,6 +135,7 @@ pub fn Page() -> Element {
     let mut source_sel = use_signal(Vec::<vmux_core::editor::SelSpan>::new);
     let mut open_editors = use_signal(Vec::<OpenEditorItem>::new);
     let ime = use_ime_guard();
+    let typed = use_signal(String::new);
     let rename_ime = use_ime_guard();
     let mut lsp_hover = use_signal(|| Option::<FileHoverEvent>::None);
     let mut hover_pos = use_signal(|| Option::<(u32, u32)>::None);
@@ -1320,6 +1321,7 @@ pub fn Page() -> Element {
                                         }
                                         textarea {
                                             id: INPUT_ID,
+                                            value: "{typed}",
                                             onmounted: move |event: Event<MountedData>| {
                                                 viewport.field_mounted(event.data());
                                             },
@@ -1330,13 +1332,13 @@ pub fn Page() -> Element {
                                             oncompositionstart: move |_| ime.start(),
                                             oncompositionend: move |event: Event<CompositionData>| {
                                                 ime.commit();
-                                                send_committed_text(event.data().data());
+                                                send_committed_text(typed, event.data().data());
                                             },
                                             oninput: move |event: Event<FormData>| {
                                                 if ime.active() {
                                                     return;
                                                 }
-                                                send_committed_text(event.value());
+                                                send_committed_text(typed, event.value());
                                             },
                                             onkeydown: move |event: Event<KeyboardData>| {
                                                 event.stop_propagation();
@@ -1646,6 +1648,7 @@ pub fn Page() -> Element {
 
                                         textarea {
                                             id: INPUT_ID,
+                                            value: "{typed}",
                                             onmounted: move |event: Event<MountedData>| {
                                                 viewport.field_mounted(event.data());
                                             },
@@ -1657,13 +1660,13 @@ pub fn Page() -> Element {
                                             oncompositionstart: move |_| ime.start(),
                                             oncompositionend: move |event: Event<CompositionData>| {
                                                 ime.commit();
-                                                send_committed_text(event.data().data());
+                                                send_committed_text(typed, event.data().data());
                                             },
                                             oninput: move |event: Event<FormData>| {
                                                 if ime.active() {
                                                     return;
                                                 }
-                                                send_committed_text(event.value());
+                                                send_committed_text(typed, event.value());
                                             },
                                             onkeydown: move |e: Event<KeyboardData>| {
                                                 e.stop_propagation();
@@ -4893,12 +4896,12 @@ fn center_note_caret(block_index: usize, line: u32) {
     NoteCaretAnchor::of(block_index, line).center();
 }
 
-fn send_committed_text(text: String) {
+fn send_committed_text(mut field: Signal<String>, text: String) {
     if text.is_empty() {
         return;
     }
     let _ = send(&FileTextInput { text });
-    TextCaret::in_field(INPUT_ID).clear();
+    field.set(String::new());
 }
 
 fn forward_file_key(event: &Event<KeyboardData>, mode: vmux_core::editor::EditMode) -> bool {

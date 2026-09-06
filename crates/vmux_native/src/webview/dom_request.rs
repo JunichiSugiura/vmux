@@ -28,9 +28,6 @@ pub(crate) enum DomRequest {
     OfferText {
         element: String,
     },
-    ClearText {
-        element: String,
-    },
     ToggleMedia {
         element: String,
     },
@@ -182,9 +179,6 @@ mod tests {
                 element: "e".into(),
             },
             DomRequest::OfferText {
-                element: "e".into(),
-            },
-            DomRequest::ClearText {
                 element: "e".into(),
             },
             DomRequest::ToggleMedia {

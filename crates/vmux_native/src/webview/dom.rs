@@ -146,9 +146,9 @@ impl Dom {
             .get(EventRequest::HEADER)
             .and_then(|value| value.to_str().ok())
             .unwrap_or_default();
-        let body = self
-            .handle_event(payload, EventSelection::of(headers))
-            .response_bytes();
+        let outcome = self.handle_event(payload, EventSelection::of(headers));
+        self.flush_to_page();
+        let body = outcome.response_bytes();
         let response = wry::http::Response::builder()
             .header(wry::http::header::CONTENT_TYPE, "application/json")
             .body(body)

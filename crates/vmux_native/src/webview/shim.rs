@@ -11,17 +11,18 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     return nativeOpen.call(this, method, url, ...rest);
   };
   XMLHttpRequest.prototype.send = function (body) {
-    if (this.__vmuxEvent) {
-      const selected = !(document.getSelection() || { isCollapsed: true }).isCollapsed;
-      this.setRequestHeader('x-vmux-selected', selected ? '1' : '0');
-      const el = document.activeElement;
-      if (el && typeof el.selectionStart === 'number' && /^[\w:.-]+$/.test(el.id)) {
-        const bytes = (upto) => encoder.encode(el.value.slice(0, upto)).length;
-        this.setRequestHeader(
-          'x-vmux-caret',
-          el.id + ':' + bytes(el.selectionStart) + ':' + bytes(el.selectionEnd),
-        );
-      }
+    if (!this.__vmuxEvent) {
+      return nativeSend.call(this, body);
+    }
+    const selected = !(document.getSelection() || { isCollapsed: true }).isCollapsed;
+    this.setRequestHeader('x-vmux-selected', selected ? '1' : '0');
+    const el = document.activeElement;
+    if (el && typeof el.selectionStart === 'number' && /^[\w:.-]+$/.test(el.id)) {
+      const bytes = (upto) => encoder.encode(el.value.slice(0, upto)).length;
+      this.setRequestHeader(
+        'x-vmux-caret',
+        el.id + ':' + bytes(el.selectionStart) + ':' + bytes(el.selectionEnd),
+      );
     }
     return nativeSend.call(this, body);
   };

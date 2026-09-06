@@ -378,10 +378,8 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
         button {
             class: "{COMPOSER_CHIP} {state}",
             title: "{chip.title}",
-            onmousedown: move |event| {
-                event.prevent_default();
-                on_open.call(());
-            },
+            onmousedown: move |event| event.prevent_default(),
+            onclick: move |_| on_open.call(()),
             ComposerChipIcon { kind }
             span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
             svg {

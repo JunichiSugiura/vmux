@@ -447,9 +447,9 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     footer: Some(start_composer_footer),
                     action_title: translate("command-send"),
                     action_enabled: start_action_enabled,
-                    on_input: move |value| {
+                    on_input: move |value: String| {
                         menu.close();
-                        recall.forget_place();
+                        recall.forget_place(&value);
                         signals.retype(value);
                     },
                     on_keydown: start_keydown,

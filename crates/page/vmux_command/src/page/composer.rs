@@ -89,6 +89,7 @@ pub struct PromptRecall {
     history: Signal<Vec<String>>,
     cursor: Signal<Option<usize>>,
     scratch: Signal<String>,
+    handed: Signal<String>,
     asked_for: Signal<String>,
 }
 
@@ -97,6 +98,7 @@ pub fn use_prompt_recall() -> PromptRecall {
         history: use_signal(Vec::<String>::new),
         cursor: use_signal(|| None),
         scratch: use_signal(String::new),
+        handed: use_signal(String::new),
         asked_for: use_signal(String::new),
     }
 }
@@ -125,11 +127,13 @@ impl PromptRecall {
         self.cursor.peek().is_some()
     }
 
-    pub fn forget_place(&mut self) {
-        if self.cursor.peek().is_some() {
-            self.cursor.set(None);
-            self.scratch.set(String::new());
+    pub fn forget_place(&mut self, typed: &str) {
+        if self.cursor.peek().is_none() || self.handed.peek().as_str() == typed {
+            return;
         }
+        self.cursor.set(None);
+        self.scratch.set(String::new());
+        self.handed.set(String::new());
     }
 
     pub fn walk(&mut self, direction: PromptHistoryDirection, current: &str) -> Option<String> {
@@ -146,6 +150,7 @@ impl PromptRecall {
         );
         self.cursor.set(next);
         self.scratch.set(scratch);
+        self.handed.set(value.clone());
         Some(value)
     }
 }

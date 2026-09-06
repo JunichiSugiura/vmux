@@ -2,7 +2,9 @@ use crate::event::{
     COMMAND_BAR_KEY_EVENT, CommandBarKey, CommandBarOpenEvent, START_PROJECT_BRANCHES_EVENT,
     StartProjectBranches,
 };
-use crate::page::composer::{ComposerChips, ComposerMenuSet, use_project_picking};
+use crate::page::composer::{
+    ComposerChips, ComposerMenuSet, use_project_picking, use_prompt_recall,
+};
 use crate::page::media::use_prompt_media;
 use crate::page::search::{use_host_search, use_palette_feeds};
 use crate::page::signals::{
@@ -16,6 +18,7 @@ use crate::prompt_media::{
 use dioxus::prelude::*;
 use vmux_core::input::{PageKeyContext, Unclaimed};
 use vmux_ui::agent_accent::agent_accent;
+use vmux_ui::caret::{EventSelection, byte_offset_to_utf16};
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
 use vmux_ui::components::composer_bar::{ComposerBar, ComposerMenus, use_composer_menu};
 use vmux_ui::components::icon::Icon;
@@ -32,8 +35,12 @@ use vmux_ui::launcher::style::{
     command_bar_input_class, command_bar_input_row_class, command_bar_input_wrap_class,
     command_bar_row_overlay_class, result_list_class,
 };
+use vmux_ui::prompt_recall::prompt_history_direction;
 use vmux_ui::scroll::ScrollIntoView;
-use vmux_wire::chat::{RESUMABLE_SESSIONS_EVENT, ResumableSessions, ResumeListRequest};
+use vmux_wire::chat::{
+    PROMPT_HISTORY_EVENT, PromptHistory, RESUMABLE_SESSIONS_EVENT, ResumableSessions,
+    ResumeListRequest,
+};
 use vmux_wire::command_bar::CommandBarQuery;
 
 mod composer;
@@ -99,6 +106,11 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         signals.watch();
         feeds.watch();
         on_activity.call(());
+    });
+
+    let mut recall = use_prompt_recall();
+    let _prompt_history = use_listener::<PromptHistory, _>(PROMPT_HISTORY_EVENT, move |incoming| {
+        recall.remember(incoming.prompts);
     });
 
     let mut picking = use_project_picking();
@@ -247,6 +259,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         });
 
     let composer = palette.composer.clone();
+    {
+        let agent = vmux_ui::launcher::palette::AgentSegment::in_url(&composer.agent_url)
+            .unwrap_or_default();
+        let cwd = composer.cwd.clone();
+        use_effect(move || recall.read_ahead(&agent, &cwd));
+    }
     let accent = palette.accent_agent.as_deref().map(agent_accent);
     let start_accent = accent.unwrap_or_else(|| agent_accent("vibe"));
     let start_prompt_attachments = media.composer_attachments();
@@ -335,6 +353,24 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 return;
             }
 
+            let at_top = palette.selected == 0;
+            if (go_up && at_top) || (go_down && recall.recalling()) {
+                let (start, end) = EventSelection::in_field(PROMPT_INPUT_ID);
+                if let Some(wanted) = prompt_history_direction(
+                    &e.key().to_string(),
+                    ctrl,
+                    &palette.query,
+                    byte_offset_to_utf16(&palette.query, start),
+                    byte_offset_to_utf16(&palette.query, end),
+                ) && let Some(value) = recall.walk(wanted, &palette.query)
+                {
+                    e.prevent_default();
+                    signals.retype(value);
+                    focus_prompt_end(PROMPT_INPUT_ID);
+                    return;
+                }
+            }
+
             if go_down {
                 e.prevent_default();
                 signals.highlight(palette.step(MenuDirection::Next));
@@ -404,6 +440,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     action_enabled: start_action_enabled,
                     on_input: move |value| {
                         menu.close();
+                        recall.forget_place();
                         signals.retype(value);
                     },
                     on_keydown: start_keydown,

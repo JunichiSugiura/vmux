@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::client::cli::strategy::{
-    CliAgentStrategy, ResumableSession, lines_skipping_invalid_utf8,
+    CliAgentStrategy, PromptHistory, ResumableSession, lines_skipping_invalid_utf8,
 };
 use crate::strategy::AgentStrategy;
 use crate::{AgentKind, AgentVariant, AssistantBlock, McpServerConfig, Message};
@@ -55,6 +55,22 @@ impl CliAgentStrategy for CodexStrategy {
     fn sessions_root(&self) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_default();
         PathBuf::from(home).join(".codex").join("sessions")
+    }
+
+    fn prompt_history(&self, _cwd: &Path) -> Vec<String> {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = PathBuf::from(home).join(".codex").join("history.jsonl");
+        let mut spoken = Vec::new();
+        for line in PromptHistory::lines_of(&path) {
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(text) = entry.get("text").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            spoken.push(text.to_string());
+        }
+        PromptHistory::recent(spoken)
     }
 
     fn build_args(&self, mcp: &McpServerConfig, session_id: Option<&str>) -> Vec<String> {

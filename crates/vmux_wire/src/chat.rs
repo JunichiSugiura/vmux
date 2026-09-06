@@ -329,6 +329,41 @@ mod activity_counts_tests {
 }
 
 pub const RESUMABLE_SESSIONS_EVENT: &str = "resumable_sessions";
+pub const PROMPT_HISTORY_EVENT: &str = "prompt_history";
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct PromptHistoryRequest {
+    pub agent: String,
+    pub cwd: String,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct PromptHistory {
+    pub prompts: Vec<String>,
+}
+
 pub const SLASH_COMMANDS_EVENT: &str = "slash_commands";
 #[derive(
     Clone,

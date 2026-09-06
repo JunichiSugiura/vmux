@@ -13,6 +13,7 @@ use vmux_core::agent::{AgentKind, StackSessionHandoff, SwapStackSession};
 use vmux_core::team::Profile;
 use vmux_session::AcpSession;
 use vmux_session::AgentSession;
+use vmux_wire::chat::{PROMPT_HISTORY_EVENT, PromptHistory, PromptHistoryRequest};
 
 pub(super) struct ChatResumePlugin;
 
@@ -22,14 +23,20 @@ impl Plugin for ChatResumePlugin {
             ResumeListRequest,
             ResumeSession,
             RuntimeSwitchRequest,
+            PromptHistoryRequest,
         )>::for_hosts(&["agent", "start"]))
             .init_resource::<ResumableScan>()
             .add_observer(on_resume_list_request)
             .add_observer(on_resume_session)
             .add_observer(on_runtime_switch_request)
+            .add_observer(on_prompt_history_request)
             .add_systems(
                 Update,
-                (drain_resume_list_tasks, drain_resume_handoff_tasks),
+                (
+                    drain_resume_list_tasks,
+                    drain_resume_handoff_tasks,
+                    drain_prompt_history_tasks,
+                ),
             );
     }
 }
@@ -228,6 +235,52 @@ impl Preferred {
             (!in_project, !same_agent)
         });
         ranked
+    }
+}
+
+#[derive(Component)]
+struct PromptHistoryTask {
+    webview: Entity,
+    task: Task<PromptHistory>,
+}
+
+fn on_prompt_history_request(
+    trigger: On<BinReceive<PromptHistoryRequest>>,
+    strategies: Option<Res<AgentStrategies>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut commands: Commands,
+) {
+    let webview = trigger.event().webview;
+    let wake = vmux_core::host::wake::Wake::of(proxy);
+    let strategies = strategies.map(|s| (*s).clone()).unwrap_or_default();
+    let asked = trigger.event().payload.clone();
+    let Some(kind) = AgentKind::from_url_segment(&asked.agent) else {
+        return;
+    };
+    let task = IoTaskPool::get().spawn(async move {
+        let _wake = wake;
+        let cwd = std::path::PathBuf::from(&asked.cwd);
+        PromptHistory {
+            prompts: strategies.prompt_history(kind, &cwd),
+        }
+    });
+    commands.spawn(PromptHistoryTask { webview, task });
+}
+
+fn drain_prompt_history_tasks(
+    mut tasks: Query<(Entity, &mut PromptHistoryTask)>,
+    mut commands: Commands,
+) {
+    for (entity, mut task) in &mut tasks {
+        let Some(history) = future::block_on(future::poll_once(&mut task.task)) else {
+            continue;
+        };
+        commands.entity(entity).despawn();
+        commands.trigger(BinHostEmitEvent::from_rkyv(
+            task.webview,
+            PROMPT_HISTORY_EVENT,
+            &history,
+        ));
     }
 }
 

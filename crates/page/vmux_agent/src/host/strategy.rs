@@ -45,6 +45,13 @@ impl AgentStrategies {
         sort_sessions(all)
     }
 
+    pub fn prompt_history(&self, kind: AgentKind, cwd: &std::path::Path) -> Vec<String> {
+        let Some(strategy) = self.get_cli(kind) else {
+            return Vec::new();
+        };
+        strategy.prompt_history(cwd)
+    }
+
     pub fn latest_message(&self, kind: AgentKind, transcript: &std::path::Path) -> String {
         let Some(strategy) = self.get_cli(kind) else {
             return String::new();

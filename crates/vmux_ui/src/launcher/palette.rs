@@ -1023,11 +1023,14 @@ impl RowText {
     }
 }
 
-struct AgentSegment;
+pub struct AgentSegment;
 
 impl AgentSegment {
     fn of(item: Option<&CommandBarResultItem>) -> Option<String> {
-        let url = prompt_target_url(item?)?;
+        Self::in_url(prompt_target_url(item?)?)
+    }
+
+    pub fn in_url(url: &str) -> Option<String> {
         let path = url.strip_prefix("vmux://agent/")?;
         let segment = path.split('/').next()?;
         (!segment.is_empty()).then(|| segment.to_string())

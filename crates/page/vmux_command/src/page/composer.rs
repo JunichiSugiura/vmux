@@ -10,6 +10,8 @@ use vmux_ui::components::project_picker::ProjectPick;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::translate;
 use vmux_ui::launcher::palette::ComposerState;
+use vmux_ui::prompt_recall::{PromptHistoryDirection, move_prompt_history};
+use vmux_wire::chat::PromptHistoryRequest;
 use vmux_wire::room::ModelOptionEntry;
 use vmux_wire::space::ProjectBranch;
 
@@ -79,6 +81,72 @@ impl ComposerChips {
             project,
             branch,
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct PromptRecall {
+    history: Signal<Vec<String>>,
+    cursor: Signal<Option<usize>>,
+    scratch: Signal<String>,
+    asked_for: Signal<String>,
+}
+
+pub fn use_prompt_recall() -> PromptRecall {
+    PromptRecall {
+        history: use_signal(Vec::<String>::new),
+        cursor: use_signal(|| None),
+        scratch: use_signal(String::new),
+        asked_for: use_signal(String::new),
+    }
+}
+
+impl PromptRecall {
+    pub fn remember(&mut self, prompts: Vec<String>) {
+        self.history.set(prompts);
+    }
+
+    pub fn read_ahead(&mut self, agent: &str, cwd: &str) {
+        if agent.is_empty() || cwd.is_empty() {
+            return;
+        }
+        let asked = format!("{agent}\u{0}{cwd}");
+        if *self.asked_for.peek() == asked {
+            return;
+        }
+        self.asked_for.set(asked);
+        let _ = send(&PromptHistoryRequest {
+            agent: agent.to_string(),
+            cwd: cwd.to_string(),
+        });
+    }
+
+    pub fn recalling(&self) -> bool {
+        self.cursor.peek().is_some()
+    }
+
+    pub fn forget_place(&mut self) {
+        if self.cursor.peek().is_some() {
+            self.cursor.set(None);
+            self.scratch.set(String::new());
+        }
+    }
+
+    pub fn walk(&mut self, direction: PromptHistoryDirection, current: &str) -> Option<String> {
+        let history = self.history.peek().clone();
+        if history.is_empty() {
+            return None;
+        }
+        let (value, next, scratch) = move_prompt_history(
+            &history,
+            *self.cursor.peek(),
+            &self.scratch.peek().clone(),
+            current,
+            direction,
+        );
+        self.cursor.set(next);
+        self.scratch.set(scratch);
+        Some(value)
     }
 }
 

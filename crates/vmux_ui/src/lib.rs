@@ -21,6 +21,7 @@ pub mod ime;
 pub mod launcher;
 
 pub mod prompt_ghost;
+pub mod prompt_recall;
 
 pub mod theme;
 

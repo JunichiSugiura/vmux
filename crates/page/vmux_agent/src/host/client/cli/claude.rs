@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use serde_json::{Map, Value};
 
 use crate::client::cli::strategy::{
-    CliAgentStrategy, ResumableSession, lines_skipping_invalid_utf8,
+    CliAgentStrategy, PromptHistory, ResumableSession, lines_skipping_invalid_utf8,
 };
 use crate::strategy::AgentStrategy;
 use crate::{AgentKind, AgentVariant, AssistantBlock, McpServerConfig, Message};
@@ -55,6 +55,26 @@ impl CliAgentStrategy for ClaudeStrategy {
     fn sessions_root(&self) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_default();
         PathBuf::from(home).join(".claude").join("projects")
+    }
+
+    fn prompt_history(&self, cwd: &Path) -> Vec<String> {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = PathBuf::from(home).join(".claude").join("history.jsonl");
+        let wanted = cwd.to_string_lossy();
+        let mut spoken = Vec::new();
+        for line in PromptHistory::lines_of(&path) {
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            if entry.get("project").and_then(|v| v.as_str()) != Some(wanted.as_ref()) {
+                continue;
+            }
+            let Some(text) = entry.get("display").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            spoken.push(text.to_string());
+        }
+        PromptHistory::recent(spoken)
     }
 
     fn build_args(&self, mcp: &McpServerConfig, session_id: Option<&str>) -> Vec<String> {

@@ -35,7 +35,7 @@ use vmux_ui::launcher::style::{
     command_bar_input_class, command_bar_input_row_class, command_bar_input_wrap_class,
     command_bar_row_overlay_class, result_list_class,
 };
-use vmux_ui::prompt_recall::prompt_history_direction;
+use vmux_ui::prompt_recall::{PromptHistoryDirection, prompt_history_direction};
 use vmux_ui::scroll::ScrollIntoView;
 use vmux_wire::chat::{
     PROMPT_HISTORY_EVENT, PromptHistory, RESUMABLE_SESSIONS_EVENT, ResumableSessions,
@@ -353,22 +353,31 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 return;
             }
 
-            let at_top = palette.selected == 0;
-            if (go_up && at_top) || (go_down && recall.recalling()) {
-                let (start, end) = EventSelection::in_field(PROMPT_INPUT_ID);
-                if let Some(wanted) = prompt_history_direction(
-                    &e.key().to_string(),
-                    ctrl,
-                    &palette.query,
-                    byte_offset_to_utf16(&palette.query, start),
-                    byte_offset_to_utf16(&palette.query, end),
-                ) && let Some(value) = recall.walk(wanted, &palette.query)
-                {
-                    e.prevent_default();
-                    signals.retype(value);
-                    focus_prompt_end(PROMPT_INPUT_ID);
-                    return;
+            let wanted = match recall.recalling() {
+                true => PromptHistoryDirection::of(direction),
+                false => {
+                    let (start, end) = EventSelection::in_field(PROMPT_INPUT_ID);
+                    let entering = go_up && palette.selected == 0;
+                    entering
+                        .then(|| {
+                            prompt_history_direction(
+                                &e.key().to_string(),
+                                ctrl,
+                                &palette.query,
+                                byte_offset_to_utf16(&palette.query, start),
+                                byte_offset_to_utf16(&palette.query, end),
+                            )
+                        })
+                        .flatten()
                 }
+            };
+            if let Some(wanted) = wanted
+                && let Some(value) = recall.walk(wanted, &palette.query)
+            {
+                e.prevent_default();
+                signals.retype(value);
+                focus_prompt_end(PROMPT_INPUT_ID);
+                return;
             }
 
             if go_down {

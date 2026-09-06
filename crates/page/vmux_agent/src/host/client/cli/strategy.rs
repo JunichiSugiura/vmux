@@ -46,6 +46,15 @@ impl PromptHistory {
     }
 }
 
+pub(crate) struct SameProject;
+
+impl SameProject {
+    pub(crate) fn covers(entry: &str, cwd: &Path) -> bool {
+        let entry = Path::new(entry);
+        entry.starts_with(cwd) || cwd.starts_with(entry)
+    }
+}
+
 pub(crate) struct SessionTail;
 
 impl SessionTail {
@@ -130,6 +139,29 @@ pub trait CliAgentStrategy: AgentStrategy {
 #[cfg(test)]
 mod tests {
     use super::PromptHistory;
+
+    #[test]
+    fn a_worktree_and_the_repo_it_came_from_share_a_history() {
+        use super::SameProject;
+        use std::path::Path;
+
+        let repo = "/w/vmux-cloud";
+        let tree = Path::new("/w/vmux-cloud/.worktrees/vmx-198");
+
+        assert!(
+            SameProject::covers(repo, tree),
+            "prompts typed in the repo are the same work as prompts typed in its worktree, and \
+             a worktree that has only just been made would otherwise recall nothing"
+        );
+        assert!(SameProject::covers(
+            "/w/vmux-cloud/.worktrees/vmx-198",
+            Path::new(repo)
+        ));
+        assert!(
+            !SameProject::covers("/w/vmux-cloud-2", tree),
+            "a sibling whose name merely starts the same is a different project"
+        );
+    }
 
     #[test]
     fn history_ends_with_the_newest_prompt_and_keeps_one_of_each() {

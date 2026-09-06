@@ -1,9 +1,19 @@
 use crate::caret::utf16_offset_to_byte;
+use crate::list_nav::MenuDirection;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PromptHistoryDirection {
     Older,
     Newer,
+}
+
+impl PromptHistoryDirection {
+    pub fn of(direction: Option<MenuDirection>) -> Option<Self> {
+        match direction? {
+            MenuDirection::Previous => Some(Self::Older),
+            MenuDirection::Next => Some(Self::Newer),
+        }
+    }
 }
 
 pub fn prompt_history_direction(

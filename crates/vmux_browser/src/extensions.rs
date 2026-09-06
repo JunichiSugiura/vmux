@@ -11,6 +11,7 @@ pub(crate) mod project;
 mod runtime;
 mod service_worker_cache;
 mod shim;
+mod tabs;
 mod template;
 pub(crate) mod windows;
 

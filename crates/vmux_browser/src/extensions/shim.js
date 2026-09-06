@@ -4,10 +4,9 @@
   var BRIDGE_CHANNEL = __VMUX_BRIDGE_CHANNEL__;
   var KEEPALIVE_CHANNEL = __VMUX_KEEPALIVE_CHANNEL__;
   var BRIDGE_URL = c.runtime && c.runtime.getURL ? c.runtime.getURL("vmux_bridge.html") : null;
-  var ACTIVE_TAB_KEY = "__vmux_active_tab_v1";
   var FAKE_WINDOW_ID = 1;
-  var FAKE_TAB_ID = 1;
   var lastTab = null;
+  var nativeTabIds = {};
   var knownWindows = [];
 
   function webUrl(value) {
@@ -29,7 +28,7 @@
     var url = senderUrl(message, sender);
     if (!url) return null;
     var tab = Object.assign({}, (sender && sender.tab) || (message && message.tab) || {});
-    if (typeof tab.id !== "number" || tab.id < 0) tab.id = FAKE_TAB_ID;
+    if (typeof tab.id !== "number" || tab.id < 0) return null;
     if (typeof tab.windowId !== "number" || tab.windowId < 0) tab.windowId = FAKE_WINDOW_ID;
     if (!webUrl(tab.url)) tab.url = url;
     if (typeof tab.index !== "number") tab.index = 0;
@@ -37,14 +36,7 @@
     if (typeof tab.highlighted !== "boolean") tab.highlighted = tab.active;
     if (!tab.status) tab.status = "complete";
     lastTab = tab;
-    if (c.storage && c.storage.session) {
-      var stored = {};
-      stored[ACTIVE_TAB_KEY] = tab;
-      try {
-        var result = c.storage.session.set(stored);
-        if (result && typeof result.catch === "function") result.catch(function () {});
-      } catch (_error) {}
-    }
+    nativeTabIds[tab.url] = tab.id;
     return tab;
   }
 
@@ -81,29 +73,7 @@
   }
 
   function requestActiveTab(done) {
-    if (lastTab) {
-      done(lastTab);
-      return;
-    }
-    if (!c.storage || !c.storage.session) {
-      done(null);
-      return;
-    }
-    try {
-      var result = c.storage.session.get(ACTIVE_TAB_KEY);
-      Promise.resolve(result).then(
-        function (stored) {
-          var tab = stored && stored[ACTIVE_TAB_KEY];
-          if (tab && webUrl(tab.url)) lastTab = tab;
-          done(lastTab);
-        },
-        function () {
-          done(null);
-        },
-      );
-    } catch (_error) {
-      done(null);
-    }
+    done(lastTab);
   }
   var nativeTabsCreate = c.tabs && c.tabs.create ? c.tabs.create.bind(c.tabs) : null;
   var bridgeRuntime = globalThis.__vmuxExtensionRuntime;
@@ -230,6 +200,28 @@
     } catch (_error) {
       return Promise.resolve(w);
     }
+  }
+  function sameOrigin(left, right) {
+    try {
+      return new URL(left).origin === new URL(right).origin;
+    } catch (_error) {
+      return false;
+    }
+  }
+  function withNativeTabId(tab) {
+    if (!tab || typeof tab.url !== "string") return tab;
+    var native = nativeTabIds[tab.url];
+    if (typeof native !== "number" && lastTab && sameOrigin(lastTab.url, tab.url)) {
+      native = lastTab.id;
+    }
+    if (typeof native !== "number" || native === tab.id) return tab;
+    return Object.assign({}, tab, { id: native });
+  }
+  function bridgeTabs(method, args, fallback) {
+    if (bridgeRuntime && typeof bridgeRuntime.request === "function") {
+      return bridgeRuntime.request("tabs", method, args);
+    }
+    return Promise.resolve(fallback());
   }
   function windowRequest(method, args, fallback) {
     var useFallback = function () {
@@ -448,20 +440,27 @@
       var promise = new Promise(function (resolve) {
         var fallback = function () {
           queryNative(queryInfo, function (tabs) {
-            resolve(tabs);
+            if (tabs && tabs.length) {
+              resolve(tabs);
+              return;
+            }
+            if (!wantsActive) {
+              resolve(tabs || []);
+              return;
+            }
+            requestActiveTab(function (tab) {
+              if (!tab) {
+                resolve([]);
+                return;
+              }
+              normalizeTabWindowIds([tab], queryInfo).then(resolve);
+            });
           });
         };
-        if (!wantsActive) {
-          fallback();
-          return;
-        }
-        requestActiveTab(function (tab) {
-          if (!tab) {
-            fallback();
-            return;
-          }
-          normalizeTabWindowIds([tab], queryInfo).then(resolve);
-        });
+        bridgeTabs("query", [queryInfo || {}], fallback).then(function (tabs) {
+          if (Array.isArray(tabs)) resolve(tabs.map(withNativeTabId));
+          else fallback();
+        }, fallback);
       });
       if (typeof cb === "function") {
         promise.then(cb);

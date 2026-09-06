@@ -31,6 +31,35 @@ pub struct ChromeTab {
     pub status: String,
 }
 
+impl ChromeTab {
+    pub(crate) fn disclosed_value(
+        mut self,
+        window_id: i32,
+        index: u32,
+        request: &vmux_core::extension::protocol::ApiRequest,
+        authorization: &super::bridge::BridgeAuthorization,
+    ) -> serde_json::Value {
+        self.window_id = window_id;
+        self.index = index;
+        let disclose = authorization.permissions.contains("tabs")
+            || url::Url::parse(&self.url).is_ok_and(|url| {
+                (url.scheme() == "chrome-extension"
+                    && url.host_str() == Some(request.caller_context.extension_id()))
+                    || authorization
+                        .host_permissions
+                        .iter()
+                        .any(|pattern| pattern.matches(&url))
+            });
+        let mut value = serde_json::to_value(self).expect("ChromeTab serializes");
+        if !disclose {
+            let object = value.as_object_mut().expect("tab object");
+            object.remove("url");
+            object.remove("title");
+        }
+        value
+    }
+}
+
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct ChromeModel {
     pub windows: Vec<ChromeWindow>,

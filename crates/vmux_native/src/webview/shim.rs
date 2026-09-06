@@ -192,43 +192,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
         break;
     }
   };
-  const HELD = 16;
-  const shadowValue = (el) => {
-    if (el.__vmuxHeld) return;
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
-    const own = Object.getOwnPropertyDescriptor(proto.prototype, 'value');
-    if (!own || !own.set || !own.get) return;
-    const held = [own.get.call(el)];
-    el.__vmuxHeld = held;
-    const remember = (text) => {
-      if (held[held.length - 1] === text) return;
-      held.push(text);
-      if (held.length > HELD) held.shift();
-    };
-    el.addEventListener('input', () => remember(own.get.call(el)));
-    Object.defineProperty(el, 'value', {
-      configurable: true,
-      get() {
-        return own.get.call(this);
-      },
-      set(text) {
-        const live = own.get.call(this);
-        if (text !== live && held.includes(text)) return;
-        own.set.call(this, text);
-        remember(text);
-      },
-    });
-  };
-  const unshadowValue = (el) => {
-    if (!el || !el.__vmuxHeld) return;
-    delete el.value;
-    delete el.__vmuxHeld;
-  };
-  document.addEventListener('focusin', (event) => {
-    const el = event.target;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) shadowValue(el);
-  }, true);
-  document.addEventListener('focusout', (event) => unshadowValue(event.target), true);
   document.addEventListener('paste', (event) => {
     const el = event.target;
     if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;

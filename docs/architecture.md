@@ -282,6 +282,26 @@ the app's bus. Nothing about a native page's messages touches CEF — wry carrie
 end — but the channel they land in is registered by a CEF plugin, so a wry page will not
 build until that plugin has. The transport moved and the channel types did not.
 
+### A controlled field belongs to the state
+
+The page applies every `value` a batch carries, without judging it. That is worth stating
+because the shim used to judge: it shadowed the `value` accessor on whatever field had
+focus and dropped any write matching one of the last sixteen values the box had held, on
+the theory that such a write was a late echo of an earlier keystroke about to clobber a
+newer one.
+
+The theory was sound and the rule was not, because "a value this box held before" is also
+the exact description of a prompt recalled from history, and of the empty string a composer
+returns to after sending. Walking back up the history worked and walking forward down it
+silently did nothing; submitting left the sent text sitting in the box. Both looked like
+state bugs and neither was — the state was right the whole way to the wire.
+
+The race it guarded is closed further up. `answer_event` renders and hands the resulting
+batch to the parked `/__edits` responder inside the event's own handler, and the page
+reports events over a *synchronous* request, so the batch for a keystroke is queued before
+the page can dispatch the next one. There is no window in which an echo arrives stale. A
+field that state owns is only ever written by state, and the document does not get a vote.
+
 ### Who owns ⌘V
 
 macOS hands a menu key equivalent to the menu **before** the key window's responder chain

@@ -402,7 +402,13 @@ fn install_native_mouse_wake_monitor(proxy: Option<Res<EventLoopProxyWrapper>>) 
         let event_type = ev.r#type();
         let mut titlebar_gesture = None;
         let capture_window_gesture = match event_type {
-            NSEventType::LeftMouseDown if !event_window_wears_the_window_chrome(ev) => false,
+            NSEventType::LeftMouseDown if !event_window_wears_the_window_chrome(ev) => {
+                titlebar_clicks
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .forget();
+                false
+            }
             NSEventType::LeftMouseDown => {
                 let drag = begin_native_window_resize(ev);
                 *local_resize_drag

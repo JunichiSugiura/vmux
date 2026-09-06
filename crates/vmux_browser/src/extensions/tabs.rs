@@ -51,13 +51,15 @@ impl<'a> ChromeTabs<'a> {
         request: &ApiRequest,
         authorization: &BridgeAuthorization,
     ) -> Result<Value, ChromeError> {
-        let Some(id) = Self::argument(request).and_then(Value::as_i64) else {
+        let id = Self::argument(request)
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok());
+        let Some(id) = id else {
             return Err(ChromeError::new(
                 "invalid_argument",
                 "tabs.get needs a tab id",
             ));
         };
-        let id = id as i32;
         let Some(tab) = self.model.tabs.iter().find(|tab| tab.id == id) else {
             return Err(ChromeError::new(
                 "no_such_tab",
@@ -403,6 +405,18 @@ mod tests {
             .expect("query answers");
 
         assert_eq!(ids(&result), [12]);
+    }
+
+    #[test]
+    fn an_id_too_large_for_a_tab_is_refused_rather_than_truncated() {
+        let model = ChromeModel::fixture();
+        let request = WorkerCall::to("get", vec![json!(4294967306i64)]);
+
+        let error = ChromeTabs::of(&model)
+            .dispatch(&request, &BridgeAuthorization::fixture())
+            .expect_err("out of range");
+
+        assert_eq!(error.code, "invalid_argument");
     }
 
     #[test]

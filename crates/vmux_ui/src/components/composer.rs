@@ -85,6 +85,7 @@ pub fn PromptComposer(
     accent_color: String,
     accent_gradient: String,
     #[props(default)] footer: Option<Element>,
+    #[props(default)] shared_transition: bool,
     #[props(default = PROMPT_INPUT_ID.to_string())] input_id: String,
     #[props(default = translate("composer-attach-files"))] attach_title: String,
     #[props(default = translate("composer-remove-attachment"))] remove_attachment_title: String,
@@ -117,10 +118,15 @@ pub fn PromptComposer(
     } else {
         "relative z-10 mr-0.5 flex h-11 w-11 shrink-0 cursor-default self-center items-center justify-center rounded-xl bg-white/[0.055] text-muted-foreground/35 shadow-sm ring-1 ring-inset ring-white/[0.08] sm:h-8 sm:w-8 sm:rounded-lg sm:bg-white/25 sm:ring-black/[0.06] dark:sm:bg-white/[0.055] dark:sm:ring-white/[0.08]".to_string()
     };
+    let shared_transition_class = if shared_transition {
+        "vmux-agent-composer-shared"
+    } else {
+        ""
+    };
 
     rsx! {
         PromptBox {
-            class: "vmux-prompt-composer flex-wrap",
+            class: "vmux-prompt-composer {shared_transition_class} flex-wrap",
             style: "--vmux-prompt-accent:{accent_color};",
             button {
                 class: "relative z-10 ml-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl text-foreground/45 transition active:bg-foreground/10 active:text-foreground hover:bg-foreground/10 hover:text-foreground sm:h-8 sm:w-8 sm:rounded-lg",

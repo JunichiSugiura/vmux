@@ -28,6 +28,7 @@ impl Plugin for BookmarkPlugin {
                 (
                     handle_bookmark_app_commands.in_set(ReadAppCommands),
                     apply_bookmark_ops,
+                    sync_bookmark_icons,
                 )
                     .chain(),
             );
@@ -396,6 +397,35 @@ fn apply_bookmark_ops(
     }
 }
 
+fn sync_bookmark_icons(
+    pages: Query<
+        &PageMetadata,
+        (
+            With<Stack>,
+            Changed<PageMetadata>,
+            Without<Bookmark>,
+            Without<Pin>,
+        ),
+    >,
+    mut bookmarks: Query<&mut PageMetadata, (Or<(With<Bookmark>, With<Pin>)>, Without<Stack>)>,
+) {
+    let mut icons = std::collections::HashMap::new();
+    for page in &pages {
+        if page.url.is_empty() || page.icon.is_none() {
+            continue;
+        }
+        icons.insert(page.url.clone(), page.icon.clone());
+    }
+    for mut bookmark in &mut bookmarks {
+        let Some(icon) = icons.get(&bookmark.url) else {
+            continue;
+        };
+        if bookmark.icon != *icon {
+            bookmark.icon.clone_from(icon);
+        }
+    }
+}
+
 fn on_bookmarks_command_emit(
     trigger: On<BinReceive<BookmarksCommandEvent>>,
     mut ops: MessageWriter<BookmarkOp>,
@@ -555,12 +585,13 @@ fn handle_bookmark_app_commands(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use vmux_core::PageIcon;
 
     fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_message::<BookmarkOp>()
-            .add_systems(Update, apply_bookmark_ops);
+            .add_systems(Update, (apply_bookmark_ops, sync_bookmark_icons).chain());
         app
     }
 
@@ -731,6 +762,74 @@ mod tests {
             .single(app.world())
             .unwrap();
         assert_eq!(actual, &expected);
+    }
+
+    #[test]
+    fn live_page_icon_replaces_the_bookmark_icon_without_renaming_it() {
+        let mut app = test_app();
+        let bookmark = app
+            .world_mut()
+            .spawn((
+                Bookmark,
+                PageMetadata {
+                    title: "Renamed bookmark".into(),
+                    url: "https://a.test".into(),
+                    icon: PageIcon::Favicon("https://old.test/icon.png".into()),
+                    bg_color: None,
+                },
+            ))
+            .id();
+        app.world_mut().spawn((
+            Stack::default(),
+            PageMetadata {
+                title: "Live title".into(),
+                url: "https://a.test".into(),
+                icon: PageIcon::Favicon("https://a.test/favicon.ico".into()),
+                bg_color: None,
+            },
+        ));
+
+        app.update();
+
+        let metadata = app.world().get::<PageMetadata>(bookmark).unwrap();
+        assert_eq!(metadata.title, "Renamed bookmark");
+        assert_eq!(
+            metadata.icon,
+            PageIcon::Favicon("https://a.test/favicon.ico".into())
+        );
+    }
+
+    #[test]
+    fn live_page_without_an_icon_keeps_the_bookmark_stable_while_loading() {
+        let mut app = test_app();
+        let bookmark = app
+            .world_mut()
+            .spawn((
+                Bookmark,
+                PageMetadata {
+                    title: "A".into(),
+                    url: "https://a.test".into(),
+                    icon: PageIcon::Favicon("https://old.test/icon.png".into()),
+                    bg_color: None,
+                },
+            ))
+            .id();
+        app.world_mut().spawn((
+            Stack::default(),
+            PageMetadata {
+                title: "A".into(),
+                url: "https://a.test".into(),
+                icon: PageIcon::None,
+                bg_color: None,
+            },
+        ));
+
+        app.update();
+
+        assert_eq!(
+            app.world().get::<PageMetadata>(bookmark).unwrap().icon,
+            PageIcon::Favicon("https://old.test/icon.png".into())
+        );
     }
 
     #[test]

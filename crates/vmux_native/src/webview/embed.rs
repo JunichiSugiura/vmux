@@ -18,6 +18,8 @@ pub trait Assets {
 
 pub trait Outbox {
     fn send(&self, id: &str, bytes: &[u8]) -> Result<(), EventListenerError>;
+
+    fn set_page(&self, _url: &str) {}
 }
 
 pub struct AssetReply(wry::RequestAsyncResponder);

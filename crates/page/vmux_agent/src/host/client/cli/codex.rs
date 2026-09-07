@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
@@ -362,6 +362,58 @@ struct CodexHead {
 struct CodexHeadPayload {
     id: String,
     cwd: String,
+    #[serde(default)]
+    thread_source: Option<String>,
+}
+
+impl CodexHead {
+    fn resumable(&self) -> bool {
+        self.payload
+            .thread_source
+            .as_deref()
+            .is_none_or(|source| source == "user")
+    }
+}
+
+#[derive(Default)]
+struct CodexSessionIndex {
+    titles: HashMap<String, String>,
+}
+
+impl CodexSessionIndex {
+    fn of(sessions_root: &Path) -> Self {
+        use std::io::BufReader;
+
+        let Some(codex_root) = sessions_root.parent() else {
+            return Self::default();
+        };
+        let Ok(file) = std::fs::File::open(codex_root.join("session_index.jsonl")) else {
+            return Self::default();
+        };
+        let mut index = Self::default();
+        for line in lines_skipping_invalid_utf8(BufReader::new(file)) {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(id) = value.get("id").and_then(serde_json::Value::as_str) else {
+                continue;
+            };
+            let Some(title) = value
+                .get("thread_name")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+            else {
+                continue;
+            };
+            index.titles.insert(id.to_string(), title.to_string());
+        }
+        index
+    }
+
+    fn title(&self, session_id: &str) -> Option<&str> {
+        self.titles.get(session_id).map(String::as_str)
+    }
 }
 
 fn discover_codex_session_id(
@@ -391,7 +443,7 @@ fn discover_codex_session_id(
         let Ok(head) = serde_json::from_str::<CodexHead>(line) else {
             return;
         };
-        if head.kind != "session_meta" {
+        if head.kind != "session_meta" || !head.resumable() {
             return;
         }
         if claimed.contains(&head.payload.id) {
@@ -430,6 +482,7 @@ fn list_codex_sessions(root: &Path) -> Vec<ResumableSession> {
     use std::io::{BufRead, BufReader};
 
     let mut out = Vec::new();
+    let index = CodexSessionIndex::of(root);
     walk_jsonl(root, &mut |path: &Path| {
         let mtime = std::fs::metadata(path)
             .and_then(|m| m.modified())
@@ -448,7 +501,7 @@ fn list_codex_sessions(root: &Path) -> Vec<ResumableSession> {
         let Ok(head) = serde_json::from_str::<CodexHead>(line.trim_end()) else {
             return;
         };
-        if head.kind != "session_meta" {
+        if head.kind != "session_meta" || !head.resumable() {
             return;
         }
         let fallback = head
@@ -458,21 +511,27 @@ fn list_codex_sessions(root: &Path) -> Vec<ResumableSession> {
             .next()
             .unwrap_or(&head.payload.id)
             .to_string();
-        let title = lines_skipping_invalid_utf8(reader)
-            .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
-            .find_map(|value| {
-                (value.get("type").and_then(|value| value.as_str()) == Some("event_msg"))
-                    .then(|| value.get("payload"))
-                    .flatten()
-                    .filter(|payload| {
-                        payload.get("type").and_then(|value| value.as_str()) == Some("user_message")
+        let title = index
+            .title(&head.payload.id)
+            .map(str::to_string)
+            .or_else(|| {
+                lines_skipping_invalid_utf8(reader)
+                    .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
+                    .find_map(|value| {
+                        (value.get("type").and_then(|value| value.as_str()) == Some("event_msg"))
+                            .then(|| value.get("payload"))
+                            .flatten()
+                            .filter(|payload| {
+                                payload.get("type").and_then(|value| value.as_str())
+                                    == Some("user_message")
+                            })
+                            .and_then(|payload| payload.get("message"))
+                            .and_then(|message| message.as_str())
+                            .map(str::trim)
+                            .filter(|message| !message.is_empty())
+                            .map(|message| message.lines().collect::<Vec<_>>().join(" "))
+                            .map(|message| message.chars().take(80).collect())
                     })
-                    .and_then(|payload| payload.get("message"))
-                    .and_then(|message| message.as_str())
-                    .map(str::trim)
-                    .filter(|message| !message.is_empty())
-                    .map(|message| message.lines().collect::<Vec<_>>().join(" "))
-                    .map(|message| message.chars().take(80).collect())
             })
             .unwrap_or(fallback);
         out.push(ResumableSession {
@@ -838,6 +897,50 @@ mod tests {
         assert_eq!(out[0].cwd, PathBuf::from("/w/x"));
         assert_eq!(out[0].title, "cx");
         assert!(out[0].cross_runtime);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn list_sessions_prefers_latest_session_index_title() {
+        let tmp = unique_tmp("codex-list-index-title");
+        let codex = tmp.join(".codex");
+        let sessions = codex.join("sessions");
+        write_session(&sessions, "2026/07", "sess.jsonl", "cx-1", "/w/x");
+        std::fs::write(
+            codex.join("session_index.jsonl"),
+            concat!(
+                "{\"id\":\"cx-1\",\"thread_name\":\"Initial title\"}\n",
+                "{\"id\":\"cx-1\",\"thread_name\":\"Fix the approval flow\"}\n"
+            ),
+        )
+        .unwrap();
+
+        let out = list_codex_sessions(&sessions);
+
+        assert_eq!(out[0].title, "Fix the approval flow");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn list_sessions_ignores_guardian_reviews() {
+        let tmp = unique_tmp("codex-list-guardian");
+        let sessions = tmp.join("sessions");
+        write_session(&sessions, "2026/07", "user.jsonl", "user-1", "/w/x");
+        let day = sessions.join("2026/07");
+        std::fs::write(
+            day.join("guardian.jsonl"),
+            concat!(
+                "{\"type\":\"session_meta\",\"payload\":{",
+                "\"id\":\"guardian-1\",\"cwd\":\"/w/x\",",
+                "\"thread_source\":\"guardian_review\"}}\n"
+            ),
+        )
+        .unwrap();
+
+        let out = list_codex_sessions(&sessions);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].sid, "user-1");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

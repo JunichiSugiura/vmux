@@ -738,7 +738,7 @@ impl PaletteState {
     fn acted(&self, item: &CommandBarResultItem) -> Option<CommandBarActionEvent> {
         match item {
             CommandBarResultItem::Slash { .. } => None,
-            CommandBarResultItem::Resume { entry } => {
+            CommandBarResultItem::Resume { entry, .. } => {
                 Some(CommandBarActionEvent::open(&entry.url, self.open_target))
             }
             CommandBarResultItem::Terminal { path } => Some(CommandBarActionEvent::Terminal {
@@ -992,7 +992,7 @@ impl RowText {
             CommandBarResultItem::Command { name, .. } => format!("> {name}"),
             CommandBarResultItem::Ex { name, .. } => format!(":{name}"),
             CommandBarResultItem::Slash { name, .. } => format!("/{name} "),
-            CommandBarResultItem::Resume { entry } => entry.title.clone(),
+            CommandBarResultItem::Resume { entry, .. } => entry.title.clone(),
             CommandBarResultItem::Pick { label, .. } => label.clone(),
             CommandBarResultItem::Navigate { url } => url.clone(),
             CommandBarResultItem::Search { query, .. } => query.clone(),

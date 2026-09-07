@@ -381,7 +381,7 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
 }
 
 #[component]
-fn ComposerChipIcon(kind: ComposerMenuKind) -> Element {
+pub fn ComposerChipIcon(kind: ComposerMenuKind) -> Element {
     let class = "h-3.5 w-3.5 shrink-0";
     match kind {
         ComposerMenuKind::Agent => rsx! {

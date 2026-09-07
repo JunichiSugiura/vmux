@@ -315,6 +315,33 @@
   animation: vmux-agent-prompt-dock-in 320ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
+.vmux-agent-composer-shared {
+  view-transition-name: vmux-agent-composer;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+::view-transition-group(vmux-agent-composer) {
+  animation-duration: 320ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 100;
+}
+
+::view-transition-old(vmux-agent-composer),
+::view-transition-new(vmux-agent-composer) {
+  height: 100%;
+}
+
+.vmux-page-transition .vmux-agent-prompt-dock-enter,
+.vmux-page-transition .vmux-agent-ready-enter,
+.vmux-page-transition .vmux-agent-surface-enter {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vmux-agent-prompt-dock-enter,
   .vmux-agent-ready-enter,

@@ -506,6 +506,8 @@ pub(crate) struct ExplorerState {
     pub root: PathBuf,
     pub open_editors: Vec<PathBuf>,
     pub focus_path: Option<PathBuf>,
+    active_editor: Option<PathBuf>,
+    active_editor_is_dir: bool,
 }
 
 impl ExplorerState {
@@ -4966,7 +4968,14 @@ fn sync_open_editors(
     mut commands: Commands,
 ) {
     for (entity, fv, mut st) in &mut q {
+        if st.active_editor_is_dir
+            && let Some(previous) = st.active_editor.clone()
+        {
+            st.open_editors.retain(|open| open != &previous);
+        }
         crate::explorer_model::note_open(&mut st.open_editors, &fv.path);
+        st.active_editor = Some(fv.path.clone());
+        st.active_editor_is_dir = fv.path.is_dir();
         commands.entity(entity).insert(OpenEditorsDirty);
     }
 }
@@ -6266,6 +6275,9 @@ mod explorer_tests {
 
     #[test]
     fn open_editors_track_on_navigate_and_close() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("src");
+        std::fs::create_dir(&dir).unwrap();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(crate::lsp::manager::LspManager::new(
@@ -6294,15 +6306,23 @@ mod explorer_tests {
         });
         let st = app.world().get::<ExplorerState>(e).unwrap();
         assert_eq!(st.open_editors, vec![b.clone()]);
-        let dir = PathBuf::from("/proj/src");
         app.world_mut().get_mut::<FileView>(e).unwrap().path = dir.clone();
         app.update();
         let st = app.world().get::<ExplorerState>(e).unwrap();
         assert_eq!(
             st.open_editors,
-            vec![b, dir],
+            vec![b.clone(), dir],
             "a directory the reader navigated to needs a tab of its own, or the only way out \
              of the navigator is to open another file"
+        );
+        let c = PathBuf::from("/proj/c.rs");
+        app.world_mut().get_mut::<FileView>(e).unwrap().path = c.clone();
+        app.update();
+        let st = app.world().get::<ExplorerState>(e).unwrap();
+        assert_eq!(
+            st.open_editors,
+            vec![b, c],
+            "opening a file from the directory navigator replaces that navigator tab"
         );
     }
 

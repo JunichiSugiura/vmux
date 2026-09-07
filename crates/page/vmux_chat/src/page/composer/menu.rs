@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use vmux_ui::components::prompt_box::PromptPopup;
 use vmux_ui::components::prompt_media_options::PromptMediaOptions;
 use vmux_ui::i18n::translate;
-use vmux_ui::launcher::results::CommandBarResultItem;
+use vmux_ui::launcher::results::{CommandBarResultItem, ResumeRows};
 use vmux_ui::launcher::row::ResultRow;
 
 #[component]
@@ -69,19 +69,19 @@ pub(super) fn ResumeMenu(chat: Chat) -> Element {
             if let Some(note) = note {
                 div { class: "px-3.5 py-2 text-sm text-muted-foreground", "{note}" }
             } else {
-                for (index , session) in chat.filtered_sessions().into_iter().enumerate() {
-                    ResultRow {
-                        key: "rs{index}",
-                        index,
-                        item: CommandBarResultItem::Resume {
-                            entry: session.clone(),
-                        },
-                        selected: index == menu_sel(),
-                        on_activate: {
-                            let session = session.clone();
-                            move |()| chat.select_resume_session(&session)
-                        },
-                        on_hover: move |()| menu_sel.set(index),
+                for (index , item) in ResumeRows::of(&chat.filtered_sessions()).into_iter().enumerate() {
+                    if let CommandBarResultItem::Resume { entry, .. } = &item {
+                        ResultRow {
+                            key: "rs{index}",
+                            index,
+                            item: item.clone(),
+                            selected: index == menu_sel(),
+                            on_activate: {
+                                let session = entry.clone();
+                                move |()| chat.select_resume_session(&session)
+                            },
+                            on_hover: move |()| menu_sel.set(index),
+                        }
                     }
                 }
             }

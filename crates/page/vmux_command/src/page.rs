@@ -437,6 +437,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             if is_start {
                 {start_menus}
                 PromptComposer {
+                    shared_transition: true,
                     value: q.clone(),
                     overlay: palette.row_text.clone().unwrap_or_default(),
                     completion: ghost_text.clone(),

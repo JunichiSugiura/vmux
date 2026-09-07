@@ -823,9 +823,9 @@ fn ProjectListRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Elemen
                     }
                     false => open_project_path(pane_id, activate.clone()),
                 },
-                trailing: rsx! {
+                label_suffix: rsx! {
                     if !project.branch.is_empty() {
-                        span { class: "shrink-0 truncate text-[10px] text-muted-foreground/70", "{project.branch}" }
+                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
                     }
                 },
             }
@@ -1936,7 +1936,7 @@ fn Tab(tab: TabRow) -> Element {
             div {
                 title: "{tooltip}",
                 class: "flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden",
-                StackIcon {
+                HeaderTabIcon {
                     icon: tab.icon.clone(),
                     url: tab.url.clone(),
                     title: display_title.clone(),
@@ -1986,6 +1986,50 @@ fn Tab(tab: TabRow) -> Element {
                     {translate("layout-pin")}
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn HeaderTabIcon(icon: PageIcon, url: String, title: String) -> Element {
+    if title == "New Stack" && url.is_empty() {
+        return rsx! { StackIcon { icon, url, title } };
+    }
+    let initial_ready = !icon.is_none();
+    let mut displayed_icon = use_signal(|| icon.clone());
+    let mut displayed_url = use_signal(|| url.clone());
+    let mut fallback_ready = use_signal(|| initial_ready);
+    let mut generation = use_signal(|| 0_u32);
+    use_effect(use_reactive!(|(icon, url)| {
+        let next = generation.peek().wrapping_add(1);
+        generation.set(next);
+        if !icon.is_none() {
+            displayed_icon.set(icon);
+            displayed_url.set(url);
+            fallback_ready.set(true);
+            return;
+        }
+        fallback_ready.set(false);
+        let url = url.clone();
+        spawn(async move {
+            sleep_ms(500).await;
+            if generation() != next {
+                return;
+            }
+            displayed_icon.set(PageIcon::None);
+            displayed_url.set(url);
+            fallback_ready.set(true);
+        });
+    }));
+    let shown_icon = displayed_icon();
+    if shown_icon.is_none() && !fallback_ready() {
+        return rsx! { span { class: "h-4 w-4 shrink-0" } };
+    }
+    rsx! {
+        StackIcon {
+            icon: shown_icon,
+            url: displayed_url(),
+            title,
         }
     }
 }

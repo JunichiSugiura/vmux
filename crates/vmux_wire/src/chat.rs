@@ -386,6 +386,8 @@ pub struct ResumableSessionEntry {
     pub latest: String,
     pub subtitle: String,
     pub age_seconds: u64,
+    #[serde(default)]
+    pub updated_at: String,
     pub agent_name: String,
     pub project: String,
     pub branch: String,

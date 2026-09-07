@@ -309,7 +309,7 @@ impl ClaudeHead {
                     if Self::is_driven_by_sdk(&v) {
                         return None;
                     }
-                    title = user_message_text(&v);
+                    title = ClaudePromptPreview::of(&v);
                 }
                 if cwd.is_some() && title.is_some() {
                     break;
@@ -339,20 +339,59 @@ fn claude_latest_message(path: &Path) -> String {
         if v.get("type").and_then(|t| t.as_str()) != Some("user") {
             continue;
         }
-        let Some(text) = user_message_text(&v) else {
+        let Some(text) = ClaudePromptPreview::of(&v) else {
             continue;
         };
-        let text = text.trim();
-        if text.is_empty() || text.starts_with("<system-reminder>") {
-            continue;
-        }
-        return text.to_string();
+        return text;
     }
     String::new()
 }
 
-fn user_message_text(v: &Value) -> Option<String> {
-    message_text(v).map(|text| text.chars().take(80).collect())
+struct ClaudePromptPreview;
+
+impl ClaudePromptPreview {
+    fn of(v: &Value) -> Option<String> {
+        if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+            return None;
+        }
+        let text = message_text(v)?;
+        let mut visible = Vec::new();
+        let mut hidden_until = None;
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(tag) = hidden_until {
+                if line.contains(tag) {
+                    hidden_until = None;
+                }
+                continue;
+            }
+            if line.starts_with("<task-notification>") {
+                if !line.contains("</task-notification>") {
+                    hidden_until = Some("</task-notification>");
+                }
+                continue;
+            }
+            if line.starts_with("<system-reminder>") {
+                if !line.contains("</system-reminder>") {
+                    hidden_until = Some("</system-reminder>");
+                }
+                continue;
+            }
+            if line.starts_with("[Image: source:") && line.ends_with(']') {
+                continue;
+            }
+            let line = line
+                .strip_prefix("[Request interrupted by user for tool use]")
+                .or_else(|| line.strip_prefix("[Request interrupted by user]"))
+                .unwrap_or(line)
+                .trim();
+            if !line.is_empty() {
+                visible.push(line);
+            }
+        }
+        let text = visible.join(" ");
+        (!text.is_empty()).then(|| text.chars().take(80).collect())
+    }
 }
 
 fn message_text(v: &Value) -> Option<String> {
@@ -639,7 +678,7 @@ mod tests {
         std::fs::create_dir_all(&proj).unwrap();
         std::fs::write(
             proj.join("11111111-2222.jsonl"),
-            b"{\"type\":\"user\",\"cwd\":\"/Users/me/proj\",\"message\":{\"role\":\"user\",\"content\":\"fix the auth bug\"}}\n",
+            b"{\"type\":\"user\",\"cwd\":\"/Users/me/proj\",\"message\":{\"role\":\"user\",\"content\":\"fix the auth bug\\n[Image: source: /tmp/auth.png]\"}}\n",
         )
         .unwrap();
         std::fs::write(proj.join("agent-log.jsonl"), b"{}\n").unwrap();
@@ -651,6 +690,24 @@ mod tests {
         assert_eq!(s.cwd, PathBuf::from("/Users/me/proj"));
         assert_eq!(s.title, "fix the auth bug");
         assert!(s.cross_runtime);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn latest_message_ignores_generated_user_metadata() {
+        let tmp = unique_tmp("claude-latest-preview");
+        let path = tmp.join("session.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"message\":{\"content\":\"fix the layout\\n[Image: source: /tmp/layout.png]\"}}\n",
+                "{\"type\":\"user\",\"message\":{\"content\":\"<task-notification>\\n<task-id>build</task-id>\\n</task-notification>\"}}\n",
+                "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n"
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(claude_latest_message(&path), "fix the layout");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

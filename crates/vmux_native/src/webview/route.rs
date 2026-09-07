@@ -21,6 +21,15 @@ impl PageRoutes {
         responder: wry::RequestAsyncResponder,
     ) {
         let url = request.uri().to_string();
+        if !Route::belongs_to(&url, self.page.document_url()) {
+            responder.respond(
+                wry::http::Response::builder()
+                    .status(404)
+                    .body(Vec::new())
+                    .unwrap_or_else(|_| wry::http::Response::new(Vec::new())),
+            );
+            return;
+        }
         match Route::of(&url) {
             Route::Events => self.dom.answer_event(&request, responder),
             Route::Edits => self.dom.serve_edits(&request, responder),
@@ -38,6 +47,15 @@ enum Route {
 }
 
 impl Route {
+    fn belongs_to(request: &str, document: &str) -> bool {
+        Self::host_of(request) == Self::host_of(document)
+    }
+
+    fn host_of(url: &str) -> &str {
+        let after_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+        after_scheme.split('/').next().unwrap_or_default()
+    }
+
     fn of(url: &str) -> Self {
         match Self::path_of(url) {
             "__events" => Self::Events,
@@ -95,5 +113,11 @@ mod tests {
             Route::of("vmux://layout/assets/index.css"),
             Route::Asset
         ));
+    }
+
+    #[test]
+    fn navigation_rejects_requests_from_the_previous_document() {
+        assert!(Route::belongs_to("vmux://agent/__edits", "vmux://agent/"));
+        assert!(!Route::belongs_to("vmux://start/__edits", "vmux://agent/"));
     }
 }

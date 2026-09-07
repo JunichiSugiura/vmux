@@ -122,6 +122,9 @@ fn resume_entries(
             latest,
             subtitle: dir,
             age_seconds: relative_time_seconds(session.mtime),
+            updated_at: chrono::DateTime::<chrono::Local>::from(session.mtime)
+                .format("%Y-%m-%d")
+                .to_string(),
             agent_name,
             project,
             branch,

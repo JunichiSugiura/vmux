@@ -31,6 +31,7 @@ impl Plugin for PageOpenPlugin {
         .add_systems(
             Update,
             (
+                release_agent_transition_paint,
                 prepare_agent_tab_worktrees.before(drain_agent_tab_worktrees),
                 drain_agent_tab_worktrees,
                 handle_agent_page_open,
@@ -65,6 +66,9 @@ struct AwaitingAgentWorktree {
 
 #[derive(Component)]
 struct PreparingAgentChatView;
+
+#[derive(Component)]
+struct AwaitingAgentTransitionPaint;
 
 struct AgentChatTarget {
     url: String,
@@ -103,19 +107,27 @@ impl AgentChatTarget {
     }
 
     fn open(self, stack: Entity, start: Entity, commands: &mut Commands) -> Entity {
-        commands.entity(start).despawn();
-        let view = commands
-            .spawn((
-                vmux_layout::Browser::native_page(&self.url, &self.title),
+        commands
+            .entity(start)
+            .insert((
+                PageMetadata {
+                    url: self.url,
+                    title: self.title,
+                    bg_color: None,
+                    ..default()
+                },
                 crate::host::chat::AgentChatView,
                 PreparingAgentChatView,
-                ChildOf(stack),
             ))
-            .id();
+            .remove::<(
+                vmux_start::StartInlineTransitionView,
+                vmux_core::launcher::HostsLauncher,
+                vmux_core::page::PageReady,
+            )>();
         commands
             .entity(stack)
-            .insert(vmux_start::StartInlineTransition { webview: view });
-        view
+            .insert(vmux_start::StartInlineTransition { webview: start });
+        start
     }
 }
 
@@ -240,6 +252,7 @@ fn prepare_agent_tab_worktrees(
         .iter()
         .map(|(entity, child_of)| (child_of.parent(), entity))
         .collect();
+    let mut opened_stacks = std::collections::HashSet::new();
     for (task_entity, task) in &tasks {
         if !agent_url_uses_local_workspace(&task.url) {
             continue;
@@ -256,6 +269,13 @@ fn prepare_agent_tab_worktrees(
             if let Some(wake) = wake.as_ref() {
                 let _ = wake.send_event(bevy::winit::WinitUserEvent::WakeUp);
             }
+            opened_stacks.insert(task.stack);
+        }
+        if opened_stacks.contains(&task.stack) {
+            commands
+                .entity(task_entity)
+                .insert((PageOpenDeferred, AwaitingAgentTransitionPaint));
+            continue;
         }
         if let Some(pending) = pending_by_tab.get(&tab_entity).copied() {
             commands
@@ -370,6 +390,17 @@ fn prepare_agent_tab_worktrees(
     }
 }
 
+fn release_agent_transition_paint(
+    waiting: Query<Entity, With<AwaitingAgentTransitionPaint>>,
+    mut commands: Commands,
+) {
+    for entity in &waiting {
+        commands
+            .entity(entity)
+            .remove::<(PageOpenDeferred, AwaitingAgentTransitionPaint)>();
+    }
+}
+
 fn drain_agent_tab_worktrees(
     mut pending: Query<(Entity, &mut PendingAgentWorktree)>,
     mut tabs: Query<(
@@ -461,7 +492,6 @@ fn handle_agent_page_open(
     workspace: AgentPageOpenWorkspace,
     catalog: Option<Res<crate::client::acp::AcpCatalog>>,
     transitions: Query<&vmux_start::StartInlineTransition>,
-    preparing_views: Query<(), With<PreparingAgentChatView>>,
 ) {
     let tasks: Vec<(Entity, PageOpenTask)> = open_q
         .p0()
@@ -511,18 +541,11 @@ fn handle_agent_page_open(
             .ok()
             .map(|transition| transition.webview)
             .filter(|_| vmux_start::supports_inline_agent_transition(&task.url));
-        let prepared_webview =
-            transition_webview.filter(|webview| preparing_views.contains(*webview));
-        if let Some(webview) = transition_webview
-            && prepared_webview.is_none()
-        {
-            commands.entity(webview).despawn();
-        }
         match handle_agent_page_open_task(
             &task,
             initial_prompt,
             initial_attachments,
-            prepared_webview,
+            transition_webview,
             &children_q,
             &agents,
             &acp_sessions,
@@ -538,7 +561,7 @@ fn handle_agent_page_open(
         ) {
             Ok(()) => {
                 commands.entity(entity).insert(PageOpenHandled);
-                if let Some(webview) = prepared_webview {
+                if let Some(webview) = transition_webview {
                     commands.entity(webview).remove::<PreparingAgentChatView>();
                 }
                 commands
@@ -1317,6 +1340,7 @@ mod tests {
             .add_systems(
                 Update,
                 (
+                    release_agent_transition_paint,
                     prepare_agent_tab_worktrees,
                     drain_agent_tab_worktrees,
                     handle_agent_page_open,
@@ -1404,6 +1428,7 @@ mod tests {
             .add_systems(
                 Update,
                 (
+                    release_agent_transition_paint,
                     prepare_agent_tab_worktrees,
                     drain_agent_tab_worktrees,
                     handle_agent_page_open,
@@ -1458,7 +1483,38 @@ mod tests {
 
         app.update();
 
-        assert!(app.world().get_entity(start).is_err());
+        assert!(app.world().get_entity(start).is_ok());
+        assert!(app.world().get::<PageOpenDeferred>(first).is_some());
+        assert!(app.world().get::<PageOpenDeferred>(second).is_some());
+        assert!(
+            app.world()
+                .get::<AwaitingAgentTransitionPaint>(first)
+                .is_some()
+        );
+        assert!(
+            app.world()
+                .get::<AwaitingAgentTransitionPaint>(second)
+                .is_some()
+        );
+        assert!(app.world().get::<vmux_session::AcpSession>(stack).is_none());
+        assert!(
+            app.world()
+                .get::<crate::host::RepositoryNeedsWorktree>(tab)
+                .is_none()
+        );
+        assert_eq!(
+            app.world_mut()
+                .query_filtered::<Entity, (
+                    With<crate::host::chat::AgentChatView>,
+                    With<PreparingAgentChatView>,
+                )>()
+                .iter(app.world())
+                .collect::<Vec<_>>(),
+            [start]
+        );
+
+        app.update();
+
         assert!(app.world().get::<PageOpenDeferred>(first).is_none());
         assert!(app.world().get::<PageOpenDeferred>(second).is_none());
         assert!(app.world().get::<PageOpenHandled>(first).is_some());
@@ -1477,11 +1533,10 @@ mod tests {
         );
         assert_eq!(
             app.world_mut()
-                .query_filtered::<&ChildOf, With<crate::host::chat::AgentChatView>>()
+                .query_filtered::<Entity, With<crate::host::chat::AgentChatView>>()
                 .iter(app.world())
-                .filter(|child_of| child_of.parent() == stack)
-                .count(),
-            1
+                .collect::<Vec<_>>(),
+            [start]
         );
         assert_eq!(
             app.world_mut()
@@ -1555,18 +1610,17 @@ mod tests {
 
         app.update();
 
-        assert!(app.world().get_entity(start).is_err());
+        assert!(app.world().get_entity(start).is_ok());
         assert!(app.world().get::<PageOpenDeferred>(task).is_some());
         assert_eq!(
             app.world_mut()
-                .query_filtered::<&ChildOf, (
+                .query_filtered::<Entity, (
                     With<crate::host::chat::AgentChatView>,
                     With<PreparingAgentChatView>,
                 )>()
                 .iter(app.world())
-                .filter(|child_of| child_of.parent() == stack)
-                .count(),
-            1
+                .collect::<Vec<_>>(),
+            [start]
         );
     }
 
@@ -1861,7 +1915,7 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn inline_start_transition_replaces_the_launcher_view_and_keeps_the_prompt() {
+    pub(crate) fn inline_start_transition_navigates_the_launcher_view_and_keeps_the_prompt() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_message::<SpawnAgentInStackRequest>()
@@ -1906,17 +1960,19 @@ mod tests {
 
         app.update();
 
-        assert!(
-            app.world().get_entity(webview).is_err(),
-            "the launcher's view is gone rather than relabelled"
-        );
+        assert!(app.world().get_entity(webview).is_ok());
         let mut views = app
             .world_mut()
-            .query_filtered::<(&PageMetadata, &ChildOf), With<crate::host::chat::AgentChatView>>();
+            .query_filtered::<(
+                Entity,
+                &PageMetadata,
+                &ChildOf,
+            ), With<crate::host::chat::AgentChatView>>();
         let opened: Vec<_> = views.iter(app.world()).collect();
-        let [(meta, parent)] = opened.as_slice() else {
+        let [(entity, meta, parent)] = opened.as_slice() else {
             panic!("expected exactly one chat view, got {}", opened.len());
         };
+        assert_eq!(*entity, webview);
         assert_eq!(meta.url, "vmux://agent/claude");
         assert_eq!(parent.parent(), stack);
         let queue = app.world().get::<vmux_session::PromptQueue>(stack).unwrap();

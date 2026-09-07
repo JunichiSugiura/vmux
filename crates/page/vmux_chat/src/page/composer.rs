@@ -45,6 +45,7 @@ fn ChatComposer(chat: Chat) -> Element {
     let drafted = chat.draft();
     rsx! {
         PromptComposer {
+            shared_transition: true,
             value: drafted,
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),

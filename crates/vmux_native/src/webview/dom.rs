@@ -83,6 +83,21 @@ impl Dom {
         self.reads.clone()
     }
 
+    pub(crate) fn remount(&self, component: crate::PageComponent, instance: crate::Instance) {
+        if let Some(stale) = self.parked.borrow_mut().take() {
+            Self::respond(stale, PageFrame::new(Vec::new(), Vec::new()));
+        }
+        let _reactor = self.reactor.enter();
+        let _host = HostScope::enter(self.host.clone());
+        *self.page.borrow_mut() = PageDom::mount(component, instance);
+        self.listeners.borrow_mut().clear();
+        self.requests.take();
+        self.requests.push(DomRequest::Remount);
+        self.reads.clear();
+        *self.selection.borrow_mut() = EventSelection::default();
+        self.mounted.set(false);
+    }
+
     fn page_flushed(&self) {
         let _host = HostScope::enter(self.host.clone());
         if let Ok(mut page) = self.page.try_borrow_mut() {
@@ -350,5 +365,75 @@ impl PageHost for SurfaceHost {
         self.request(DomRequest::CaretToEnd {
             element: element_id.to_string(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use dioxus::prelude::*;
+    use vmux_ui::hooks::EventListenerError;
+
+    use super::Dom;
+    use crate::webview::dom_request::DomRequest;
+    use crate::{AssetReply, Assets, Embedding, Instance, Outbox, Wake};
+
+    struct TestOutbox;
+
+    impl Outbox for TestOutbox {
+        fn send(&self, _: &str, _: &[u8]) -> Result<(), EventListenerError> {
+            Ok(())
+        }
+    }
+
+    struct TestAssets;
+
+    impl Assets for TestAssets {
+        fn fetch(&self, _: &str, reply: AssetReply) {
+            reply.fail("unused")
+        }
+    }
+
+    struct TestWake;
+
+    impl Wake for TestWake {
+        fn wake(&self) {}
+    }
+
+    #[component]
+    fn First() -> Element {
+        rsx! { div { "first page" } }
+    }
+
+    #[component]
+    fn Second() -> Element {
+        rsx! { div { "second page" } }
+    }
+
+    fn embedding() -> Embedding {
+        Embedding {
+            outbox: Rc::new(TestOutbox),
+            assets: Rc::new(TestAssets),
+            waker: Rc::new(TestWake),
+        }
+    }
+
+    #[test]
+    fn remount_replaces_the_document_without_replacing_the_surface() {
+        let dom = Dom::mount(First, Instance::default(), &embedding());
+        let first_render = dom.next_batch().unwrap();
+        assert!(String::from_utf8_lossy(&first_render).contains("first page"));
+        dom.page_flushed();
+
+        dom.remount(Second, Instance::default());
+
+        assert!(matches!(
+            dom.requests.take().as_slice(),
+            [DomRequest::Remount]
+        ));
+        let second_render = dom.next_batch().unwrap();
+        assert!(String::from_utf8_lossy(&second_render).contains("second page"));
+        assert!(!String::from_utf8_lossy(&second_render).contains("first page"));
     }
 }

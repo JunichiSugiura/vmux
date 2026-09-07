@@ -85,12 +85,22 @@ pub(crate) fn attach_page_agent_to_stack_with_webview(
     ));
     let url = format!("vmux://agent/{provider}");
     if let Some(webview) = webview {
-        commands.entity(webview).insert(PageMetadata {
-            url,
-            title: format!("{provider}/{model}"),
-            bg_color: None,
-            ..default()
-        });
+        commands
+            .entity(webview)
+            .insert((
+                PageMetadata {
+                    url,
+                    title: format!("{provider}/{model}"),
+                    bg_color: None,
+                    ..default()
+                },
+                crate::host::chat::AgentChatView,
+            ))
+            .remove::<(
+                vmux_start::StartInlineTransitionView,
+                vmux_core::launcher::HostsLauncher,
+                vmux_core::page::PageReady,
+            )>();
     } else {
         commands.spawn((
             vmux_layout::Browser::native_page(&url, &format!("{provider}/{model}")),
@@ -185,7 +195,15 @@ pub(crate) fn attach_acp_agent_to_stack_with_webview(
             icon: vmux_core::PageIcon::favicon(icon.unwrap_or("")),
         },
         anchor,
+        crate::host::chat::AgentChatView,
     ));
+    if webview.is_some() {
+        commands.entity(view).remove::<(
+            vmux_start::StartInlineTransitionView,
+            vmux_core::launcher::HostsLauncher,
+            vmux_core::page::PageReady,
+        )>();
+    }
 }
 
 pub(crate) fn acp_registry_agent_for_id<'a>(

@@ -703,6 +703,7 @@ mod tests {
                 latest: "and the tests".into(),
                 subtitle: "w".into(),
                 age_seconds: 7200,
+                updated_at: "2026-09-07".into(),
                 agent_name: "Claude".into(),
                 project: "w".into(),
                 branch: "main".into(),

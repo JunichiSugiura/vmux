@@ -39,7 +39,7 @@ impl SlashRows {
             if sessions.is_empty() && pending {
                 return Self::pending();
             }
-            return Self::sessions(rest, sessions);
+            return ResumeRows::filtered(rest, sessions);
         }
         let mut rows = Vec::new();
         for command in matching {
@@ -58,20 +58,74 @@ impl SlashRows {
         }
         rows
     }
+}
 
-    fn sessions(query: &str, sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumeSection {
+    pub agent: String,
+    pub project: String,
+    pub branch: String,
+    pub count: usize,
+}
+
+impl ResumeSection {
+    fn of(entry: &ResumableSessionEntry) -> Self {
+        let agent = match entry.agent_name.is_empty() {
+            true => entry.kind.clone(),
+            false => entry.agent_name.clone(),
+        };
+        let project = match entry.project.is_empty() {
+            true => entry.subtitle.clone(),
+            false => entry.project.clone(),
+        };
+        Self {
+            agent,
+            project,
+            branch: entry.branch.clone(),
+            count: 0,
+        }
+    }
+}
+
+pub struct ResumeRows;
+
+impl ResumeRows {
+    pub fn of(sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
+        Self::filtered("", sessions)
+    }
+
+    pub fn filtered(query: &str, sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
         let needle = query.trim().to_lowercase();
-        let mut rows = Vec::new();
+        let mut groups: Vec<(ResumeSection, Vec<ResumableSessionEntry>)> = Vec::new();
         for entry in sessions {
             if !needle.is_empty()
                 && !entry.title.to_lowercase().contains(&needle)
+                && !entry.latest.to_lowercase().contains(&needle)
                 && !entry.subtitle.to_lowercase().contains(&needle)
+                && !entry.agent_name.to_lowercase().contains(&needle)
+                && !entry.project.to_lowercase().contains(&needle)
+                && !entry.branch.to_lowercase().contains(&needle)
             {
                 continue;
             }
-            rows.push(CommandBarResultItem::Resume {
-                entry: entry.clone(),
-            });
+            let section = ResumeSection::of(entry);
+            if let Some((_, entries)) = groups.iter_mut().find(|(held, _)| *held == section) {
+                entries.push(entry.clone());
+            } else {
+                groups.push((section, vec![entry.clone()]));
+            }
+        }
+        let mut rows = Vec::new();
+        for (mut section, entries) in groups {
+            section.count = entries.len();
+            let mut first = true;
+            for entry in entries {
+                rows.push(CommandBarResultItem::Resume {
+                    entry: Box::new(entry),
+                    section: first.then(|| section.clone()),
+                });
+                first = false;
+            }
         }
         rows
     }
@@ -178,7 +232,8 @@ pub enum CommandBarResultItem {
         hint: String,
     },
     Resume {
-        entry: ResumableSessionEntry,
+        entry: Box<ResumableSessionEntry>,
+        section: Option<ResumeSection>,
     },
     ResumePending {
         row: usize,
@@ -679,6 +734,71 @@ pub fn filter_results(
 mod tests {
     use super::*;
     use vmux_wire::command_bar::{CommandBarCommandEntry, CommandBarTab};
+
+    fn resume(title: &str, agent: &str, project: &str, branch: &str) -> ResumableSessionEntry {
+        ResumableSessionEntry {
+            title: title.into(),
+            agent_name: agent.into(),
+            project: project.into(),
+            branch: branch.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn resume_rows_group_sessions_under_shared_context() {
+        let rows = ResumeRows::of(&[
+            resume("first", "Codex", "vmux", "main"),
+            resume("second", "Claude", "vmux", "main"),
+            resume("third", "Codex", "vmux", "main"),
+        ]);
+
+        let CommandBarResultItem::Resume {
+            entry: first,
+            section: first_section,
+        } = &rows[0]
+        else {
+            panic!("first resume row");
+        };
+        let CommandBarResultItem::Resume {
+            entry: second,
+            section: second_section,
+        } = &rows[1]
+        else {
+            panic!("second resume row");
+        };
+        let CommandBarResultItem::Resume {
+            entry: third,
+            section: third_section,
+        } = &rows[2]
+        else {
+            panic!("third resume row");
+        };
+
+        assert_eq!(first.title, "first");
+        assert_eq!(second.title, "third");
+        assert_eq!(third.title, "second");
+        assert_eq!(first_section.as_ref().unwrap().agent, "Codex");
+        assert!(second_section.is_none());
+        assert_eq!(third_section.as_ref().unwrap().agent, "Claude");
+    }
+
+    #[test]
+    fn resume_search_matches_section_context() {
+        let rows = ResumeRows::filtered(
+            "feature-x",
+            &[
+                resume("one", "Codex", "vmux", "feature-x"),
+                resume("two", "Claude", "dashboard", "main"),
+            ],
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            &rows[0],
+            CommandBarResultItem::Resume { entry, .. } if entry.title == "one"
+        ));
+    }
 
     fn space(id: &str, name: &str, active: bool) -> CommandBarSpace {
         CommandBarSpace {

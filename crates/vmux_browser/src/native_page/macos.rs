@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -9,6 +10,7 @@ use bevy_cef_core::prelude::{
     BinIpcEventRaw, Browsers, CefRequest, CefResponse, Requester, Responser,
     asset_load_path_from_request_url, embedded_page_host_of,
 };
+use vmux_core::PageOpenSet;
 use vmux_core::host::page::HostsPage;
 use vmux_core::page_metadata::PageMetadata;
 use vmux_layout::LayoutCef;
@@ -28,7 +30,7 @@ impl Plugin for NativePagesMacosPlugin {
             .add_systems(
                 Update,
                 (
-                    open_native_pages,
+                    open_native_pages.after(PageOpenSet::HandleKnownPages),
                     sync_native_appearance.run_if(resource_changed::<AppSettings>),
                     sync_native_page_scale,
                 )
@@ -54,6 +56,7 @@ struct HostedPages(HashMap<Entity, HostedPage>);
 struct HostedPage {
     surface: WebView,
     placement: Placement,
+    page: &'static NativePage,
 }
 
 impl HostedPages {
@@ -80,11 +83,6 @@ fn open_native_pages(world: &mut World) {
             wanted.push((entity, page, placement, instance));
         }
     }
-    wanted.retain(|(entity, _, _, _)| {
-        !world
-            .get_non_send::<HostedPages>()
-            .is_some_and(|hosted| hosted.0.contains_key(entity))
-    });
     if wanted.is_empty() {
         return;
     }
@@ -109,13 +107,37 @@ fn open_native_pages(world: &mut World) {
     }
 
     for (entity, page, placement, read_instance) in wanted {
-        let bounds = wry::Rect {
-            position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(),
-            size: wry::dpi::LogicalSize::new(1.0, 1.0).into(),
-        };
+        let current = world
+            .get_non_send::<HostedPages>()
+            .and_then(|hosted| hosted.0.get(&entity))
+            .map(|hosted| hosted.page);
+        if current.is_some_and(|current| std::ptr::eq(current, page)) {
+            continue;
+        }
         let instance = match read_instance {
             Some(read) => read(world, entity),
             None => vmux_native::Instance::default(),
+        };
+        if current.is_some_and(|current| current.transparent == page.transparent) {
+            world
+                .entity_mut(entity)
+                .remove::<vmux_core::page::PageReady>();
+            {
+                let mut hosted = world.non_send_mut::<HostedPages>();
+                let hosted = hosted.0.get_mut(&entity).expect("the page was just found");
+                hosted.surface.navigate(page, instance);
+                hosted.page = page;
+                hosted.placement = placement;
+            }
+            info!("native_page: navigated {entity:?} to {}", page.url);
+            continue;
+        }
+        if current.is_some() {
+            world.non_send_mut::<HostedPages>().0.remove(&entity);
+        }
+        let bounds = wry::Rect {
+            position: wry::dpi::LogicalPosition::new(0.0, 0.0).into(),
+            size: wry::dpi::LogicalSize::new(1.0, 1.0).into(),
         };
         let built = WINIT_WINDOWS.with(|winit_windows| {
             let winit_windows = winit_windows.borrow();
@@ -146,10 +168,14 @@ fn open_native_pages(world: &mut World) {
                     "native_page: hosting {} for {entity:?} as {placement:?}, {appearance:?}",
                     page.url
                 );
-                world
-                    .non_send_mut::<HostedPages>()
-                    .0
-                    .insert(entity, HostedPage { surface, placement });
+                world.non_send_mut::<HostedPages>().0.insert(
+                    entity,
+                    HostedPage {
+                        surface,
+                        placement,
+                        page,
+                    },
+                );
             }
             Some(Err(error)) => {
                 error!(
@@ -363,7 +389,7 @@ impl PageEmbedder {
             outbox: Rc::new(PageOutbox {
                 bin_ipc: self.bin_ipc.clone(),
                 webview: entity,
-                host: embedded_page_host_of(url).unwrap_or_default(),
+                host: RefCell::new(embedded_page_host_of(url).unwrap_or_default()),
             }),
             assets: Rc::new(PageAssets {
                 requester: self.requester.clone(),
@@ -404,7 +430,7 @@ pub(crate) fn accept_page_wakes(_: bevy::ecs::system::NonSendMarker) {
 struct PageOutbox {
     bin_ipc: async_channel::Sender<BinIpcEventRaw>,
     webview: Entity,
-    host: String,
+    host: RefCell<String>,
 }
 
 impl vmux_native::Outbox for PageOutbox {
@@ -412,11 +438,15 @@ impl vmux_native::Outbox for PageOutbox {
         self.bin_ipc
             .send_blocking(BinIpcEventRaw {
                 webview: self.webview,
-                host: self.host.clone(),
+                host: self.host.borrow().clone(),
                 id: id.to_string(),
                 payload: bytes.to_vec(),
             })
             .map_err(|_| EventListenerError::Unsupported)
+    }
+
+    fn set_page(&self, url: &str) {
+        *self.host.borrow_mut() = embedded_page_host_of(url).unwrap_or_default();
     }
 }
 
@@ -472,7 +502,7 @@ fn report_waiting(reason: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Placement, SiblingOrder};
+    use super::{PageOutbox, Placement, SiblingOrder};
 
     #[test]
     fn the_layout_is_asked_for_the_pointer_only_while_a_surface_of_its_own_is_up() {
@@ -490,5 +520,21 @@ mod tests {
         );
         assert_eq!(Placement::Pane.pointer_order(false), None);
         assert!(Placement::Layout.paints_in_front());
+    }
+
+    #[test]
+    fn a_navigated_page_emits_as_its_new_host() {
+        let (tx, rx) = async_channel::bounded(1);
+        let outbox = PageOutbox {
+            bin_ipc: tx,
+            webview: bevy::prelude::Entity::PLACEHOLDER,
+            host: std::cell::RefCell::new("start".to_string()),
+        };
+
+        vmux_native::Outbox::set_page(&outbox, "vmux://agent/claude");
+        vmux_native::Outbox::send(&outbox, "event", &[1, 2, 3]).unwrap();
+
+        let emitted = rx.recv_blocking().unwrap();
+        assert_eq!(emitted.host, "agent");
     }
 }

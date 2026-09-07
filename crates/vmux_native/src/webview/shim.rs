@@ -107,8 +107,21 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     const ratio = Math.min(Math.max((x - rect.left) / rect.width, 0), 1);
     return [Math.round(ratio * length), 0, 0, 0];
   };
+  const prepareRemount = () => {
+    const previous = window.interpreter;
+    const root = previous.root.cloneNode(false);
+    const interpreter = new NativeInterpreter(previous.baseUri, false);
+    interpreter.initialize(root);
+    return { previousRoot: previous.root, root, interpreter };
+  };
+  const commitRemount = (remount) => {
+    remount.previousRoot.replaceWith(remount.root);
+    window.interpreter = remount.interpreter;
+  };
   const applyDomRequest = (request) => {
     switch (request.kind) {
+      case 'remount':
+        return;
       case 'focusNode':
         window.interpreter.setFocus(request.node, request.focus);
         return;
@@ -215,10 +228,35 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
         if (frame.byteLength < 4) continue;
         const length = new DataView(frame).getUint32(0, true);
         const edits = frame.slice(4 + length);
-        if (edits.byteLength) window.interpreter.run_from_bytes(edits);
+        let requests = [];
+        let remount = null;
         if (length) {
           const json = new TextDecoder().decode(new Uint8Array(frame, 4, length));
-          for (const queued of JSON.parse(json)) applyDomRequest(queued);
+          requests = JSON.parse(json);
+          for (const queued of requests) {
+            if (queued.kind === 'remount') remount = prepareRemount();
+          }
+        }
+        if (remount) {
+          if (edits.byteLength) remount.interpreter.run_from_bytes(edits);
+          const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          const sharedComposer = remount.previousRoot.querySelector('.vmux-agent-composer-shared')
+            && remount.root.querySelector('.vmux-agent-composer-shared');
+          if (typeof document.startViewTransition === 'function' && !reducedMotion && sharedComposer) {
+            document.documentElement.classList.add('vmux-page-transition');
+            const transition = document.startViewTransition(() => commitRemount(remount));
+            transition.finished.finally(() => {
+              document.documentElement.classList.remove('vmux-page-transition');
+            });
+            await transition.updateCallbackDone;
+          } else {
+            commitRemount(remount);
+          }
+        } else if (edits.byteLength) {
+          window.interpreter.run_from_bytes(edits);
+        }
+        for (const queued of requests) {
+          if (queued.kind !== 'remount') applyDomRequest(queued);
         }
         applied = edits.byteLength > 0;
       } catch (e) {

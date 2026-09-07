@@ -6,6 +6,7 @@
   var BRIDGE_URL = c.runtime && c.runtime.getURL ? c.runtime.getURL("vmux_bridge.html") : null;
   var FAKE_WINDOW_ID = 1;
   var lastTab = null;
+  var nativeTabs = {};
   var nativeTabIds = {};
   var modelTabIds = {};
   var knownWindows = [];
@@ -37,7 +38,7 @@
     if (typeof tab.highlighted !== "boolean") tab.highlighted = tab.active;
     if (!tab.status) tab.status = "complete";
     lastTab = tab;
-    nativeTabIds[tab.url] = tab.id;
+    nativeTabs[tab.id] = tab;
     return tab;
   }
 
@@ -120,7 +121,11 @@
       var win = knownWindows[i];
       var tabs = win && Array.isArray(win.tabs) ? win.tabs : [];
       for (var j = 0; j < tabs.length; j++) {
-        if (tabs[j].id === tab.id || sameDocument(tabs[j].url, tab.url)) return win.id;
+        if (
+          tabs[j].id === tab.id ||
+          modelTabIds[tabs[j].id] === tab.id ||
+          sameDocument(tabs[j].url, tab.url)
+        ) return win.id;
       }
     }
     return null;
@@ -143,7 +148,9 @@
   function tabMatchesQuery(tab, queryInfo, ignoreWindowId) {
     if (!queryInfo) return true;
     var requestedWindowId = typeof queryInfo.windowId === "number"
-      ? queryInfo.windowId
+      ? queryInfo.windowId === -2
+        ? focusedWindowId()
+        : queryInfo.windowId
       : queryInfo.currentWindow || queryInfo.lastFocusedWindow
         ? focusedWindowId()
         : null;
@@ -223,13 +230,29 @@
       return false;
     }
   }
+  function availableNativeTabId(tab) {
+    var known = nativeTabIds[tab.id];
+    if (typeof known === "number") return known;
+    var matching = null;
+    var ids = Object.keys(nativeTabs);
+    for (var i = 0; i < ids.length; i++) {
+      var native = nativeTabs[ids[i]];
+      if (!native || !sameDocument(native.url, tab.url)) continue;
+      var claimed = modelTabIds[native.id];
+      if (typeof claimed === "number" && claimed !== tab.id) continue;
+      if (native.index === tab.index) return native.id;
+      if (matching === null) matching = native.id;
+    }
+    if (matching !== null) return matching;
+    if (!lastTab || !sameOrigin(lastTab.url, tab.url)) return null;
+    var lastClaimed = modelTabIds[lastTab.id];
+    return typeof lastClaimed !== "number" || lastClaimed === tab.id ? lastTab.id : null;
+  }
   function withNativeTabId(tab) {
     if (!tab || typeof tab.url !== "string") return tab;
-    var native = nativeTabIds[tab.url];
-    if (typeof native !== "number" && lastTab && sameOrigin(lastTab.url, tab.url)) {
-      native = lastTab.id;
-    }
+    var native = availableNativeTabId(tab);
     if (typeof native === "number") {
+      nativeTabIds[tab.id] = native;
       modelTabIds[native] = tab.id;
       return native === tab.id ? tab : Object.assign({}, tab, { id: native });
     }
@@ -482,15 +505,17 @@
             fallback();
             return;
           }
-          var named = [];
-          var dropped = false;
-          for (var i = 0; i < tabs.length; i++) {
-            var tab = withNativeTabId(tabs[i]);
-            if (tab) named.push(tab);
-            else dropped = true;
-          }
-          if (!dropped) resolve(named);
-          else fallback();
+          normalizeTabWindowIds(tabs, queryInfo).then(function (normalized) {
+            var named = [];
+            var dropped = false;
+            for (var i = 0; i < normalized.length; i++) {
+              var tab = withNativeTabId(normalized[i]);
+              if (tab) named.push(tab);
+              else dropped = true;
+            }
+            if (!dropped) resolve(named);
+            else fallback();
+          }, fallback);
         }, fallback);
       });
       if (typeof cb === "function") {

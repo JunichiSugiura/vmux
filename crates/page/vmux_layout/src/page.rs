@@ -26,10 +26,12 @@ use vmux_core::knowledge::{
 };
 use vmux_core::tools::{TOOLS_SNAPSHOT_EVENT, ToolCategory, ToolItem, ToolStatus, ToolsSnapshot};
 use vmux_core::{PageIcon, PageMetadata};
+use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::context_menu::{
     ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 };
 use vmux_ui::components::icon::Icon;
+use vmux_ui::components::progress::{Progress, ProgressIndicator};
 use vmux_ui::components::tree_row::{
     SIDEBAR_CARD_CHEVRON_CLOSED, SIDEBAR_CARD_CHEVRON_OPEN, SIDEBAR_TREE_CHEVRON_CLOSED,
     SIDEBAR_TREE_CHEVRON_OPEN, SIDEBAR_TREE_COLUMN, SIDEBAR_TREE_SCROLLER, SidebarTreeChildren,
@@ -42,6 +44,7 @@ use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::icon::{BuiltinIconView, PageIconView};
 use vmux_ui::platform::sleep_ms;
 use vmux_ui::scroll::ScrollIntoView;
+use vmux_ui::util::cn;
 
 #[component]
 pub fn Page() -> Element {
@@ -1856,18 +1859,11 @@ fn submit_knowledge_create(mut prompt: Signal<Option<KnowledgeCreatePrompt>>, na
 
 #[component]
 fn UpdateProgressBar(downloaded: u64, total: u64) -> Element {
-    let determinate = total > 0;
-    let pct = download_pct(downloaded, total);
     rsx! {
-        div { class: "h-1.5 w-full overflow-hidden rounded-full bg-foreground/10",
-            if determinate {
-                div {
-                    class: "h-full rounded-full bg-primary transition-[width] duration-200",
-                    style: "width:{pct}%",
-                }
-            } else {
-                div { class: "h-full w-1/3 rounded-full bg-primary update-progress-indeterminate" }
-            }
+        Progress {
+            value: (total > 0).then(|| download_pct(downloaded, total) as f64),
+            attributes: vec![],
+            ProgressIndicator { attributes: vec![] }
         }
     }
 }
@@ -1896,17 +1892,26 @@ fn Tab(tab: TabRow) -> Element {
     let (tab_style, tab_class, title_class, close_class) = if is_active {
         (
             "--tab-bg:var(--glass);".to_string(),
-            format!("{skirt_classes} {tab_box_classes} glass rounded-t-md border-b-0"),
-            format!("min-w-0 flex-1 {trunc} text-ui font-medium text-foreground"),
+            cn([
+                skirt_classes,
+                tab_box_classes,
+                "glass rounded-t-md border-b-0",
+            ]),
+            cn([
+                "min-w-0 flex-1",
+                trunc,
+                "text-ui font-medium text-foreground",
+            ]),
             "flex h-4 w-4 cursor-pointer shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10".to_string(),
         )
     } else {
         (
             String::new(),
-            format!(
-                "{tab_box_classes} rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground"
-            ),
-            format!("min-w-0 flex-1 {trunc} text-ui"),
+            cn([
+                tab_box_classes,
+                "rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground",
+            ]),
+            cn(["min-w-0 flex-1", trunc, "text-ui"]),
             "flex h-4 w-4 cursor-pointer shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10".to_string(),
         )
     };
@@ -2209,10 +2214,12 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                             member_id: None,
                         });
                     },
-                    div {
-                        class: "inline-flex size-5 items-center justify-center rounded-full text-[9px] font-semibold text-white",
-                        style: "background:{user.color}",
-                        "{user.initials}"
+                    Avatar {
+                        src: None,
+                        fallback: user.initials.clone(),
+                        background: user.color.clone(),
+                        alt: user.name.clone(),
+                        class: "size-5 text-[9px]",
                     }
                     span { class: "whitespace-nowrap text-xs font-medium text-foreground", "{user.name}" }
                 }
@@ -2222,7 +2229,6 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                     for m in agents.iter().take(max) {
                         {
                             let src = favicon_src_for_url(&m.icon, &m.url);
-                            let bg = if src.is_some() { String::new() } else { format!("background:{}", m.color) };
                             let id = m.id.clone();
                             rsx! {
                                 div {
@@ -2235,14 +2241,12 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                                             member_id: Some(id.clone()),
                                         });
                                     },
-                                    div {
-                                        class: "inline-flex size-5 items-center justify-center overflow-hidden rounded-full ring-2 ring-background text-[9px] font-semibold text-white",
-                                        style: "{bg}",
-                                        if let Some(src) = src.as_ref() {
-                                            img { class: "size-full object-cover", src: "{src}" }
-                                        } else {
-                                            "{m.initials}"
-                                        }
+                                    Avatar {
+                                        src,
+                                        fallback: m.initials.clone(),
+                                        background: m.color.clone(),
+                                        alt: m.name.clone(),
+                                        class: "size-5 text-[9px] ring-2 ring-background",
                                     }
                                     if m.is_running {
                                         span { class: "absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full bg-success ring-2 ring-background" }

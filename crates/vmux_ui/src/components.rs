@@ -1,20 +1,27 @@
 pub mod agent_menu;
 pub mod alert_dialog;
+pub mod avatar;
+pub mod badge;
 pub mod button;
 pub mod card;
+pub mod checkbox;
 pub mod composer;
 pub mod composer_bar;
 pub mod context_menu;
+pub mod dialog;
 pub mod effort_menu;
 pub mod icon;
 pub mod input;
 pub mod manager;
 pub mod model_menu;
+pub mod progress;
 pub mod project_picker;
 pub mod prompt_box;
 pub mod prompt_media_options;
 pub mod select;
+pub mod skeleton;
 pub mod start_hero;
+pub mod switch;
 pub mod tree_row;
 
 #[cfg(test)]

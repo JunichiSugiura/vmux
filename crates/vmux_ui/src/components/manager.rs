@@ -1,5 +1,8 @@
+use crate::components::badge::Badge;
+use crate::components::skeleton::Skeleton;
 use crate::hooks::use_selector;
 use crate::list_nav::{MenuDirection, move_selection};
+use crate::util::cn;
 use dioxus::prelude::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -150,7 +153,7 @@ pub fn ManagerRow(
 #[component]
 pub fn ManagerBadge(#[props(default)] tone: ManagerTone, children: Element) -> Element {
     rsx! {
-        span { class: "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 ring-inset {tone.classes()}",
+        Badge { class: cn(["rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ring-1 ring-inset", tone.classes()]),
             {children}
         }
     }
@@ -381,10 +384,10 @@ pub fn ManagerSkeleton() -> Element {
     rsx! {
         for i in 0..3 {
             div { key: "{i}", class: "flex items-center gap-4 rounded-2xl bg-foreground/[0.035] px-5 py-4 ring-1 ring-inset ring-foreground/10",
-                div { class: "h-10 w-10 shrink-0 animate-pulse rounded-xl bg-foreground/[0.06]" }
+                Skeleton { class: "h-10 w-10 shrink-0 rounded-xl bg-foreground/[0.06]" }
                 div { class: "flex min-w-0 flex-1 flex-col gap-1.5",
-                    div { class: "h-3 w-32 animate-pulse rounded bg-foreground/[0.06]" }
-                    div { class: "h-2.5 w-48 animate-pulse rounded bg-foreground/[0.05]" }
+                    Skeleton { class: "h-3 w-32 bg-foreground/[0.06]" }
+                    Skeleton { class: "h-2.5 w-48 bg-foreground/[0.05]" }
                 }
             }
         }

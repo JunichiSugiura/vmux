@@ -36,6 +36,7 @@ use vmux_ui::media::MediaElement;
 use vmux_ui::platform::{now_millis, random_index, sleep_ms};
 use vmux_ui::scroll::ScrollIntoView;
 use vmux_ui::text_run::TextRun;
+use vmux_ui::util::cn;
 
 #[component]
 pub fn Page() -> Element {
@@ -4132,13 +4133,12 @@ pub(crate) const PANE_CLASS: &str = "min-h-0 overflow-y-auto rounded-2xl bg-fore
 pub(crate) fn row_class(selected: bool) -> String {
     let base =
         "flex items-center gap-2 rounded-md px-2 py-1 cursor-default transition-all duration-100";
-    if selected {
-        format!(
-            "{base} bg-cyan-400/12 text-foreground shadow-[inset_2px_0_0_0_rgb(34,211,238),0_0_18px_-4px_rgba(34,211,238,0.45)]"
-        )
+    let state = if selected {
+        "bg-cyan-400/12 text-foreground shadow-[inset_2px_0_0_0_rgb(34,211,238),0_0_18px_-4px_rgba(34,211,238,0.45)]"
     } else {
-        format!("{base} text-foreground/75 hover:bg-foreground/[0.05]")
-    }
+        "text-foreground/75 hover:bg-foreground/[0.05]"
+    };
+    cn([base, state])
 }
 
 fn diff_marker_sign(marker: EditorDiffMarker) -> &'static str {

@@ -4,7 +4,9 @@ use vmux_wire::space::{ProjectBranch, ProjectRow};
 use crate::components::prompt_box::{
     PROMPT_MENU_INDENT, PROMPT_MENU_ROW, PromptMenuRow, PromptPopup, PromptPopupPlacement,
 };
+use crate::components::skeleton::Skeleton;
 use crate::i18n::translate;
+use crate::util::cn;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ProjectPickerProps {
@@ -47,6 +49,12 @@ pub fn ProjectPicker(props: ProjectPickerProps) -> Element {
             roots.push(project.clone());
         }
     }
+    let empty_class = cn([PROMPT_MENU_ROW, "text-muted-foreground"]);
+    let choose_another_row = PromptMenuRow::class(cursor == roots.len());
+    let choose_another_class = cn([
+        choose_another_row.as_str(),
+        "border-t border-foreground/10 text-muted-foreground hover:text-foreground",
+    ]);
     rsx! {
         PromptPopup {
             placement,
@@ -54,7 +62,7 @@ pub fn ProjectPicker(props: ProjectPickerProps) -> Element {
             on_dismiss: move |()| on_dismiss.call(()),
             if roots.is_empty() {
                 if loaded {
-                    div { class: "{PROMPT_MENU_ROW} text-muted-foreground", {translate("agent-project-none")} }
+                    div { class: empty_class, {translate("agent-project-none")} }
                 } else {
                     PromptMenuSkeleton { rows: 3 }
                 }
@@ -73,7 +81,7 @@ pub fn ProjectPicker(props: ProjectPickerProps) -> Element {
                 }
             }
             button {
-                class: "{PromptMenuRow::class(cursor == roots.len())} border-t border-foreground/10 text-muted-foreground hover:text-foreground",
+                class: choose_another_class,
                 onmousedown: move |event| event.prevent_default(),
                 onmouseenter: move |_| {
                     if let Some(hover) = on_hover {
@@ -98,6 +106,7 @@ pub fn BranchPicker(
     on_pick: EventHandler<ProjectPick>,
     on_dismiss: EventHandler<()>,
 ) -> Element {
+    let empty_class = cn([PROMPT_MENU_ROW, "text-muted-foreground"]);
     rsx! {
         PromptPopup {
             placement,
@@ -106,7 +115,7 @@ pub fn BranchPicker(
             if !loaded {
                 PromptMenuSkeleton { rows: 4 }
             } else if branches.is_empty() {
-                div { class: "{PROMPT_MENU_ROW} text-muted-foreground", {translate("agent-project-no-branches")} }
+                div { class: empty_class, {translate("agent-project-no-branches")} }
             } else {
                 for (index , branch) in branches.into_iter().enumerate() {
                     ProjectBranchRow {
@@ -130,13 +139,14 @@ pub fn BranchPicker(
 
 #[component]
 fn PromptMenuSkeleton(rows: usize) -> Element {
+    const WIDTHS: [&str; 4] = ["w-[88%]", "w-[76%]", "w-[64%]", "w-[52%]"];
+
     rsx! {
         div { class: "flex flex-col gap-1 px-3 py-2",
-            for row in 0..rows {
-                div {
+            for (row, width) in WIDTHS.iter().take(rows).enumerate() {
+                Skeleton {
                     key: "skeleton-{row}",
-                    class: "h-5 animate-pulse rounded bg-foreground/[0.06] motion-reduce:animate-none",
-                    style: "width: {88 - row * 12}%",
+                    class: cn(["h-5 bg-foreground/[0.06]", width]),
                 }
             }
         }
@@ -203,9 +213,13 @@ fn ProjectBranchRow(
         branch: branch.branch.clone(),
         checkout: branch.checkout.clone(),
     };
+    let row_class = PromptMenuRow::class(at_cursor);
     rsx! {
         button {
-            class: if indent { format!("{} {PROMPT_MENU_INDENT}", PromptMenuRow::class(at_cursor)) } else { PromptMenuRow::class(at_cursor) },
+            class: cn([
+                row_class.as_str(),
+                if indent { PROMPT_MENU_INDENT } else { "" },
+            ]),
             title: "{title}",
             onmousedown: move |event| event.prevent_default(),
             onmouseenter: move |_| on_hover.call(()),

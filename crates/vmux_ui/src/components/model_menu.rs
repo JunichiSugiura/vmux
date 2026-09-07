@@ -5,6 +5,7 @@ use crate::components::prompt_box::{
     PROMPT_MENU_ROW, PromptMenuRow, PromptPopup, PromptPopupPlacement,
 };
 use crate::i18n::translate;
+use crate::util::cn;
 
 #[component]
 pub fn ModelMenu(
@@ -16,16 +17,20 @@ pub fn ModelMenu(
     on_select: EventHandler<ModelOptionEntry>,
     #[props(default)] on_dismiss: Option<EventHandler<()>>,
 ) -> Element {
+    let empty_class = cn([PROMPT_MENU_ROW, "text-muted-foreground"]);
     rsx! {
         PromptPopup { placement, heading: translate("composer-model"), on_dismiss,
             if models.is_empty() {
-                div { class: "{PROMPT_MENU_ROW} text-muted-foreground", {translate("agent-no-matching-models")} }
+                div { class: empty_class, {translate("agent-no-matching-models")} }
             } else {
                 for (i , model) in models.into_iter().enumerate() {
                     div {
                         key: "model{i}",
                         id: "agent-selector-item-{i}",
-                        class: "{PromptMenuRow::class(i == selected)} cursor-pointer flex-col items-stretch gap-0.5",
+                        class: cn([
+                            PromptMenuRow::class(i == selected).as_str(),
+                            "cursor-pointer flex-col items-stretch gap-0.5",
+                        ]),
                         onmouseenter: move |_| on_hover.call(i),
                         onclick: {
                             let model = model.clone();

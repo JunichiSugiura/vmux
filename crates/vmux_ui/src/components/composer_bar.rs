@@ -7,15 +7,17 @@ use crate::components::effort_menu::EffortMenu;
 use crate::components::model_menu::ModelMenu;
 use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker};
 use crate::components::prompt_box::PromptPopupPlacement;
+use crate::components::skeleton::Skeleton;
 use crate::i18n::{TranslationValue, translate, translate_with};
 use crate::list_nav::MenuDirection;
+use crate::util::cn;
 
 const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted-foreground";
 const COMPOSER_CHIP_LABEL_TIGHT: &str = "@max-[34rem]:hidden";
 const COMPOSER_CHIP_INTERACTIVE: &str =
     "transition hover:bg-foreground/[0.08] hover:text-foreground";
 const COMPOSER_CHIP_OPEN: &str = "transition bg-foreground/[0.12] text-foreground";
-const COMPOSER_CHIP_SKELETON: &str = "h-7 shrink-0 animate-pulse rounded-lg bg-foreground/[0.06]";
+const COMPOSER_CHIP_SKELETON: &str = "h-7 shrink-0 rounded-lg bg-foreground/[0.06]";
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ComposerBarProps {
@@ -58,7 +60,7 @@ pub fn StatusDot(status: String, size_class: String) -> Element {
         _ => "bg-success shadow-[0_0_8px_rgba(16,185,129,0.65)]",
     };
     rsx! {
-        span { class: "{size_class} rounded-full {tone}" }
+        span { class: cn([size_class.as_str(), "rounded-full", tone]) }
     }
 }
 
@@ -344,15 +346,16 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
     if chip.loading {
         let width = kind.skeleton_width();
         return rsx! {
-            div { class: "{COMPOSER_CHIP_SKELETON} {width}" }
+            Skeleton { class: cn([COMPOSER_CHIP_SKELETON, width]) }
         };
     }
     let label_class = kind.label_class();
+    let label_class = cn([label_class, COMPOSER_CHIP_LABEL_TIGHT]);
     let Some(on_open) = chip.on_open else {
         return rsx! {
             span { class: COMPOSER_CHIP, title: "{chip.title}",
                 ComposerChipIcon { kind }
-                span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
+                span { class: label_class, "{chip.label}" }
             }
         };
     };
@@ -360,14 +363,15 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
         true => COMPOSER_CHIP_OPEN,
         false => COMPOSER_CHIP_INTERACTIVE,
     };
+    let chip_class = cn([COMPOSER_CHIP, state]);
     rsx! {
         button {
-            class: "{COMPOSER_CHIP} {state}",
+            class: chip_class,
             title: "{chip.title}",
             onmousedown: move |event| event.prevent_default(),
             onclick: move |_| on_open.call(()),
             ComposerChipIcon { kind }
-            span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
+            span { class: label_class, "{chip.label}" }
             svg {
                 class: if open { "h-3 w-3 shrink-0 rotate-180 opacity-70 transition-transform duration-200 ease-out" } else { "h-3 w-3 shrink-0 opacity-50 transition-transform duration-200 ease-out" },
                 view_box: "0 0 24 24",

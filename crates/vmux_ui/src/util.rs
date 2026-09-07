@@ -1,15 +1,18 @@
-pub fn merge_class(base: &str, extra: Option<&str>) -> String {
-    match extra {
-        None => base.to_string(),
-        Some(e) => {
-            let e = e.trim();
-            if e.is_empty() {
-                base.to_string()
-            } else if base.is_empty() {
-                e.to_string()
-            } else {
-                format!("{base} {e}")
-            }
+pub fn cn<I, S>(classes: I) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut joined = String::new();
+    for value in classes {
+        let class = value.as_ref().trim();
+        if class.is_empty() {
+            continue;
         }
+        if !joined.is_empty() {
+            joined.push(' ');
+        }
+        joined.push_str(class);
     }
+    joined
 }

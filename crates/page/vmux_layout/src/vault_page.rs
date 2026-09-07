@@ -6,6 +6,7 @@ use vmux_core::vault::{
     VAULT_ACTION_RESULT_EVENT, VAULT_AUTH_PROGRESS_EVENT, VaultAction, VaultActionRequest,
     VaultActionResult, VaultAuthProgress, VaultRefreshRequest, VaultSnapshot,
 };
+use vmux_ui::components::checkbox::Checkbox;
 use vmux_ui::components::manager::{
     ManagerButton, ManagerButtonVariant, ManagerList, ManagerPage, ManagerSelect,
     ManagerSelectItem, ManagerSelectItemKind, ManagerSpinner,
@@ -578,10 +579,10 @@ fn VaultPanel(
                                             }
                                             if provider == RemoteProvider::Github {
                                                 label { class: "mt-3 flex cursor-pointer items-center gap-2 px-1 text-xs text-muted-foreground",
-                                                    input {
-                                                        r#type: "checkbox",
+                                                    Checkbox {
                                                         checked: private(),
-                                                        onchange: move |event| private.set(event.checked()),
+                                                        on_checked_change: move |checked| private.set(checked),
+                                                        attributes: vec![],
                                                     }
                                                     {translate("vault-private")}
                                                 }

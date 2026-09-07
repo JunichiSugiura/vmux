@@ -7,6 +7,8 @@ use std::rc::Rc;
 use crate::page_model::merge_tree_motion_rows;
 use dioxus::prelude::*;
 use vmux_core::event::*;
+use vmux_ui::components::button::{Button, ButtonSize, ButtonVariant};
+use vmux_ui::components::dialog::{DialogContent, DialogDescription, DialogRoot, DialogTitle};
 use vmux_ui::components::tree_row::{
     SIDEBAR_STICKY_SURFACE, SIDEBAR_TREE_LIST_GROUP, SIDEBAR_TREE_ROW_BASE, TreeRowAccent,
 };
@@ -1823,23 +1825,23 @@ pub fn ExplorerPanel(visible: Signal<bool>, caret_line: u32, view: Signal<Sideba
             }
 
             if let Some(current) = prompt() {
-                div {
-                    class: "fixed inset-0 z-[1000] flex items-center justify-center bg-black/25 animate-[dx-fade-in_120ms_ease-out_forwards]",
-                    onclick: move |_| prompt.set(None),
-                    div {
-                        class: "w-[min(360px,calc(100vw-32px))] animate-[dx-fade-zoom-in_150ms_ease-out_forwards] rounded-xl bg-background p-4 shadow-[0_18px_60px_rgba(0,0,0,0.35),inset_0_0_0_1px_var(--border)]",
-                        onclick: move |e| e.stop_propagation(),
-                        div { class: "text-sm font-semibold text-foreground", "{prompt_title(current.kind)}" }
+                DialogRoot {
+                    open: true,
+                    on_open_change: Callback::new(move |open: bool| {
+                        if !open {
+                            prompt.set(None);
+                        }
+                    }),
+                    attributes: vec![],
+                    DialogContent { class: "max-w-[360px] p-4", attributes: vec![],
+                        DialogTitle { attributes: vec![], "{prompt_title(current.kind)}" }
                         if current.kind == PromptKind::Delete {
-                            div { class: "mt-2 text-xs leading-relaxed text-muted-foreground",
-                                {translate_with(
-                                    "editor-delete-confirm",
-                                    &[("name", TranslationValue::String(&current.name))],
-                                )}
+                            DialogDescription { class: "text-xs leading-relaxed", attributes: vec![],
+                                {translate_with("editor-delete-confirm", &[("name", TranslationValue::String(&current.name))])}
                             }
                         } else {
                             input {
-                                class: "mt-3 w-full rounded-md border border-border bg-foreground/[0.04] px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-cyan-400/50",
+                                class: "w-full rounded-md border border-border bg-foreground/[0.04] px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-cyan-400/50",
                                 autofocus: true,
                                 value: "{draft}",
                                 oninput: move |e| draft.set(e.value()),
@@ -1847,9 +1849,7 @@ pub fn ExplorerPanel(visible: Signal<bool>, caret_line: u32, view: Signal<Sideba
                                 oncompositionend: move |_| ime.commit(),
                                 onkeydown: move |e: Event<KeyboardData>| {
                                     e.stop_propagation();
-                                    if ime.swallows(&e) {
-                                        return;
-                                    }
+                                    if ime.swallows(&e) { return; }
                                     if e.key() == Key::Enter {
                                         e.prevent_default();
                                         submit_prompt(prompt, draft);
@@ -1859,24 +1859,12 @@ pub fn ExplorerPanel(visible: Signal<bool>, caret_line: u32, view: Signal<Sideba
                                 },
                             }
                         }
-                        div { class: "mt-4 flex justify-end gap-2",
-                            button {
-                                class: "rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground",
-                                onclick: move |_| prompt.set(None),
+                        div { class: "flex justify-end gap-2",
+                            Button { size: ButtonSize::Xs, variant: ButtonVariant::Ghost, onclick: move |_| prompt.set(None),
                                 {translate("common-cancel")}
                             }
-                            button {
-                                class: if current.kind == PromptKind::Delete {
-                                    "rounded-md bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
-                                } else {
-                                    "rounded-md bg-cyan-500 px-3 py-1.5 text-xs font-medium text-slate-950 transition-colors hover:bg-cyan-400"
-                                },
-                                onclick: move |_| submit_prompt(prompt, draft),
-                                {if current.kind == PromptKind::Delete {
-                                    translate("common-delete")
-                                } else {
-                                    translate("common-save")
-                                }}
+                            Button { size: ButtonSize::Xs, variant: if current.kind == PromptKind::Delete { ButtonVariant::Destructive } else { ButtonVariant::Primary }, onclick: move |_| submit_prompt(prompt, draft),
+                                {if current.kind == PromptKind::Delete { translate("common-delete") } else { translate("common-save") }}
                             }
                         }
                     }

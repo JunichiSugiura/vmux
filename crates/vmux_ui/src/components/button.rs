@@ -1,5 +1,5 @@
 use crate::components::icon::Icon;
-use crate::util::merge_class;
+use crate::util::cn;
 use dioxus::prelude::*;
 use dioxus_primitives::dioxus_attributes::attributes;
 use dioxus_primitives::merge_attributes;
@@ -72,10 +72,7 @@ pub fn Button(
     onmouseup: Option<EventHandler<MouseEvent>>,
     children: Element,
 ) -> Element {
-    let class = merge_class(
-        BUTTON_BASE,
-        Some(&merge_class(size.classes(), Some(variant.classes()))),
-    );
+    let class = cn([BUTTON_BASE, size.classes(), variant.classes()]);
     let base = attributes!(button { class });
     let merged = merge_attributes(vec![base, attributes]);
 

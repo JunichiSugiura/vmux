@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::components::prompt_box::{PromptMenuRow, PromptPopup, PromptPopupPlacement};
 use crate::favicon::Favicon;
 use crate::i18n::translate;
+use crate::util::cn;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ComposerAgentOption {
@@ -59,9 +60,10 @@ fn AgentMenuRow(
         true => "text-foreground",
         false => "text-foreground/75 hover:text-foreground",
     };
+    let row_class = PromptMenuRow::class(at_cursor);
     rsx! {
         button {
-            class: "{PromptMenuRow::class(at_cursor)} {text}",
+            class: cn([row_class.as_str(), text]),
             onmousedown: move |event| event.prevent_default(),
             onmouseenter: move |_| on_hover.call(()),
             onclick: move |_| on_pick.call(url.clone()),

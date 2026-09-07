@@ -1,6 +1,7 @@
 use super::state::Chat;
 use dioxus::prelude::*;
 use vmux_ui::back::BackButton;
+use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::composer_bar::StatusDot;
 use vmux_ui::favicon::favicon_src_for_url;
 
@@ -44,20 +45,13 @@ fn AgentAvatar(chat: Chat, size_class: String) -> Element {
     } else {
         &accent
     };
-    let style = if src.is_some() {
-        String::new()
-    } else {
-        format!("background:{fallback}")
-    };
     rsx! {
-        div {
-            class: "flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white {size_class}",
-            style: "{style}",
-            if let Some(src) = src.as_ref() {
-                img { class: "h-full w-full object-cover", src: "{src}" }
-            } else {
-                "{initial}"
-            }
+        Avatar {
+            src,
+            fallback: initial,
+            background: fallback,
+            alt: chat.header_name(),
+            class: size_class,
         }
     }
 }

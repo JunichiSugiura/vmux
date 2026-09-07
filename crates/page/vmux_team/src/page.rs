@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 use dioxus::prelude::*;
+use vmux_ui::components::avatar::Avatar;
+use vmux_ui::components::badge::Badge;
 use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::{use_event, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
@@ -33,7 +35,7 @@ pub fn Page() -> Element {
                     p { class: "mt-0.5 truncate text-xs text-muted-foreground", "{subtitle}" }
                 }
                 if count > 0 {
-                    span { class: "shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground",
+                    Badge { class: "rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted-foreground",
                         "{count}"
                     }
                 }
@@ -93,7 +95,7 @@ fn TeamRow(member: TeamMemberRow) -> Element {
     rsx! {
         div {
             class: "flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-foreground/[0.04]",
-            TeamAvatar { member: member.clone(), size: 32 }
+            TeamAvatar { member: member.clone() }
             div { class: "flex min-w-0 flex-1 flex-col gap-0.5 pt-0.5",
                 div { class: "flex min-w-0 items-center gap-2",
                     span {
@@ -105,12 +107,12 @@ fn TeamRow(member: TeamMemberRow) -> Element {
                         "{member.name}"
                     }
                     if member.is_running {
-                        span { class: "flex shrink-0 items-center gap-1.5 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success",
+                        Badge { class: "gap-1.5 rounded-full bg-success/15 px-2 py-0.5 text-[11px] font-medium text-success",
                             span { class: "size-1.5 rounded-full bg-success animate-pulse" }
                             {translate("common-running")}
                         }
                     } else if member.is_done_unseen {
-                        span { class: "flex shrink-0 items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400",
+                        Badge { class: "gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-400",
                             span { class: "size-1.5 rounded-full bg-amber-400 animate-pulse" }
                             {translate("common-done")}
                         }
@@ -128,25 +130,17 @@ fn TeamRow(member: TeamMemberRow) -> Element {
 }
 
 #[component]
-fn TeamAvatar(member: TeamMemberRow, size: u32) -> Element {
+fn TeamAvatar(member: TeamMemberRow) -> Element {
     let src = favicon_src_for_url(&member.icon, &member.url);
-    let bg = if src.is_some() {
-        String::new()
-    } else {
-        format!("background:{}", member.color)
-    };
-    let dim = format!("height:{size}px;width:{size}px;{bg}");
 
     rsx! {
         div { class: "relative shrink-0",
-            div {
-                class: "inline-flex items-center justify-center overflow-hidden rounded-full text-sm font-semibold text-white",
-                style: "{dim}",
-                if let Some(src) = src.as_ref() {
-                    img { class: "size-full object-cover", src: "{src}" }
-                } else {
-                    "{member.initials}"
-                }
+            Avatar {
+                src,
+                fallback: member.initials.clone(),
+                background: member.color.clone(),
+                alt: member.name.clone(),
+                class: "size-8 text-sm",
             }
             if member.is_running {
                 span { class: "absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-success ring-2 ring-background animate-pulse" }

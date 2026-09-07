@@ -1,4 +1,5 @@
 use bevy::prelude::Resource;
+use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use polling::{Event, Events, Poller};
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
@@ -49,6 +50,56 @@ pub struct BridgeRegistration {
     pub authorization: BridgeAuthorization,
 }
 
+#[derive(Clone)]
+struct BridgeWake(Arc<dyn Fn() + Send + Sync>);
+
+impl BridgeWake {
+    fn event_loop(proxy: &EventLoopProxyWrapper) -> Self {
+        let proxy = (**proxy).clone();
+        Self(Arc::new(move || {
+            let _ = proxy.send_event(WinitUserEvent::WakeUp);
+        }))
+    }
+
+    fn wake(&self) {
+        (self.0)();
+    }
+}
+
+#[derive(Clone)]
+struct BridgeInboundQueue {
+    sender: crossbeam_channel::Sender<BridgeInbound>,
+    wake: Arc<Mutex<Option<BridgeWake>>>,
+}
+
+impl BridgeInboundQueue {
+    fn of(sender: crossbeam_channel::Sender<BridgeInbound>) -> Self {
+        Self {
+            sender,
+            wake: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    fn arm(&self, wake: BridgeWake) {
+        *self.wake.lock().unwrap_or_else(|error| error.into_inner()) = Some(wake);
+    }
+
+    fn push(&self, inbound: BridgeInbound) -> Result<(), String> {
+        self.sender
+            .try_send(inbound)
+            .map_err(|error| format!("extension bridge inbound queue failed: {error}"))?;
+        let wake = self
+            .wake
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        if let Some(wake) = wake {
+            wake.wake();
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct BridgeInbound {
     pub extension_id: String,
@@ -77,6 +128,7 @@ pub struct ExtensionBridgeServer {
     endpoint: String,
     identities: HashMap<String, BridgeIdentity>,
     authorizations: HashMap<String, BridgeAuthorization>,
+    inbound_queue: BridgeInboundQueue,
     inbound_rx: crossbeam_channel::Receiver<BridgeInbound>,
     sessions: Arc<Mutex<HashMap<String, BridgeSession>>>,
     shutdown: Arc<AtomicBool>,
@@ -140,6 +192,8 @@ impl ExtensionBridgeServer {
                 .map_err(|error| error.to_string())?;
         }
         let (inbound_tx, inbound_rx) = crossbeam_channel::bounded(MAX_INBOUND_MESSAGES);
+        let inbound_tx = BridgeInboundQueue::of(inbound_tx);
+        let inbound_queue = inbound_tx.clone();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let shutdown = Arc::new(AtomicBool::new(false));
         let active_connections = Arc::new(AtomicUsize::new(0));
@@ -169,6 +223,7 @@ impl ExtensionBridgeServer {
             endpoint,
             identities,
             authorizations,
+            inbound_queue,
             inbound_rx,
             sessions,
             shutdown,
@@ -186,6 +241,10 @@ impl ExtensionBridgeServer {
 
     pub fn authorization(&self, extension_id: &str) -> Option<&BridgeAuthorization> {
         self.authorizations.get(extension_id)
+    }
+
+    pub(crate) fn arm_wake(&self, proxy: &EventLoopProxyWrapper) {
+        self.inbound_queue.arm(BridgeWake::event_loop(proxy));
     }
 
     pub fn try_recv(&self) -> Result<BridgeInbound, crossbeam_channel::TryRecvError> {
@@ -275,7 +334,7 @@ fn queue_session_message(
 fn accept_loop(
     listener: TcpListener,
     identities: HashMap<String, BridgeIdentity>,
-    inbound_tx: crossbeam_channel::Sender<BridgeInbound>,
+    inbound_tx: BridgeInboundQueue,
     sessions: Arc<Mutex<HashMap<String, BridgeSession>>>,
     shutdown: Arc<AtomicBool>,
     active_connections: Arc<AtomicUsize>,
@@ -371,7 +430,7 @@ fn try_acquire(counter: &Arc<AtomicUsize>, limit: usize) -> Option<CounterGuard>
 fn handle_connection(
     stream: TcpStream,
     identities: &HashMap<String, BridgeIdentity>,
-    inbound_tx: &crossbeam_channel::Sender<BridgeInbound>,
+    inbound_tx: &BridgeInboundQueue,
     sessions: &Arc<Mutex<HashMap<String, BridgeSession>>>,
     shutdown: &Arc<AtomicBool>,
     unauthenticated_permit: CounterGuard,
@@ -592,7 +651,7 @@ fn route_connection(
     socket: &mut WebSocket<TcpStream>,
     extension_id: &str,
     session_id: u64,
-    inbound_tx: &crossbeam_channel::Sender<BridgeInbound>,
+    inbound_tx: &BridgeInboundQueue,
     outbound_rx: &crossbeam_channel::Receiver<QueuedServerMessage>,
     queued_bytes: &AtomicUsize,
     shutdown: &AtomicBool,
@@ -658,7 +717,7 @@ fn read_available_messages(
     socket: &mut WebSocket<TcpStream>,
     extension_id: &str,
     session_id: u64,
-    inbound_tx: &crossbeam_channel::Sender<BridgeInbound>,
+    inbound_tx: &BridgeInboundQueue,
 ) -> Result<bool, String> {
     socket
         .get_ref()
@@ -671,17 +730,13 @@ fn read_available_messages(
                 | Ok(message @ BridgeClientMessage::Subscribe(_))
                 | Ok(message @ BridgeClientMessage::Unsubscribe { .. })
                 | Ok(message @ BridgeClientMessage::Ack { .. }) => {
-                    inbound_tx
-                        .try_send(BridgeInbound {
-                            extension_id: extension_id.into(),
-                            session_id,
-                            context_id: BRIDGE_CONTEXT_ID.into(),
-                            context_kind: ExtensionContextKind::BridgePage,
-                            message,
-                        })
-                        .map_err(|error| {
-                            format!("extension bridge inbound queue failed: {error}")
-                        })?;
+                    inbound_tx.push(BridgeInbound {
+                        extension_id: extension_id.into(),
+                        session_id,
+                        context_id: BRIDGE_CONTEXT_ID.into(),
+                        context_kind: ExtensionContextKind::BridgePage,
+                        message,
+                    })?;
                     Ok(())
                 }
                 Ok(BridgeClientMessage::Hello(_)) => {
@@ -870,6 +925,36 @@ mod tests {
                 serde_json::json!({ "ok": true })
             ))
         );
+    }
+
+    #[test]
+    fn inbound_message_wakes_host() {
+        let server = ExtensionBridgeServer::start("personal", [EXTENSION_ID]).unwrap();
+        let identity = server.identity(EXTENSION_ID).unwrap().clone();
+        let mut socket = connect_bridge(&server);
+        send_json(&mut socket, &hello(&identity, identity.token.clone()));
+        let _: BridgeServerMessage = read_json(&mut socket);
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let wake_counter = Arc::clone(&wakes);
+        server.inbound_queue.arm(BridgeWake(Arc::new(move || {
+            wake_counter.fetch_add(1, Ordering::AcqRel);
+        })));
+        let request = ApiRequest {
+            request_id: "wake".into(),
+            namespace: "tabs".into(),
+            method: "query".into(),
+            arguments: serde_json::json!({}),
+            caller_context: vmux_core::extension::protocol::ExtensionCallerContext::ServiceWorker {
+                extension_id: EXTENSION_ID.into(),
+                context_id: "service-worker".into(),
+                url: None,
+            },
+        };
+
+        send_json(&mut socket, &BridgeClientMessage::ApiRequest(request));
+        let _ = recv_inbound(&server);
+
+        assert_eq!(wakes.load(Ordering::Acquire), 1);
     }
 
     #[test]

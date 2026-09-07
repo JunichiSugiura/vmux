@@ -386,6 +386,11 @@ and that worker then fetches chunks which no longer exist on disk. Vmux therefor
 fingerprints the prepared runtimes and clears the profile's service-worker script cache
 itself whenever that fingerprint moves.
 
+Extension API requests cross from CEF to Bevy on socket threads while the app's event loop
+is reactive. Enqueuing one wakes winit so a `tabs` or `windows` response never waits for the
+next mouse or keyboard event. Web-page tab IDs are learned from content-script senders and
+translated at the shim boundary; extension pages keep the model IDs the bridge owns.
+
 ---
 
 ## The daemon's registries

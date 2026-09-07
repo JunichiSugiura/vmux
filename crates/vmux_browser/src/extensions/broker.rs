@@ -36,8 +36,24 @@ impl Plugin for ExtensionBrokerPlugin {
                 Update,
                 forward_chrome_model_events.after(super::project::rebuild_chrome_model),
             )
-            .add_systems(Update, fire_conformance_wake_timer);
+            .add_systems(Update, fire_conformance_wake_timer)
+            .add_systems(Update, arm_bridge_wake);
     }
+}
+
+fn arm_bridge_wake(
+    server: Res<ExtensionBridgeServer>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut armed: Local<bool>,
+) {
+    if *armed {
+        return;
+    }
+    let Some(proxy) = proxy else {
+        return;
+    };
+    server.arm_wake(&proxy);
+    *armed = true;
 }
 
 const CONFORMANCE_NAMESPACE: &str = "__vmux_conformance";

@@ -1,6 +1,7 @@
 (() => {
   const CHANNEL = __VMUX_BRIDGE_CHANNEL__;
   const KEEPALIVE_CHANNEL = __VMUX_KEEPALIVE_CHANNEL__;
+  const SENDER_CONTEXT = "__vmuxSenderContext";
   const BRIDGE_URL = chrome.runtime.getURL("vmux_bridge.html");
   const IS_WORKER = typeof globalThis.document === "undefined";
   const listeners = new Map();
@@ -130,6 +131,12 @@
   });
 
   if (IS_WORKER) {
+    nativeOnMessageAdd((message, sender, sendResponse) => {
+      if (message?.[SENDER_CONTEXT] !== true) return undefined;
+      rememberTab(sender);
+      sendResponse({ ok: true });
+      return false;
+    });
     nativeOnConnectAdd((port) => {
       rememberTab(port?.sender);
       if (!port || port.name !== KEEPALIVE_CHANNEL) return;
@@ -159,9 +166,10 @@
     } catch (_error) {}
     function isReservedMessage(message, sender) {
       return (
-        message?.channel === CHANNEL &&
-        sender?.id === chrome.runtime.id &&
-        sender?.url === BRIDGE_URL
+        message?.[SENDER_CONTEXT] === true ||
+        (message?.channel === CHANNEL &&
+          sender?.id === chrome.runtime.id &&
+          sender?.url === BRIDGE_URL)
       );
     }
 

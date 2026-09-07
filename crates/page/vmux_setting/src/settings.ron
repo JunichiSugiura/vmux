@@ -2,6 +2,22 @@
     browser: (
         startup_url: "vmux://start/",
         search_engine: google,
+        bookmarks: [
+            "vmux://start/",
+            "vmux://terminal/",
+            "vmux://projects/",
+            "vmux://knowledge/",
+            "vmux://agents/",
+            "vmux://tools/",
+            "vmux://vault/",
+            "vmux://services/",
+            "vmux://spaces/",
+            "vmux://team/",
+            "vmux://history/",
+            "vmux://extensions/",
+            "vmux://lsp/",
+            "vmux://settings/",
+        ],
     ),
     layout: (
         window: (

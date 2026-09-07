@@ -17,6 +17,7 @@ enum PageReport<'a> {
         measured: Option<Measured>,
     },
     Link(&'a str),
+    Favicon(&'a str),
     Emitted(&'a str),
 }
 
@@ -37,6 +38,9 @@ impl<'a> PageReport<'a> {
         }
         if let Some(href) = body.strip_prefix("link:") {
             return Self::Link(href);
+        }
+        if let Some(href) = body.strip_prefix("favicon:") {
+            return Self::Favicon(href);
         }
 
         Self::Emitted(body)
@@ -82,6 +86,7 @@ impl PageMessage {
             PageReport::Console { level, text } => self.log(level, text),
             PageReport::Measured { token, measured } => self.measured(token, measured),
             PageReport::Link(href) => self.link(href),
+            PageReport::Favicon(href) => self.outbox.set_favicon(href),
             PageReport::Emitted(payload) => self.emit(payload),
         }
     }
@@ -142,6 +147,7 @@ mod tests {
                     None => format!("measured {token} gone"),
                 },
                 PageReport::Link(href) => format!("link {href}"),
+                PageReport::Favicon(href) => format!("favicon {href}"),
                 PageReport::Emitted(payload) => format!("emitted {payload}"),
             }
         }
@@ -156,6 +162,7 @@ mod tests {
             "measured:9:",
             "measured:9:1,2",
             "link:https://example.com/a:b",
+            "favicon:vmux://history/assets/favicons/history.svg",
             "AAAA",
         ]
         .iter()
@@ -171,6 +178,7 @@ mod tests {
                 "measured 9 gone",
                 "measured 9 gone",
                 "link https://example.com/a:b",
+                "favicon vmux://history/assets/favicons/history.svg",
                 "emitted AAAA",
             ]
         );

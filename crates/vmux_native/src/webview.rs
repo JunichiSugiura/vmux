@@ -62,7 +62,9 @@ impl WebView {
             dom.reads(),
             embed.waker,
         );
-        let routes = PageRoutes::new(page, dom.clone(), embed.assets);
+        let routes = PageRoutes::new(current_page.clone(), dom.clone(), embed.assets);
+        let title_outbox = outbox.clone();
+        let title_page = current_page.clone();
         let builder = wry::WebViewBuilder::new();
         #[cfg(target_os = "macos")]
         let builder = match macos::SharedWebProcess::configuration() {
@@ -77,6 +79,11 @@ impl WebView {
             .with_initialization_script(WRY_HOST_SHIM)
             .with_asynchronous_custom_protocol("vmux".into(), move |_id, request, responder| {
                 routes.serve(request, responder);
+            })
+            .with_document_title_changed_handler(move |title| {
+                if title_page.get().reports_title {
+                    title_outbox.set_title(&title);
+                }
             })
             .with_ipc_handler(move |request| message.receive(request.body()))
             .with_url(page.document_url())
@@ -96,6 +103,9 @@ impl WebView {
         self.page.set(page);
         self.outbox.set_page(page.url);
         self.dom.remount(page.component, instance);
+        if let Err(error) = self.webview.load_url(page.document_url()) {
+            error!("vmux_native: navigation failed for {}: {error}", page.url);
+        }
     }
 
     pub fn set_bounds(&self, bounds: wry::Rect) {

@@ -1,6 +1,9 @@
 pub struct NativePage {
     pub url: &'static str,
     pub document_url: Option<&'static str>,
+    pub title: &'static str,
+    pub reports_title: bool,
+    pub favicon: bool,
     pub component: crate::PageComponent,
     pub root_id: &'static str,
     pub root_class: &'static str,
@@ -34,6 +37,9 @@ impl NativePage {
     pub const fn pane(url: &'static str, component: crate::PageComponent) -> Self {
         Self {
             url,
+            title: "",
+            reports_title: true,
+            favicon: true,
             component,
             root_id: "main",
             root_class: "flex min-h-0 min-w-0 flex-1 flex-col",
@@ -51,13 +57,37 @@ body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
             document_url: None,
         }
     }
+
+    pub const fn titled(mut self, title: &'static str) -> Self {
+        self.title = title;
+        self
+    }
+
+    pub const fn without_favicon(mut self) -> Self {
+        self.favicon = false;
+        self
+    }
+
+    pub const fn preserving_host_title(mut self) -> Self {
+        self.reports_title = false;
+        self
+    }
 }
 
 #[cfg(ui)]
 impl NativePage {
     pub(crate) fn shell(&self) -> wry::http::Response<Vec<u8>> {
+        let favicon = if self.favicon {
+            vmux_ui::favicon::vmux_favicon_src_for_url(self.url)
+                .or_else(|| vmux_ui::favicon::vmux_favicon_src_for_url(self.document_url()))
+                .map(|url| format!(r#"<link rel="icon" type="image/svg+xml" href="{url}"/>"#))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let head = format!("<title>{}</title>\n{}\n{favicon}", self.title, self.head);
         let html = crate::InterpreterShell::new(self.root_id, self.document_url())
-            .with_head(self.head)
+            .with_head(head)
             .with_html_attributes(self.html_attributes)
             .with_body_class(self.body_class)
             .with_root_class(self.root_class)
@@ -75,7 +105,9 @@ mod shell_tests {
     use super::*;
 
     fn page() -> NativePage {
-        NativePage::pane("file://", || unreachable!()).served_from("vmux://files/")
+        NativePage::pane("file://", || unreachable!())
+            .titled("Files")
+            .served_from("vmux://files/")
     }
 
     #[test]
@@ -91,6 +123,20 @@ mod shell_tests {
             "no protocol handler answers `file://`, so nothing would reply to a fetch there"
         );
     }
+
+    #[test]
+    fn the_page_registers_its_vmux_favicon() {
+        let html = String::from_utf8(
+            NativePage::pane("vmux://history/", || unreachable!())
+                .titled("History")
+                .shell()
+                .into_body(),
+        )
+        .unwrap();
+
+        assert!(html.contains("vmux://history/assets/favicons/history.svg"));
+        assert!(html.contains("<title>History</title>"));
+    }
 }
 
 #[cfg(test)]
@@ -102,8 +148,10 @@ mod tests {
         fn nowhere() -> dioxus_core::Element {
             dioxus_core::VNode::empty()
         }
-        let list = NativePage::pane("vmux://agents/", nowhere);
-        let chat = NativePage::pane("vmux://agent/", nowhere).owning_subtree();
+        let list = NativePage::pane("vmux://agents/", nowhere).titled("Agents");
+        let chat = NativePage::pane("vmux://agent/", nowhere)
+            .titled("Agent")
+            .owning_subtree();
 
         assert!(chat.answers_for("vmux://agent/"));
         assert!(chat.answers_for("vmux://agent/claude/sess-7"));

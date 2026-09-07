@@ -17,6 +17,7 @@ use crate::store::{build_tree, create_entry, ensure_vault, ensure_vault_reposito
 
 impl Plugin for KnowledgePlugin {
     fn build(&self, app: &mut App) {
+        app.world_mut().spawn(PAGE_MANIFEST);
         let vault = vault_dir();
         if ensure_vault(&vault).is_ok() {
             if let Err(error) = ensure_vault_repository(&vault) {
@@ -112,6 +113,16 @@ fn on_knowledge_tree_toggle(
 }
 
 pub struct KnowledgePlugin;
+
+pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
+    host: "knowledge",
+    title: "Knowledge",
+    title_message_id: Some("layout-knowledge"),
+    replaces_command: None,
+    keywords: &["knowledge", "notes", "markdown"],
+    icon: Some(vmux_core::BuiltinIcon::Files),
+    command_bar: true,
+};
 
 #[derive(Resource)]
 struct KnowledgeState {

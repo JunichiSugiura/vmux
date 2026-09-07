@@ -27,6 +27,16 @@ pub fn agent_host(url: &str) -> Option<&'static str> {
     None
 }
 
+pub fn vmux_favicon_src_for_url(url: &str) -> Option<String> {
+    let host = url
+        .trim()
+        .strip_prefix("vmux://")?
+        .split(&['/', '?', '#'][..])
+        .next()
+        .filter(|host| !host.is_empty())?;
+    Some(format!("vmux://{host}/assets/favicons/{host}.svg"))
+}
+
 pub fn favicon_src_for_url(favicon_url: &str, url: &str) -> Option<String> {
     if let Some(host) = agent_host(url) {
         return Some(format!(
@@ -35,6 +45,9 @@ pub fn favicon_src_for_url(favicon_url: &str, url: &str) -> Option<String> {
     }
     if !favicon_url.is_empty() {
         return Some(favicon_url.to_string());
+    }
+    if let Some(favicon) = vmux_favicon_src_for_url(url) {
+        return Some(favicon);
     }
     host_for_favicon_fallback(url)
         .map(|h| format!("https://www.google.com/s2/favicons?domain={h}&sz=64"))
@@ -254,8 +267,15 @@ mod tests {
     }
 
     #[test]
-    fn favicon_src_none_for_vmux_scheme_without_agent() {
-        assert_eq!(favicon_src_for_url("", "vmux://history/"), None);
+    fn favicon_src_uses_the_page_host_for_vmux_pages() {
+        assert_eq!(
+            favicon_src_for_url("", "vmux://history/"),
+            Some("vmux://history/assets/favicons/history.svg".to_string())
+        );
+    }
+
+    #[test]
+    fn favicon_src_none_for_an_empty_url() {
         assert_eq!(favicon_src_for_url("", ""), None);
     }
 

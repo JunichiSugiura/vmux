@@ -60,12 +60,25 @@ fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
     commands.trigger_save(save);
 }
 
-fn load_bookmarks_on_startup(mut commands: Commands) {
+fn load_bookmarks_on_startup(settings: Res<vmux_setting::AppSettings>, mut commands: Commands) {
     if vmux_core::profile::is_test_session() {
         return;
     }
     let path = bookmarks_path();
     if !path.exists() {
+        for (order, url) in settings.browser.bookmarks.iter().enumerate() {
+            commands.spawn((
+                Pin,
+                Uuid(uuid::Uuid::new_v4().to_string()),
+                PageMetadata {
+                    title: url.clone(),
+                    url: url.clone(),
+                    icon: vmux_core::PageIcon::None,
+                    bg_color: None,
+                },
+                BookmarkOrder(order as u32),
+            ));
+        }
         return;
     }
     commands.trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));

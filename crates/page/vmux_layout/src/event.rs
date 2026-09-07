@@ -27,7 +27,6 @@ pub const BOOKMARKS_EVENT: &str = "bookmarks";
 pub const PANE_TREE_EVENT: &str = "pane-tree";
 pub const SIDE_SHEET_COMMAND_EVENT: &str = "side-sheet-command";
 pub const SIDE_SHEET_DRAG_EVENT: &str = "side-sheet-drag";
-pub const TAB_BOUNDARY_EVENT: &str = "tab-boundary";
 pub const REMOTE_STATE_EVENT: &str = "remote-state";
 pub const REMOTE_COMMAND_EVENT: &str = "remote-command";
 
@@ -587,13 +586,7 @@ pub struct PaneNode {
     #[serde(default)]
     pub collapsed: bool,
     #[serde(default)]
-    pub projects_expanded: bool,
-    #[serde(default)]
     pub bookmarks_expanded: bool,
-    #[serde(default)]
-    pub knowledge_expanded: bool,
-    #[serde(default)]
-    pub tools_expanded: bool,
     pub stacks: Vec<StackNode>,
 }
 
@@ -717,44 +710,6 @@ pub struct RemoteCommandEvent {
     rkyv::Deserialize,
 )]
 pub struct RemoteCopyEvent;
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    PartialEq,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct TabBoundary {
-    pub effective_dir: String,
-    pub source: String,
-    pub is_git_repo: bool,
-    pub is_worktree: bool,
-    pub branch: String,
-    pub base_ref: String,
-    pub uncommitted: u32,
-    pub ahead: u32,
-    pub pane_count: u32,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct TabBoundaryEvent {
-    pub boundary: Option<TabBoundary>,
-    pub projects: Vec<vmux_core::event::ProjectRow>,
-}
 
 #[derive(
     Clone,

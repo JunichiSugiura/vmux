@@ -10,24 +10,22 @@ use vmux_layout::{
     Header, LayoutCef, NavigationState, Open, UpdateState,
     event::{
         HEADER_HEIGHT_PX, LAYOUT_STATE_EVENT, LayoutStateEvent, PANE_TREE_EVENT, PaneNode,
-        PaneTreeEvent, STACKS_EVENT, StackNode, StackRow, StacksHostEvent, TAB_BOUNDARY_EVENT,
-        TABS_EVENT, TabBoundary, TabBoundaryEvent, TabRow, TabsHostEvent, UPDATE_CLEARED_EVENT,
-        UPDATE_PROGRESS_EVENT, UPDATE_READY_EVENT, UpdateClearedEvent, UpdateProgressEvent,
-        UpdateReadyEvent,
+        PaneTreeEvent, STACKS_EVENT, StackNode, StackRow, StacksHostEvent, TABS_EVENT, TabRow,
+        TabsHostEvent, UPDATE_CLEARED_EVENT, UPDATE_PROGRESS_EVENT, UPDATE_READY_EVENT,
+        UpdateClearedEvent, UpdateProgressEvent, UpdateReadyEvent,
     },
     pane::{Pane, PaneSplit, SideSheetCardCollapsed},
     side_sheet::{SideSheet, SideSheetPosition, SideSheetWidth},
     stack::{Stack, active_stack_in_pane, collect_leaf_panes},
-    tab::{Tab, TabWorktree},
+    tab::Tab,
     window::VmuxWindow,
 };
 
 use vmux_setting::AppSettings;
 
 use crate::{
-    LayoutFixedOffsets, abbreviate_home, active_stack_in_tab, first_browser_meta,
-    layout_window_padding_from_node, layout_window_padding_from_settings,
-    should_emit_cached_payload, should_emit_update, tab_boundary_dir, tab_of,
+    LayoutFixedOffsets, active_stack_in_tab, first_browser_meta, layout_window_padding_from_node,
+    layout_window_padding_from_settings, should_emit_cached_payload, should_emit_update, tab_of,
 };
 use vmux_flex::prelude::*;
 
@@ -44,7 +42,6 @@ impl Plugin for PageStatePlugin {
                 push_tabs_host_emit,
                 push_bookmarks_host_emit,
                 push_update_notice_emit,
-                push_tab_boundary_emit,
             )
                 .after(vmux_layout::apply_cef_state_from_webview)
                 .after(vmux_layout::stack::ComputeFocusSet),
@@ -345,10 +342,7 @@ fn push_pane_tree_emit(
             id: pane_entity.to_bits(),
             is_active,
             collapsed: collapsed_panes.contains(pane_entity),
-            projects_expanded: sections.projects,
             bookmarks_expanded: sections.bookmarks,
-            knowledge_expanded: sections.knowledge,
-            tools_expanded: sections.tools,
             stacks,
         });
     }
@@ -360,94 +354,6 @@ fn push_pane_tree_emit(
     commands.trigger(BinHostEmitEvent::from_rkyv(
         cef_e,
         PANE_TREE_EVENT,
-        &payload,
-    ));
-    *last = ron_body;
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_tab_boundary_emit(
-    mut commands: Commands,
-    browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
-    focus: Res<vmux_layout::stack::FocusedStack>,
-    tabs: Query<&Tab>,
-    worktrees: Query<&TabWorktree>,
-    settings: Res<AppSettings>,
-    active_space: Option<Res<vmux_space::spaces::ActiveSpace>>,
-    space_projects: vmux_space::SpaceProjects,
-    all_children: Query<&Children>,
-    leaf_pane_q: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
-    expansion_changed: Query<(), Changed<vmux_space::ExpandedProjectDirs>>,
-    mut last: Local<String>,
-    mut listed: Local<Option<Vec<vmux_core::event::ProjectRow>>>,
-    mut repo_info: Option<ResMut<vmux_git::RepoInfoCache>>,
-) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
-        return;
-    };
-    if !browsers.can_emit_to(&cef_e) {
-        return;
-    }
-    let boundary = focus.tab.and_then(|tab_e| {
-        let tab = tabs.get(tab_e).ok()?;
-        let dir = tab_boundary_dir(tab, &settings, active_space.as_deref())?;
-        let info = repo_info
-            .as_mut()
-            .and_then(|cache| cache.bypass_change_detection().get(&dir.path));
-        let wt = worktrees.get(tab_e).ok();
-        let branch = info.as_ref().map(|i| i.branch.clone()).unwrap_or_default();
-        let base_ref = wt.map(|w| w.base_ref.clone()).unwrap_or_default();
-        let mut leaves = Vec::new();
-        collect_leaf_panes(tab_e, &all_children, &leaf_pane_q, &mut leaves);
-        Some(TabBoundary {
-            effective_dir: abbreviate_home(&dir.path),
-            source: match dir.source {
-                vmux_setting::DirSource::Tab => "tab",
-                vmux_setting::DirSource::Space => "space",
-                vmux_setting::DirSource::Global => "global",
-            }
-            .to_string(),
-            is_git_repo: info.is_some(),
-            is_worktree: info.as_ref().is_some_and(|i| i.is_worktree),
-            branch,
-            base_ref,
-            uncommitted: info.as_ref().map(|i| i.uncommitted).unwrap_or(0),
-            ahead: info.as_ref().map(|i| i.ahead).unwrap_or(0),
-            pane_count: leaves.len() as u32,
-        })
-    });
-    let stale = listed.is_none()
-        || settings.is_changed()
-        || active_space.as_ref().is_some_and(Res::is_changed)
-        || !expansion_changed.is_empty();
-    if stale {
-        let mut rows = space_projects.active_rows();
-        for row in &mut rows {
-            row.display_path = abbreviate_home(std::path::Path::new(&row.path));
-        }
-        *listed = Some(rows);
-    }
-    let mut projects = listed.clone().unwrap_or_default();
-    if let Some(cache) = repo_info.as_mut() {
-        let cache = cache.bypass_change_detection();
-        for row in &mut projects {
-            if row.missing || !row.kind.carries_a_branch() {
-                continue;
-            }
-            if let Some(info) = cache.get(std::path::Path::new(&row.path)) {
-                row.branch = info.branch.clone();
-            }
-        }
-    }
-    let payload = TabBoundaryEvent { boundary, projects };
-    let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !should_emit_cached_payload(&ron_body, &last, page_ready.is_changed()) {
-        return;
-    }
-    commands.trigger(BinHostEmitEvent::from_rkyv(
-        cef_e,
-        TAB_BOUNDARY_EVENT,
         &payload,
     ));
     *last = ron_body;

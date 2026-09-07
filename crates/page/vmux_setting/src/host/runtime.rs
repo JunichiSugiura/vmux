@@ -853,12 +853,15 @@ pub struct BrowserSettings {
     pub startup_url: String,
     #[serde(default)]
     pub search_engine: SearchEngine,
+    #[serde(default)]
+    pub bookmarks: Vec<String>,
 }
 
 fn default_browser_settings() -> BrowserSettings {
     BrowserSettings {
         startup_url: default_browser_startup_url(),
         search_engine: SearchEngine::default(),
+        bookmarks: Vec::new(),
     }
 }
 
@@ -1718,6 +1721,7 @@ mod tests {
             browser: BrowserSettings {
                 startup_url: default_browser_startup_url(),
                 search_engine: SearchEngine::default(),
+                bookmarks: Default::default(),
             },
             layout: LayoutSettings {
                 radius: 0.0,
@@ -1835,6 +1839,37 @@ mod tests {
     fn embedded_settings_default_to_start() {
         let s = load_embedded_settings();
         assert_eq!(s.startup_url("space-1"), "vmux://start/");
+    }
+
+    #[test]
+    fn embedded_settings_pin_every_user_facing_page() {
+        let settings = load_embedded_settings();
+        let urls = settings
+            .browser
+            .bookmarks
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            urls,
+            [
+                "vmux://start/",
+                "vmux://terminal/",
+                "vmux://projects/",
+                "vmux://knowledge/",
+                "vmux://agents/",
+                "vmux://tools/",
+                "vmux://vault/",
+                "vmux://services/",
+                "vmux://spaces/",
+                "vmux://team/",
+                "vmux://history/",
+                "vmux://extensions/",
+                "vmux://lsp/",
+                "vmux://settings/",
+            ]
+        );
     }
 
     #[test]

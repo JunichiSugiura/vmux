@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::rc::Rc;
 
 use crate::page::NativePage;
@@ -5,13 +6,17 @@ use crate::webview::dom::Dom;
 use crate::webview::embed::{AssetReply, Assets};
 
 pub(crate) struct PageRoutes {
-    page: &'static NativePage,
+    page: Rc<Cell<&'static NativePage>>,
     dom: Dom,
     assets: Rc<dyn Assets>,
 }
 
 impl PageRoutes {
-    pub(crate) fn new(page: &'static NativePage, dom: Dom, assets: Rc<dyn Assets>) -> Self {
+    pub(crate) fn new(
+        page: Rc<Cell<&'static NativePage>>,
+        dom: Dom,
+        assets: Rc<dyn Assets>,
+    ) -> Self {
         Self { page, dom, assets }
     }
 
@@ -21,7 +26,9 @@ impl PageRoutes {
         responder: wry::RequestAsyncResponder,
     ) {
         let url = request.uri().to_string();
-        if !Route::belongs_to(&url, self.page.document_url()) {
+        let page = self.page.get();
+        let route = Route::of(&url);
+        if !route.is_served_by(&url, page) {
             responder.respond(
                 wry::http::Response::builder()
                     .status(404)
@@ -30,15 +37,16 @@ impl PageRoutes {
             );
             return;
         }
-        match Route::of(&url) {
+        match route {
             Route::Events => self.dom.answer_event(&request, responder),
             Route::Edits => self.dom.serve_edits(&request, responder),
-            Route::Document => responder.respond(self.page.shell()),
+            Route::Document => responder.respond(page.shell()),
             Route::Asset => self.assets.fetch(&url, AssetReply::of(responder)),
         }
     }
 }
 
+#[derive(Clone, Copy)]
 enum Route {
     Events,
     Edits,
@@ -47,6 +55,13 @@ enum Route {
 }
 
 impl Route {
+    fn is_served_by(self, request: &str, page: &NativePage) -> bool {
+        if Self::belongs_to(request, page.document_url()) {
+            return true;
+        }
+        matches!(self, Self::Asset) && Self::belongs_to(request, page.url)
+    }
+
     fn belongs_to(request: &str, document: &str) -> bool {
         Self::host_of(request) == Self::host_of(document)
     }
@@ -113,6 +128,16 @@ mod tests {
             Route::of("vmux://layout/assets/index.css"),
             Route::Asset
         ));
+    }
+
+    #[test]
+    fn a_page_served_from_another_host_can_load_its_own_favicon() {
+        let page = NativePage::pane("vmux://projects/", || unreachable!())
+            .titled("Projects")
+            .served_from("vmux://files/");
+
+        assert!(Route::Asset.is_served_by("vmux://projects/assets/favicons/projects.svg", &page));
+        assert!(!Route::Events.is_served_by("vmux://projects/__events", &page));
     }
 
     #[test]

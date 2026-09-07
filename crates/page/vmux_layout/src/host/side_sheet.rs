@@ -30,19 +30,13 @@ pub struct SideSheet;
 #[type_path = "vmux_desktop::layout::side_sheet"]
 #[require(moonshine_save::prelude::Save)]
 pub struct SideSheetSectionsExpanded {
-    pub projects: bool,
     pub bookmarks: bool,
-    pub knowledge: bool,
-    pub tools: bool,
 }
 
 impl SideSheetSectionsExpanded {
     pub fn set(&mut self, section: &str, expanded: bool) -> bool {
         let value = match section {
-            "projects" => &mut self.projects,
             "bookmarks" => &mut self.bookmarks,
-            "knowledge" => &mut self.knowledge,
-            "tools" => &mut self.tools,
             _ => return false,
         };
         *value = expanded;
@@ -50,7 +44,7 @@ impl SideSheetSectionsExpanded {
     }
 
     pub fn is_empty(self) -> bool {
-        !self.projects && !self.bookmarks && !self.knowledge && !self.tools
+        !self.bookmarks
     }
 }
 

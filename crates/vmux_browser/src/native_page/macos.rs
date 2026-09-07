@@ -26,10 +26,14 @@ pub(super) struct NativePagesMacosPlugin;
 
 impl Plugin for NativePagesMacosPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(First, accept_page_wakes)
+        let (metadata_tx, metadata_rx) = async_channel::unbounded();
+        app.insert_resource(NativePageMetadataSender(metadata_tx))
+            .insert_resource(NativePageMetadataReceiver(metadata_rx))
+            .add_systems(First, accept_page_wakes)
             .add_systems(
                 Update,
                 (
+                    apply_native_page_metadata,
                     open_native_pages.after(PageOpenSet::HandleKnownPages),
                     sync_native_appearance.run_if(resource_changed::<AppSettings>),
                     sync_native_page_scale,
@@ -57,6 +61,43 @@ struct HostedPage {
     surface: WebView,
     placement: Placement,
     page: &'static NativePage,
+}
+
+struct NativePageMetadata {
+    webview: Entity,
+    page_url: String,
+    title: Option<String>,
+    favicon: Option<String>,
+}
+
+#[derive(Resource, Clone)]
+struct NativePageMetadataSender(async_channel::Sender<NativePageMetadata>);
+
+#[derive(Resource)]
+struct NativePageMetadataReceiver(async_channel::Receiver<NativePageMetadata>);
+
+fn apply_native_page_metadata(
+    receiver: Res<NativePageMetadataReceiver>,
+    mut pages: Query<&mut PageMetadata>,
+) {
+    while let Ok(update) = receiver.0.try_recv() {
+        let Ok(mut metadata) = pages.get_mut(update.webview) else {
+            continue;
+        };
+        if !metadata.url.starts_with(&update.page_url) {
+            continue;
+        }
+        if let Some(title) = update.title
+            && !title.is_empty()
+        {
+            metadata.title = title;
+        }
+        if let Some(favicon) = update.favicon
+            && !favicon.is_empty()
+        {
+            metadata.icon = vmux_core::PageIcon::favicon(favicon);
+        }
+    }
 }
 
 impl HostedPages {
@@ -364,6 +405,7 @@ impl Placement {
 #[derive(Clone)]
 struct PageEmbedder {
     bin_ipc: async_channel::Sender<BinIpcEventRaw>,
+    metadata: NativePageMetadataSender,
     requester: Requester,
     waker: PageWaker,
 }
@@ -376,9 +418,13 @@ impl PageEmbedder {
         let Some(bin_ipc) = world.get_resource::<BinIpcEventRawSender>() else {
             return Err("no BinIpcEventRawSender resource, the cef ipc plugin has not built yet");
         };
+        let Some(metadata) = world.get_resource::<NativePageMetadataSender>() else {
+            return Err("no native page metadata sender");
+        };
 
         Ok(Self {
             bin_ipc: bin_ipc.0.clone(),
+            metadata: metadata.clone(),
             requester,
             waker: PageWaker::of(world.get_resource::<EventLoopProxyWrapper>()),
         })
@@ -390,6 +436,9 @@ impl PageEmbedder {
                 bin_ipc: self.bin_ipc.clone(),
                 webview: entity,
                 host: RefCell::new(embedded_page_host_of(url).unwrap_or_default()),
+                page_url: RefCell::new(url.to_string()),
+                metadata: self.metadata.clone(),
+                waker: self.waker.clone(),
             }),
             assets: Rc::new(PageAssets {
                 requester: self.requester.clone(),
@@ -431,6 +480,9 @@ struct PageOutbox {
     bin_ipc: async_channel::Sender<BinIpcEventRaw>,
     webview: Entity,
     host: RefCell<String>,
+    page_url: RefCell<String>,
+    metadata: NativePageMetadataSender,
+    waker: PageWaker,
 }
 
 impl vmux_native::Outbox for PageOutbox {
@@ -447,6 +499,39 @@ impl vmux_native::Outbox for PageOutbox {
 
     fn set_page(&self, url: &str) {
         *self.host.borrow_mut() = embedded_page_host_of(url).unwrap_or_default();
+        *self.page_url.borrow_mut() = url.to_string();
+    }
+
+    fn set_title(&self, title: &str) {
+        if self
+            .metadata
+            .0
+            .send_blocking(NativePageMetadata {
+                webview: self.webview,
+                page_url: self.page_url.borrow().clone(),
+                title: Some(title.to_string()),
+                favicon: None,
+            })
+            .is_ok()
+        {
+            vmux_native::Wake::wake(&self.waker);
+        }
+    }
+
+    fn set_favicon(&self, url: &str) {
+        if self
+            .metadata
+            .0
+            .send_blocking(NativePageMetadata {
+                webview: self.webview,
+                page_url: self.page_url.borrow().clone(),
+                title: None,
+                favicon: Some(url.to_string()),
+            })
+            .is_ok()
+        {
+            vmux_native::Wake::wake(&self.waker);
+        }
     }
 }
 
@@ -502,7 +587,10 @@ fn report_waiting(reason: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{PageOutbox, Placement, SiblingOrder};
+    use super::{
+        NativePageMetadataReceiver, NativePageMetadataSender, PageOutbox, Placement, SiblingOrder,
+    };
+    use bevy::prelude::{App, MinimalPlugins, Update};
 
     #[test]
     fn the_layout_is_asked_for_the_pointer_only_while_a_surface_of_its_own_is_up() {
@@ -525,10 +613,14 @@ mod tests {
     #[test]
     fn a_navigated_page_emits_as_its_new_host() {
         let (tx, rx) = async_channel::bounded(1);
+        let (metadata_tx, _metadata_rx) = async_channel::bounded(1);
         let outbox = PageOutbox {
             bin_ipc: tx,
             webview: bevy::prelude::Entity::PLACEHOLDER,
             host: std::cell::RefCell::new("start".to_string()),
+            page_url: std::cell::RefCell::new("vmux://start/".to_string()),
+            metadata: NativePageMetadataSender(metadata_tx),
+            waker: super::PageWaker(None),
         };
 
         vmux_native::Outbox::set_page(&outbox, "vmux://agent/claude");
@@ -536,5 +628,42 @@ mod tests {
 
         let emitted = rx.recv_blocking().unwrap();
         assert_eq!(emitted.host, "agent");
+    }
+
+    #[test]
+    fn document_metadata_updates_the_hosted_page() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_systems(Update, super::apply_native_page_metadata);
+        let (metadata_tx, metadata_rx) = async_channel::unbounded();
+        app.insert_resource(NativePageMetadataReceiver(metadata_rx));
+        let page = app
+            .world_mut()
+            .spawn(vmux_core::PageMetadata {
+                title: "vmux://history/".to_string(),
+                url: "vmux://history/".to_string(),
+                icon: vmux_core::PageIcon::None,
+                bg_color: None,
+            })
+            .id();
+        let outbox = PageOutbox {
+            bin_ipc: async_channel::unbounded().0,
+            webview: page,
+            host: std::cell::RefCell::new("history".to_string()),
+            page_url: std::cell::RefCell::new("vmux://history/".to_string()),
+            metadata: NativePageMetadataSender(metadata_tx),
+            waker: super::PageWaker(None),
+        };
+
+        vmux_native::Outbox::set_title(&outbox, "History");
+        vmux_native::Outbox::set_favicon(&outbox, "vmux://history/assets/favicons/history.svg");
+        app.update();
+
+        let metadata = app.world().get::<vmux_core::PageMetadata>(page).unwrap();
+        assert_eq!(metadata.title, "History");
+        assert_eq!(
+            metadata.icon,
+            vmux_core::PageIcon::favicon("vmux://history/assets/favicons/history.svg")
+        );
     }
 }

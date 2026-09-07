@@ -73,11 +73,13 @@ impl NativePagePlugin {
 pub static LAYOUT_PAGE: NativePage = NativePage {
     url: vmux_layout::event::LAYOUT_PAGE_URL,
     document_url: None,
+    title: "vmux",
+    reports_title: true,
+    favicon: true,
     component: vmux_layout::page::Page,
     root_id: "main",
     root_class: "flex min-h-0 min-w-0 flex-1 flex-col",
     head: r#"<base href="/"/>
-<title>vmux</title>
 <style>
 html, body { height: 100%; margin: 0; min-height: 0; }
 body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; background: transparent; }
@@ -95,11 +97,13 @@ body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; b
 pub static START_PAGE: NativePage = NativePage {
     url: vmux_start::START_PAGE_URL,
     document_url: None,
+    title: "Start",
+    reports_title: true,
+    favicon: true,
     component: vmux_start::page::StartPage,
     root_id: "main",
     root_class: "flex min-h-0 min-w-0 flex-1 flex-col",
     head: r#"<base href="/"/>
-<title>Start</title>
 <style>
 html, body { height: 100%; margin: 0; min-height: 0; }
 body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
@@ -114,68 +118,97 @@ body { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 
 #[cfg(target_os = "macos")]
 pub static HISTORY_PAGE: NativePage =
-    NativePage::pane(vmux_history::PAGE_URL, vmux_history::page::Page);
+    NativePage::pane(vmux_history::PAGE_URL, vmux_history::page::Page).titled("History");
 
 #[cfg(target_os = "macos")]
 pub static TEAM_PAGE: NativePage =
-    NativePage::pane(vmux_core::event::team::TEAM_PAGE_URL, vmux_team::page::Page);
+    NativePage::pane(vmux_core::event::team::TEAM_PAGE_URL, vmux_team::page::Page).titled("Team");
 
 #[cfg(target_os = "macos")]
-pub static AGENTS_PAGE: NativePage = NativePage::pane("vmux://agents/", vmux_agent::page::Page);
+pub static AGENTS_PAGE: NativePage =
+    NativePage::pane("vmux://agents/", vmux_agent::page::Page).titled("Agents");
 
 #[cfg(target_os = "macos")]
-pub static CHAT_PAGE: NativePage =
-    NativePage::pane("vmux://agent/", vmux_chat::page::Page).owning_subtree();
+pub static CHAT_PAGE: NativePage = NativePage::pane("vmux://agent/", vmux_chat::page::Page)
+    .titled("Agent")
+    .preserving_host_title()
+    .without_favicon()
+    .owning_subtree();
 
 #[cfg(target_os = "macos")]
-pub static LSP_PAGE: NativePage = NativePage::pane("vmux://lsp/", vmux_editor::lsp_page::Page);
+pub static LSP_PAGE: NativePage =
+    NativePage::pane("vmux://lsp/", vmux_editor::lsp_page::Page).titled("Language Servers");
 
 #[cfg(target_os = "macos")]
 pub static FILES_PAGE: NativePage = NativePage::pane("file://", vmux_editor::page::Page)
+    .titled("Files")
     .owning_subtree()
     .served_from("vmux://files/");
+
+#[cfg(target_os = "macos")]
+pub static PROJECTS_PAGE: NativePage =
+    NativePage::pane(vmux_wire::space::PROJECTS_PAGE_URL, vmux_editor::page::Page)
+        .titled("Projects")
+        .owning_subtree()
+        .served_from("vmux://files/");
+
+#[cfg(target_os = "macos")]
+pub static KNOWLEDGE_PAGE: NativePage = NativePage::pane(
+    vmux_core::knowledge::KNOWLEDGE_PAGE_URL,
+    vmux_editor::page::Page,
+)
+.titled("Knowledge")
+.owning_subtree()
+.served_from("vmux://files/");
 
 #[cfg(target_os = "macos")]
 pub static TERMINAL_PAGE: NativePage = NativePage::pane(
     vmux_terminal::event::TERMINAL_PAGE_URL,
     vmux_terminal::page::Page,
-);
+)
+.titled("Terminal");
 
 #[cfg(target_os = "macos")]
 pub static SETTINGS_PAGE: NativePage = NativePage::pane(
     vmux_setting::event::SETTINGS_PAGE_URL,
     vmux_setting::page::Page,
-);
+)
+.titled("Settings");
 
 #[cfg(target_os = "macos")]
 pub static SERVICES_PAGE: NativePage = NativePage::pane(
     vmux_layout::event::SERVICES_PAGE_URL,
     vmux_service::page::Page,
-);
+)
+.titled("Services");
 
 #[cfg(target_os = "macos")]
 pub static SPACES_PAGE: NativePage =
-    NativePage::pane(vmux_wire::space::SPACES_PAGE_URL, vmux_space::page::Page);
+    NativePage::pane(vmux_wire::space::SPACES_PAGE_URL, vmux_space::page::Page).titled("Spaces");
 
 #[cfg(target_os = "macos")]
 pub static TOOLS_PAGE: NativePage =
-    NativePage::pane("vmux://tools/", vmux_layout::tools_page::Page);
+    NativePage::pane("vmux://tools/", vmux_layout::tools_page::Page).titled("Tools");
 
 #[cfg(target_os = "macos")]
 pub static VAULT_PAGE: NativePage =
-    NativePage::pane("vmux://vault/", vmux_layout::vault_page::Page).owning_subtree();
+    NativePage::pane("vmux://vault/", vmux_layout::vault_page::Page)
+        .titled("Vault")
+        .owning_subtree();
 
 #[cfg(target_os = "macos")]
 pub static EXTENSIONS_PAGE: NativePage = NativePage::pane(
     vmux_core::event::EXTENSIONS_PAGE_URL,
     vmux_layout::extensions_page::Page,
-);
+)
+.titled("Extensions");
 
 #[cfg(target_os = "macos")]
 pub static ERROR_PAGE: NativePage = NativePage::pane(
     vmux_wire::error::ERROR_PAGE_URL,
     vmux_layout::error_page::Page,
-);
+)
+.titled("Error");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Placement {
@@ -211,6 +244,8 @@ mod tests {
             &CHAT_PAGE,
             &LSP_PAGE,
             &FILES_PAGE,
+            &PROJECTS_PAGE,
+            &KNOWLEDGE_PAGE,
             &TERMINAL_PAGE,
             &VAULT_PAGE,
         ] {

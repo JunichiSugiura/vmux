@@ -20,6 +20,10 @@ pub trait Outbox {
     fn send(&self, id: &str, bytes: &[u8]) -> Result<(), EventListenerError>;
 
     fn set_page(&self, _url: &str) {}
+
+    fn set_title(&self, _title: &str) {}
+
+    fn set_favicon(&self, _url: &str) {}
 }
 
 pub struct AssetReply(wry::RequestAsyncResponder);

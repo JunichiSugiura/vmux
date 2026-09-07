@@ -76,8 +76,7 @@ pub fn ChatItemRow(
         } => rsx! {
             UserBubble {
                 key: "{key}",
-                class: "chat-user-bubble relative flex max-w-[80%] self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border py-2.5 pl-2.5 pr-10 text-sm",
-                style: "content-visibility:auto;contain-intrinsic-size:auto 96px;",
+                class: "chat-user-bubble relative flex max-w-[80%] self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border py-2.5 pl-2.5 pr-10 text-sm [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
                 if !text.is_empty() {
                     MessageCopyButton { text: text.clone() }
                 }
@@ -226,8 +225,7 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
     rsx! {
         div {
             key: "{key}",
-            class: "flex max-w-[92%] flex-col gap-2 self-start",
-            style: "content-visibility:auto;contain-intrinsic-size:auto 180px;",
+            class: "flex max-w-[92%] flex-col gap-2 self-start [contain-intrinsic-size:auto_180px] [content-visibility:auto]",
             if !blocks.is_empty() {
                 AssistantTurn {
                     standalone: false,

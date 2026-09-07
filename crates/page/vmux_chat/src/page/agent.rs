@@ -1,6 +1,7 @@
 use super::state::Chat;
 use dioxus::prelude::*;
 use vmux_ui::back::BackButton;
+use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::composer_bar::StatusDot;
 use vmux_ui::favicon::favicon_src_for_url;
 
@@ -9,7 +10,7 @@ pub(super) fn ChatHeader(chat: Chat) -> Element {
     let name = chat.header_name();
     let title = chat.title();
     rsx! {
-        header { class: "agent-chat-header vmux-agent-surface-enter relative z-10 flex min-w-0 items-center gap-2.5 border-b bg-background/95 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] shadow-[0_1px_0_rgba(255,255,255,0.02)] sm:px-5",
+        header { class: "agent-chat-header relative z-10 flex min-w-0 animate-agent-surface items-center gap-2.5 border-b bg-background/95 px-3 pb-3 pt-[calc(0.75rem+env(safe-area-inset-top))] shadow-[0_1px_0_rgba(255,255,255,0.02)] motion-reduce:animate-none sm:px-5",
             BackButton {}
             AgentAvatar { chat, size_class: "h-6 w-6 text-[11px]" }
             StatusDot { status: chat.status(), size_class: "h-2.5 w-2.5" }
@@ -44,20 +45,13 @@ fn AgentAvatar(chat: Chat, size_class: String) -> Element {
     } else {
         &accent
     };
-    let style = if src.is_some() {
-        String::new()
-    } else {
-        format!("background:{fallback}")
-    };
     rsx! {
-        div {
-            class: "flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white {size_class}",
-            style: "{style}",
-            if let Some(src) = src.as_ref() {
-                img { class: "h-full w-full object-cover", src: "{src}" }
-            } else {
-                "{initial}"
-            }
+        Avatar {
+            src,
+            fallback: initial,
+            background: fallback,
+            alt: chat.header_name(),
+            class: size_class,
         }
     }
 }

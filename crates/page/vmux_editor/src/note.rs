@@ -2,8 +2,10 @@ use dioxus::html::geometry::ClientPoint;
 use dioxus::prelude::*;
 use vmux_core::editor::SelSpan;
 use vmux_core::event::{MdBlock, MdInline, MdListItem, MdTableAlign};
+use vmux_ui::components::checkbox::Checkbox;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::translate;
+use vmux_ui::util::cn;
 
 use crate::page_model::{heading_class, span_style, table_align_style};
 
@@ -100,11 +102,7 @@ pub fn NoteSourceLine(chunks: Vec<NoteLineChunk>, caret_width_class: String) -> 
 }
 
 fn hidden_class(class: &'static str, hidden: bool) -> String {
-    if hidden {
-        format!("{class} invisible")
-    } else {
-        class.to_string()
-    }
+    cn([class, if hidden { "invisible" } else { "" }])
 }
 
 #[component]
@@ -220,11 +218,11 @@ fn MdList(
                     }
                 },
                 if let Some(checked) = item.task {
-                    input {
-                        r#type: "checkbox",
+                    Checkbox {
                         checked,
                         disabled: true,
-                        class: "mr-2 align-middle accent-primary",
+                        class: "mr-2 align-middle",
+                        attributes: vec![],
                     }
                 }
                 for (block_index, block) in item.blocks.iter().enumerate() {

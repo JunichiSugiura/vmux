@@ -164,10 +164,6 @@
   }
 }
 
-.update-progress-indeterminate {
-  animation: update-indeterminate 1.2s ease-in-out infinite;
-}
-
 :root {
   interpolate-size: allow-keywords;
 }

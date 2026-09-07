@@ -1,4 +1,5 @@
 use crate::components::button::IconButton;
+use crate::util::cn;
 use dioxus::prelude::*;
 use dioxus_primitives::dioxus_attributes::attributes;
 use dioxus_primitives::merge_attributes;
@@ -23,8 +24,8 @@ impl PromptMenuRow {
 
     pub fn class(at_cursor: bool) -> String {
         match at_cursor {
-            true => format!("{PROMPT_MENU_ROW} {}", Self::CURSOR),
-            false => format!("{PROMPT_MENU_ROW} {PROMPT_MENU_ROW_IDLE}"),
+            true => cn([PROMPT_MENU_ROW, Self::CURSOR]),
+            false => cn([PROMPT_MENU_ROW, PROMPT_MENU_ROW_IDLE]),
         }
     }
 }
@@ -70,12 +71,14 @@ pub fn PromptPopup(
 ) -> Element {
     let root = PROMPT_POPUP_ROOT;
     let class = match placement {
-        PromptPopupPlacement::Upward => {
-            format!("{root} vmux-prompt-popup-upward bottom-full mb-2")
-        }
-        PromptPopupPlacement::Downward => {
-            format!("{root} vmux-prompt-popup-downward top-full mt-2")
-        }
+        PromptPopupPlacement::Upward => cn([
+            root,
+            "bottom-full mb-2 origin-bottom animate-prompt-popup-upward motion-reduce:animate-none",
+        ]),
+        PromptPopupPlacement::Downward => cn([
+            root,
+            "top-full mt-2 origin-top animate-prompt-popup-downward motion-reduce:animate-none",
+        ]),
         PromptPopupPlacement::Inline => String::new(),
     };
     let base = attributes!(div {
@@ -83,10 +86,14 @@ pub fn PromptPopup(
         "data-slot": "prompt-popup",
     });
     let merged = merge_attributes(vec![base, attributes]);
-    let header_class = match heading.is_some() {
-        true => format!("{PROMPT_POPUP_HEADER} bg-background/95 backdrop-blur"),
-        false => PROMPT_POPUP_HEADER.to_string(),
-    };
+    let header_class = cn([
+        PROMPT_POPUP_HEADER,
+        if heading.is_some() {
+            "bg-background/95 backdrop-blur"
+        } else {
+            ""
+        },
+    ]);
     let has_header = heading.is_some() || on_dismiss.is_some();
     rsx! {
         if let Some(on_dismiss) = on_dismiss {

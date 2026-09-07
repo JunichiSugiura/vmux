@@ -6,6 +6,10 @@ use crate::event::{
     HistoryQueryRequest, HistoryQueryResponse,
 };
 use dioxus::prelude::*;
+use vmux_ui::components::alert_dialog::{
+    AlertDialogAction, AlertDialogActions, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogRoot, AlertDialogTitle,
+};
 use vmux_ui::favicon::Favicon;
 use vmux_ui::hooks::{send, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
@@ -82,7 +86,7 @@ pub fn Page() -> Element {
         emit_query(&query.read(), new_offset, new_id);
     };
 
-    let mut confirm_open: Signal<bool> = use_signal(|| false);
+    let mut confirm_open = use_signal(|| Some(false));
 
     let on_input = move |e: Event<FormData>| {
         query.set(e.value());
@@ -106,7 +110,7 @@ pub fn Page() -> Element {
                 }
                 button {
                     class: "px-3 py-2 text-xs bg-destructive text-destructive-foreground rounded",
-                    onclick: move |_| confirm_open.set(true),
+                    onclick: move |_| confirm_open.set(Some(true)),
                     {translate("history-clear-all")}
                 }
             }
@@ -153,26 +157,28 @@ pub fn Page() -> Element {
                 div { class: "h-4", onvisible: load_more }
             }
         }
-        if *confirm_open.read() {
-            div { class: "fixed inset-0 bg-scrim-strong flex items-center justify-center z-50",
-                div { class: "bg-card border border-border p-6 rounded max-w-sm",
-                    h3 { class: "text-lg mb-2", {translate("history-clear-confirm")} }
-                    p { class: "text-sm text-muted-foreground mb-4", {translate("history-clear-warning")} }
-                    div { class: "flex gap-2 justify-end",
-                        button {
-                            class: "px-3 py-1 text-sm bg-muted rounded",
-                            onclick: move |_| confirm_open.set(false),
-                            {translate("history-cancel")}
-                        }
-                        button {
-                            class: "px-3 py-1 text-sm bg-destructive text-destructive-foreground rounded",
-                            onclick: move |_| {
-                                let _ = send(&HistoryClearAllRequest);
-                                entries.write().clear();
-                                confirm_open.set(false);
-                            },
-                            {translate("history-clear-all")}
-                        }
+        AlertDialogRoot {
+            open: Into::<ReadSignal<Option<bool>>>::into(confirm_open),
+            on_open_change: Callback::new(move |open| confirm_open.set(Some(open))),
+            default_open: false,
+            attributes: vec![],
+            AlertDialogContent { attributes: vec![],
+                AlertDialogTitle { attributes: vec![], {translate("history-clear-confirm")} }
+                AlertDialogDescription { attributes: vec![], {translate("history-clear-warning")} }
+                AlertDialogActions { attributes: vec![],
+                    AlertDialogCancel {
+                        attributes: vec![],
+                        on_click: Some(EventHandler::new(move |_| confirm_open.set(Some(false)))),
+                        {translate("history-cancel")}
+                    }
+                    AlertDialogAction {
+                        attributes: vec![],
+                        on_click: Some(EventHandler::new(move |_| {
+                            let _ = send(&HistoryClearAllRequest);
+                            entries.write().clear();
+                            confirm_open.set(Some(false));
+                        })),
+                        {translate("history-clear-all")}
                     }
                 }
             }

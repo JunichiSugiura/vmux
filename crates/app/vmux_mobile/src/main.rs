@@ -27,7 +27,7 @@ use std::time::Duration;
 
 use dioxus::prelude::*;
 use vmux_ui::back::PageBack;
-use vmux_ui::components::start_hero::{START_BACKDROP_STYLE, StartBackdrop, StartHero};
+use vmux_ui::components::start_hero::{START_BACKDROP_CLASS, StartBackdrop, StartHero};
 use vmux_ui::i18n::translate;
 use vmux_wire::room::{RemoteAgent, RemoteSession};
 
@@ -450,8 +450,7 @@ fn PairScreen(
 ) -> Element {
     rsx! {
         div {
-            class: "relative isolate flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground",
-            style: START_BACKDROP_STYLE,
+            class: "relative isolate flex h-dvh min-h-0 flex-col overflow-hidden bg-background text-foreground {START_BACKDROP_CLASS}",
             StartBackdrop {}
             main { class: "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-[calc(3.5rem+env(safe-area-inset-top))] sm:px-6 md:pt-20",
                 StartHero {

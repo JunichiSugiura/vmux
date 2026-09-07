@@ -5,7 +5,7 @@ use dioxus_primitives::progress::{self, ProgressIndicatorProps, ProgressProps};
 pub fn Progress(props: ProgressProps) -> Element {
     rsx! {
         progress::Progress {
-            class: "group relative h-2 w-[200px] overflow-hidden rounded-full bg-muted",
+            class: "group relative h-1.5 w-full overflow-hidden rounded-full bg-foreground/10",
             value: props.value,
             max: props.max,
             attributes: props.attributes,
@@ -18,7 +18,7 @@ pub fn Progress(props: ProgressProps) -> Element {
 pub fn ProgressIndicator(props: ProgressIndicatorProps) -> Element {
     rsx! {
         progress::ProgressIndicator {
-            class: "h-full bg-foreground transition-all duration-[250ms] ease-in-out w-[var(--progress-value,0%)] group-data-[state=indeterminate]:w-1/2 group-data-[state=indeterminate]:animate-[progress-indeterminate_1s_linear_infinite]",
+            class: "h-full w-[var(--progress-value,0%)] rounded-full bg-primary transition-[width] duration-200 group-data-[state=indeterminate]:w-1/3 group-data-[state=indeterminate]:animate-[update-indeterminate_1.2s_ease-in-out_infinite]",
             attributes: props.attributes,
             {props.children}
         }

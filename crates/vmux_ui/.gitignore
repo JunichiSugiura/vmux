@@ -1,6 +1,0 @@
-node_modules/
-target/
-# Tailwind CLI output (`npm run build:css` from `assets/input.css`)
-assets/ui_library.css
-# Dioxus wasm bundle + wasm-bindgen (`build.rs` debug native builds)
-dist/

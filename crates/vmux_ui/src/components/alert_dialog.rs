@@ -4,48 +4,32 @@ use dioxus_primitives::alert_dialog::{
     AlertDialogContentProps, AlertDialogDescriptionProps, AlertDialogRootProps,
     AlertDialogTitleProps,
 };
+use dioxus_primitives::dioxus_attributes::attributes;
+use dioxus_primitives::merge_attributes;
 
-use crate::util::merge_class;
-
-const ALERT_DIALOG_STYLE: &str = r#"
-.alert-dialog-title {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 1.25rem;
-  font-weight: 700;
-}
-
-.alert-dialog-description {
-  margin: 0;
-  color: var(--muted-foreground);
-  font-size: 1rem;
-}
-"#;
+use crate::util::cn;
 
 #[component]
 pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
     rsx! {
-        Fragment {
-            style { "{ALERT_DIALOG_STYLE}" }
-            alert_dialog::AlertDialogRoot {
-                class: "group fixed inset-0 z-[1000] bg-scrim data-[state=closed]:animate-[dx-fade-zoom-out_150ms_ease-in_forwards] data-[state=open]:animate-[dx-fade-zoom-in_150ms_ease-out_forwards]",
-                id: props.id,
-                default_open: props.default_open,
-                open: props.open,
-                on_open_change: props.on_open_change,
-                attributes: props.attributes,
-                {props.children}
-            }
+        alert_dialog::AlertDialogRoot {
+            class: "group fixed inset-0 z-[1000] bg-scrim data-[state=closed]:animate-[dx-fade-zoom-out_150ms_ease-in_forwards] data-[state=open]:animate-[dx-fade-zoom-in_150ms_ease-out_forwards]",
+            id: props.id,
+            default_open: props.default_open,
+            open: props.open,
+            on_open_change: props.on_open_change,
+            attributes: props.attributes,
+            {props.children}
         }
     }
 }
 
 #[component]
 pub fn AlertDialogContent(props: AlertDialogContentProps) -> Element {
-    let merged = merge_class(
+    let merged = cn([
         "fixed left-1/2 top-1/2 z-[1001] flex w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-lg border border-border bg-background px-6 pb-6 pt-8 text-center font-sans text-muted-foreground shadow-[0_2px_10px_rgb(0_0_0_/_18%)] sm:max-w-lg sm:text-left",
-        props.class.as_deref(),
-    );
+        props.class.as_deref().unwrap_or_default(),
+    ]);
     rsx! {
         alert_dialog::AlertDialogContent {
             id: props.id,
@@ -58,12 +42,30 @@ pub fn AlertDialogContent(props: AlertDialogContentProps) -> Element {
 
 #[component]
 pub fn AlertDialogTitle(props: AlertDialogTitleProps) -> Element {
-    alert_dialog::AlertDialogTitle(props)
+    let base = attributes!(h2 {
+        class: "m-0 text-xl font-bold text-muted-foreground"
+    });
+    let merged = merge_attributes(vec![base, props.attributes]);
+    rsx! {
+        alert_dialog::AlertDialogTitle {
+            attributes: merged,
+            {props.children}
+        }
+    }
 }
 
 #[component]
 pub fn AlertDialogDescription(props: AlertDialogDescriptionProps) -> Element {
-    alert_dialog::AlertDialogDescription(props)
+    let base = attributes!(p {
+        class: "m-0 text-base text-muted-foreground"
+    });
+    let merged = merge_attributes(vec![base, props.attributes]);
+    rsx! {
+        alert_dialog::AlertDialogDescription {
+            attributes: merged,
+            {props.children}
+        }
+    }
 }
 
 #[component]

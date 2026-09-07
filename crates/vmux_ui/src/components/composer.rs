@@ -7,6 +7,7 @@ use crate::components::prompt_box::PromptBox;
 use crate::file_icon::FilePath;
 use crate::i18n::translate;
 use crate::ime::use_ime_guard;
+use crate::util::cn;
 
 pub const PROMPT_INPUT_ID: &str = "vmux-prompt-input";
 
@@ -110,9 +111,10 @@ pub fn PromptComposer(
     let typed_text_class = if overlaid { "text-transparent" } else { "" };
     let action_class = if action_enabled {
         match action {
-            PromptComposerAction::Send => format!(
-                "relative z-10 mr-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg transition active:scale-95 hover:brightness-110 sm:h-8 sm:w-8 sm:rounded-lg {accent_gradient}"
-            ),
+            PromptComposerAction::Send => cn([
+                "relative z-10 mr-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-lg transition active:scale-95 hover:brightness-110 sm:h-8 sm:w-8 sm:rounded-lg",
+                accent_gradient.as_str(),
+            ]),
             PromptComposerAction::Stop => "relative z-10 mr-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl bg-white/10 text-foreground/70 shadow-sm ring-1 ring-inset ring-white/10 transition active:scale-95 hover:bg-white/60 hover:text-foreground sm:h-8 sm:w-8 sm:rounded-lg sm:bg-white/40 sm:ring-black/10 dark:sm:bg-white/[0.08] dark:sm:ring-white/10 dark:hover:bg-white/[0.14]".to_string(),
         }
     } else {
@@ -123,10 +125,15 @@ pub fn PromptComposer(
     } else {
         ""
     };
+    let prompt_box_class = cn(["vmux-prompt-composer flex-wrap", shared_transition_class]);
+    let textarea_class = cn([
+        "relative z-10 max-h-40 min-h-11 w-full [field-sizing:content] resize-none overflow-y-auto bg-transparent px-1.5 py-2.5 text-base leading-6 caret-[var(--vmux-prompt-accent)] outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted-foreground/50 sm:min-h-10 sm:py-2 sm:text-[15px]",
+        typed_text_class,
+    ]);
 
     rsx! {
         PromptBox {
-            class: "vmux-prompt-composer {shared_transition_class} flex-wrap",
+            class: prompt_box_class,
             style: "--vmux-prompt-accent:{accent_color};",
             button {
                 class: "relative z-10 ml-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl text-foreground/45 transition active:bg-foreground/10 active:text-foreground hover:bg-foreground/10 hover:text-foreground sm:h-8 sm:w-8 sm:rounded-lg",
@@ -216,7 +223,7 @@ pub fn PromptComposer(
                     }
                     textarea {
                         id: "{input_id}",
-                        class: "relative z-10 max-h-40 min-h-11 w-full [field-sizing:content] resize-none overflow-y-auto bg-transparent px-1.5 py-2.5 text-base leading-6 {typed_text_class} caret-[var(--vmux-prompt-accent)] outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted-foreground/50 sm:min-h-10 sm:py-2 sm:text-[15px]",
+                        class: textarea_class,
                         autofocus: true,
                         rows: "1",
                         spellcheck: "false",

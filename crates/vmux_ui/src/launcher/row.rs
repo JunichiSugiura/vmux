@@ -1,5 +1,6 @@
 use crate::components::composer_bar::{ComposerChipIcon, ComposerMenuKind};
 use crate::components::icon::Icon;
+use crate::components::skeleton::Skeleton;
 use crate::favicon::Favicon;
 use crate::file_icon::FilePath;
 use crate::i18n::{TranslationValue, translate, translate_with};
@@ -15,6 +16,7 @@ use crate::launcher::style::{
     result_secondary_text_class, result_shortcut_badge_class, result_terminal_path_class,
     result_trailing_slot_class,
 };
+use crate::util::cn;
 
 #[component]
 pub fn ResultRow(
@@ -149,11 +151,11 @@ pub fn ResultRow(
                                 }
                             },
                             ResultItem::ResumePending { row } => rsx! {
-                                div { class: "{result_content_row_class()} animate-pulse",
+                                div { class: result_content_row_class(),
                                     span { class: "shrink-0 text-sm text-muted-foreground/40", "\u{21ba}" }
                                     div { class: "flex min-w-0 flex-1 flex-col gap-1.5",
-                                        div { class: "h-3 rounded bg-muted-foreground/20 {SkeletonWidth::title(*row)}" }
-                                        div { class: "h-2.5 rounded bg-muted-foreground/10 {SkeletonWidth::latest(*row)}" }
+                                        Skeleton { class: cn(["h-3 bg-muted-foreground/20", SkeletonWidth::title(*row)]) }
+                                        Skeleton { class: cn(["h-2.5 bg-muted-foreground/10", SkeletonWidth::latest(*row)]) }
                                     }
                                 }
                                 span { class: result_trailing_slot_class() }

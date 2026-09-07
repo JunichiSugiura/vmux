@@ -14,6 +14,7 @@ use vmux_ui::components::input::Input;
 use vmux_ui::components::select::{
     Select, SelectGroup, SelectItemIndicator, SelectList, SelectOption, SelectTrigger, SelectValue,
 };
+use vmux_ui::components::switch::{Switch, SwitchThumb};
 use vmux_ui::dioxus_ext::attributes;
 use vmux_ui::focus::FocusClaim;
 use vmux_ui::hooks::{send, use_listener, use_theme};
@@ -625,25 +626,13 @@ fn WidgetView(
 #[component]
 fn Toggle(path: String, value: bool) -> Element {
     let path_for_input = path.clone();
-    let track_class = if value {
-        "relative h-6 w-10 cursor-pointer rounded-full bg-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-    } else {
-        "relative h-6 w-10 cursor-pointer rounded-full bg-muted shadow-[inset_0_0_0_1px_var(--border)] transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-    };
-    let thumb_class = if value {
-        "absolute top-0.5 left-[1.125rem] h-5 w-5 rounded-full bg-background shadow-sm transition-transform"
-    } else {
-        "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-foreground/80 shadow-sm transition-transform"
-    };
     rsx! {
-        button {
-            r#type: "button",
-            class: "{track_class}",
-            "aria-pressed": if value { "true" } else { "false" },
-            onclick: move |_| {
-                emit_update(&path_for_input, serde_json::json!(!value));
+        Switch {
+            checked: value,
+            on_checked_change: move |checked| {
+                emit_update(&path_for_input, serde_json::json!(checked));
             },
-            span { class: "{thumb_class}" }
+            SwitchThumb { attributes: vec![] }
         }
     }
 }

@@ -369,8 +369,8 @@ pub fn Page() -> Element {
         div {
             id: CONTAINER_ID,
             tabindex: "0",
-            class: "relative h-full w-full {overflow_class} bg-term-bg text-term-fg font-mono text-sm leading-tight select-none",
-            style: "{theme_style}{cell_style}outline:none;",
+            class: "relative h-full w-full {overflow_class} bg-term-bg text-term-fg font-mono text-sm leading-tight select-none outline-none",
+            style: "{theme_style}{cell_style}",
 
             onmounted: move |e: Event<MountedData>| async move {
                 container.set(Some(e.data()));
@@ -501,8 +501,7 @@ pub fn Page() -> Element {
                 let msg = service_error.read().clone();
                 (!msg.is_empty()).then(|| rsx! {
                     div {
-                        class: "absolute inset-0 z-50 flex items-center justify-center",
-                        style: "background: rgba(0,0,0,0.6);",
+                        class: "absolute inset-0 z-50 flex items-center justify-center bg-black/60",
                         div {
                             class: "rounded-md border border-ansi-1 bg-term-bg px-4 py-2 text-sm text-ansi-1",
                             "{msg}"
@@ -580,10 +579,8 @@ pub fn Page() -> Element {
                 })
             }
 
-            style { ".vmux-link:hover{{border-bottom:2px solid var(--primary)}}" }
-
             span {
-                style: "position:absolute;top:0;left:0;visibility:hidden;white-space:pre;font:inherit",
+                class: "invisible absolute left-0 top-0 whitespace-pre [font:inherit]",
                 onresize: move |e: Event<ResizeData>| {
                     let Ok(size) = e.get_border_box_size() else {
                         return;
@@ -613,7 +610,8 @@ pub fn Page() -> Element {
                                     rsx! {
                                         div {
                                             key: "{doc_row}",
-                                            style: "position:absolute;left:0;right:0;top:{top}px;",
+                                            class: "absolute inset-x-0 top-[var(--terminal-row-top)]",
+                                            style: "--terminal-row-top:{top}px;",
                                             TerminalRow {
                                                 row_idx: *doc_row as usize,
                                                 row: *row,
@@ -659,8 +657,7 @@ fn TerminalRow(
 
     rsx! {
         div {
-            class: "relative isolate whitespace-pre",
-            style: "height: var(--ch, 1.2em);",
+            class: "relative isolate h-[var(--ch,1.2em)] whitespace-pre",
             for (span_idx, span) in line.spans.iter().enumerate() {
                 if let Some(background) = span_background_overlay(span) {
                     div {
@@ -680,8 +677,8 @@ fn TerminalRow(
             }
             if let Some((sel_start, sel_end)) = selected_cols {
                 div {
-                    class: "absolute top-0 bottom-0 pointer-events-none",
-                    style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});background:rgba(255,255,255,0.25);",
+                    class: "pointer-events-none absolute inset-y-0 bg-white/25",
+                    style: "left:calc(var(--cw, 1ch) * {sel_start});width:calc(var(--cw, 1ch) * {sel_end - sel_start});",
                 }
             }
             for link in line.links.iter() {
@@ -692,8 +689,8 @@ fn TerminalRow(
                     rsx! {
                         div {
                             key: "lnk-{start}",
-                            class: "vmux-link absolute top-0 bottom-0",
-                            style: "left:calc(var(--cw, 1ch) * {start});width:calc(var(--cw, 1ch) * {width});z-index:2;cursor:pointer;",
+                            class: "absolute inset-y-0 z-[2] cursor-pointer hover:border-b-2 hover:border-primary",
+                            style: "left:calc(var(--cw, 1ch) * {start});width:calc(var(--cw, 1ch) * {width});",
                             onmousedown: move |e: Event<MouseData>| {
                                 e.stop_propagation();
                                 e.prevent_default();

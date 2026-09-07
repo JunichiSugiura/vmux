@@ -1,24 +1,33 @@
 use dioxus::prelude::*;
-use dioxus_primitives::checkbox::{self, CheckboxProps};
+use dioxus_primitives::checkbox::{self, CheckboxState};
 use dioxus_primitives::icon;
 
-const CHECKBOX: &str = "size-4 box-border cursor-pointer rounded border-0 bg-card p-0 text-muted-foreground shadow-[inset_0_0_0_1px_var(--primary)] data-[state=checked]:bg-primary data-[state=checked]:text-background data-[state=checked]:shadow-none focus-visible:shadow-[0_0_0_2px_var(--ring)]";
+const CHECKBOX: &str = "size-4 box-border cursor-pointer rounded border-0 bg-card p-0 text-muted-foreground shadow-[inset_0_0_0_1px_var(--primary)] data-[state=checked]:bg-primary data-[state=checked]:text-background data-[state=checked]:shadow-none data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-50 focus-visible:shadow-[0_0_0_2px_var(--ring)]";
 
 const CHECKBOX_INDICATOR: &str = "flex items-center justify-center";
 
 #[component]
-pub fn Checkbox(props: CheckboxProps) -> Element {
+pub fn Checkbox(
+    checked: bool,
+    #[props(default)] disabled: bool,
+    #[props(default)] on_checked_change: Option<EventHandler<bool>>,
+    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
+) -> Element {
+    let state = match checked {
+        true => CheckboxState::Checked,
+        false => CheckboxState::Unchecked,
+    };
     rsx! {
         checkbox::Checkbox {
             class: CHECKBOX,
-            checked: props.checked,
-            default_checked: props.default_checked,
-            required: props.required,
-            disabled: props.disabled,
-            name: props.name,
-            value: props.value,
-            on_checked_change: props.on_checked_change,
-            attributes: props.attributes,
+            checked: Some(state),
+            disabled,
+            on_checked_change: move |state| {
+                if let Some(handler) = on_checked_change {
+                    handler.call(bool::from(state));
+                }
+            },
+            attributes,
             checkbox::CheckboxIndicator {
                 class: CHECKBOX_INDICATOR,
                 icon::Icon {

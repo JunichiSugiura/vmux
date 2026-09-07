@@ -30,7 +30,8 @@ pub use launcher::{
 pub use notify::{AgentAttention, AgentDoneUnseen, BellReceived, OsNotify};
 pub use overlay::{OverlayShownInline, OverlayState, OverlayStateQuery, WindowOverlay};
 pub use page_open::{
-    CefPageAttachRequest, PageOpenError, PageOpenHandled, PageOpenId, PageOpenRequest, PageOpenSet,
-    PageOpenTarget, PageOpenTask, PendingPrompt, PendingPromptAttachments,
+    CefPageAttachRequest, PageOpenDeferred, PageOpenError, PageOpenHandled, PageOpenId,
+    PageOpenRequest, PageOpenSet, PageOpenTarget, PageOpenTask, PendingPrompt,
+    PendingPromptAttachments,
 };
 pub use workspace::{ComputeFocusSet, StackCommandSet, TabCommandSet};

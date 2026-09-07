@@ -39,8 +39,6 @@ pub struct ComposerBarProps {
     #[props(default)]
     pub ahead: u32,
     #[props(default)]
-    pub on_create_worktree: Option<EventHandler<()>>,
-    #[props(default)]
     pub status: String,
     #[props(default)]
     pub active_subagents: usize,
@@ -130,19 +128,9 @@ pub fn WorkspaceBadges(
     workspace_known: bool,
     uncommitted: u32,
     ahead: u32,
-    #[props(default)] on_create_worktree: Option<EventHandler<()>>,
 ) -> Element {
     rsx! {
         if is_git_repo {
-            if let Some(create) = on_create_worktree {
-                button {
-                    class: "flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[10px] font-medium text-muted-foreground transition hover:bg-violet-500/[0.08] hover:text-violet-600 dark:hover:text-violet-300",
-                    title: translate("composer-create-worktree-title"),
-                    onmousedown: move |event| event.prevent_default(),
-                    onclick: move |_| create.call(()),
-                    {translate("composer-create-worktree")}
-                }
-            }
             if uncommitted > 0 {
                 span {
                     class: "shrink-0 font-mono text-[10px] text-amber-500",
@@ -178,7 +166,6 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
         workspace_known,
         uncommitted,
         ahead,
-        on_create_worktree,
         status,
         active_subagents,
         active_tasks,
@@ -227,7 +214,6 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                     workspace_known,
                     uncommitted,
                     ahead,
-                    on_create_worktree,
                 }
             }
             ComposerStatus { status, active_subagents, active_tasks, queued_count }

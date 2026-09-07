@@ -5,7 +5,7 @@ use super::AgentChatView;
 use crate::events::{AgentCommandRequest, CommandOrigin};
 use vmux_chat::event::{
     CHAT_PROJECT_BRANCHES_EVENT, COMPOSER_CONTEXT_EVENT, ChatBranch, ChatBranchesRequest,
-    ChatCreateWorktree, ChatGoToBranch, ChatProjectBranches, ChatSelectWorkspace, ComposerContext,
+    ChatGoToBranch, ChatProjectBranches, ChatSelectWorkspace, ComposerContext,
 };
 use vmux_service::protocol::{AgentCommand as ServiceAgentCommand, AgentRequestId};
 use vmux_session::AcpSession;
@@ -17,12 +17,10 @@ impl Plugin for ChatWorkspacePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(BinEventEmitterPlugin::<(
             ChatSelectWorkspace,
-            ChatCreateWorktree,
             ChatBranchesRequest,
             ChatGoToBranch,
         )>::for_hosts(&["agent", "start"]))
             .add_observer(on_chat_select_workspace)
-            .add_observer(on_chat_create_worktree)
             .add_observer(on_chat_branches_request)
             .add_observer(on_chat_go_to_branch)
             .add_systems(Update, (push_composer_context_to_page, drain_branch_reads));
@@ -320,37 +318,15 @@ fn on_chat_select_workspace(
     });
 }
 
-fn on_chat_create_worktree(
-    trigger: On<BinReceive<ChatCreateWorktree>>,
-    child_of: Query<&ChildOf>,
-    sessions: Query<&AcpSession>,
-    mut requests: MessageWriter<AgentCommandRequest>,
-) {
-    let Ok(parent) = child_of.get(trigger.event().webview) else {
-        return;
-    };
-    let Ok(session) = sessions.get(parent.parent()) else {
-        return;
-    };
-    requests.write(AgentCommandRequest {
-        request_id: AgentRequestId::new(),
-        origin: CommandOrigin::User,
-        command: ServiceAgentCommand::CreateWorktree {
-            anchor: session.anchor,
-        },
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn composer_workspace_controls_dispatch_for_current_session() {
+    fn composer_workspace_selection_dispatches_for_current_session() {
         let mut app = App::new();
         app.add_message::<AgentCommandRequest>()
-            .add_observer(on_chat_select_workspace)
-            .add_observer(on_chat_create_worktree);
+            .add_observer(on_chat_select_workspace);
         let anchor = vmux_core::ProcessId::new();
         let stack = app
             .world_mut()
@@ -368,25 +344,16 @@ mod tests {
             webview,
             payload: ChatSelectWorkspace,
         });
-        app.world_mut().trigger(BinReceive {
-            webview,
-            payload: ChatCreateWorktree,
-        });
-
         let requests = app
             .world_mut()
             .resource_mut::<Messages<AgentCommandRequest>>()
             .drain()
             .collect::<Vec<_>>();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 1);
         assert!(matches!(requests[0].origin, CommandOrigin::User));
         assert!(matches!(
             requests[0].command,
             ServiceAgentCommand::ChooseWorkspace { anchor: got } if got == anchor
-        ));
-        assert!(matches!(
-            requests[1].command,
-            ServiceAgentCommand::CreateWorktree { anchor: got } if got == anchor
         ));
     }
 

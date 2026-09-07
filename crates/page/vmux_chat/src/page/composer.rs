@@ -4,10 +4,10 @@ use super::approval::ChoiceList;
 use super::keys::ChatKeys;
 use super::state::Chat;
 use super::transcript::QueuedPrompts;
-use crate::event::{ChatCreateWorktree, ChatPasteMedia, ChatPickFiles};
+use crate::event::{ChatPasteMedia, ChatPickFiles};
 use dioxus::prelude::*;
 use vmux_ui::agent_accent::agent_accent;
-use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
+use vmux_ui::components::composer::PromptComposer;
 use vmux_ui::components::composer_bar::ComposerBar;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::translate;
@@ -80,7 +80,6 @@ fn ChatComposer(chat: Chat) -> Element {
 #[component]
 fn ComposerFooter(chat: Chat) -> Element {
     let context = (chat.slash.composer_context)();
-    let offers_worktree = !context.is_worktree && context.can_manage_workspace;
     rsx! {
         ComposerBar {
             menu: chat.menu,
@@ -92,11 +91,6 @@ fn ComposerFooter(chat: Chat) -> Element {
             workspace_known: context.workspace_selected,
             uncommitted: context.uncommitted,
             ahead: context.ahead,
-            on_create_worktree: offers_worktree
-                .then(|| EventHandler::new(move |()| {
-                    let _ = send(&ChatCreateWorktree);
-                    focus_prompt_end(PROMPT_INPUT_ID);
-                })),
             status: chat.status(),
             active_subagents: (chat.activity_counts)().0,
             active_tasks: (chat.activity_counts)().1,

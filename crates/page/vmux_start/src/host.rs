@@ -658,9 +658,12 @@ fn mark_start_pages_as_launcher_hosts(
 
 fn begin_requested_inline_transition(
     mut requests: MessageReader<InlineTransitionRequested>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
+    let mut changed = false;
     for request in requests.read() {
+        changed = true;
         commands
             .entity(request.stack)
             .try_insert(crate::StartInlineTransition {
@@ -669,6 +672,9 @@ fn begin_requested_inline_transition(
         commands
             .entity(request.webview)
             .try_insert(crate::StartInlineTransitionView);
+    }
+    if changed && let Some(proxy) = proxy {
+        let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
     }
 }
 

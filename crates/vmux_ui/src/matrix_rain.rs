@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 const FONT_PX: f64 = 16.0;
 const COLUMNS: usize = 120;
-const COLUMN_GLYPHS: usize = 28;
+const COLUMN_GLYPHS: usize = 96;
 const GLYPHS: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789";
 
 #[component]
@@ -26,9 +26,9 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
     rsx! {
         div {
             class: "absolute inset-0 overflow-hidden",
-            style: "font:{FONT_PX}px monospace;line-height:{FONT_PX}px;color:{trail};",
+            style: "--vmux-rain-head:{head};--vmux-rain-trail:{trail};font:{FONT_PX}px monospace;line-height:{FONT_PX}px;",
 
-            style { dangerous_inner_html: RainColumn::KEYFRAMES }
+            style { dangerous_inner_html: RainColumn::CSS }
 
             for index in 0..COLUMNS {
                 {
@@ -36,10 +36,18 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
                     rsx! {
                         div {
                             key: "{index}",
-                            class: "absolute top-0 whitespace-pre motion-reduce:animate-none",
-                            style: "{column.style}",
-                            "{column.trail}"
-                            span { style: "color:{head};", "{column.head}" }
+                            class: "absolute top-0 whitespace-pre",
+                            style: "{column.style()}",
+                            div {
+                                class: "vmux-rain-trail",
+                                style: "{column.animation_style()}",
+                                "{column.glyphs}"
+                            }
+                            div {
+                                class: "vmux-rain-head",
+                                style: "{column.animation_style()}",
+                                "{column.glyphs}"
+                            }
                         }
                     }
                 }
@@ -49,41 +57,49 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
 }
 
 struct RainColumn {
-    trail: String,
-    head: char,
-    style: String,
+    index: usize,
+    glyphs: String,
+    duration_seconds: f64,
+    delay_seconds: f64,
 }
 
 impl RainColumn {
-    const KEYFRAMES: &'static str =
-        "@keyframes vmux-rain{from{transform:translateY(-100%)}to{transform:translateY(100vh)}}";
+    const CSS: &'static str = "@keyframes vmux-rain-window{from{-webkit-mask-position:0 -320px;mask-position:0 -320px}to{-webkit-mask-position:0 calc(100vh + 320px);mask-position:0 calc(100vh + 320px)}}.vmux-rain-trail,.vmux-rain-head{position:absolute;top:0;left:0;-webkit-mask-size:100% 320px;mask-size:100% 320px;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}.vmux-rain-trail{color:var(--vmux-rain-trail);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,rgb(0 0 0/.08) 18%,rgb(0 0 0/.4) 65%,#000 100%);mask-image:linear-gradient(to bottom,transparent 0%,rgb(0 0 0/.08) 18%,rgb(0 0 0/.4) 65%,#000 100%)}.vmux-rain-head{color:var(--vmux-rain-head);text-shadow:0 0 8px var(--vmux-rain-head);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,transparent 88%,#000 96%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0%,transparent 88%,#000 96%,transparent 100%)}@media(prefers-reduced-motion:reduce){.vmux-rain-trail{animation:none!important;-webkit-mask-image:none;mask-image:none;opacity:.08}.vmux-rain-head{display:none}}";
 
     fn at(index: usize, words: &[Vec<char>]) -> Self {
         let glyphs: Vec<char> = GLYPHS.chars().collect();
         let word = (!words.is_empty() && index % 7 == 3).then(|| &words[index % words.len()]);
-
-        let mut column = String::new();
+        let mut column_glyphs = String::with_capacity(COLUMN_GLYPHS * 2);
         for row in 0..COLUMN_GLYPHS {
-            let glyph = match word {
+            if row > 0 {
+                column_glyphs.push('\n');
+            }
+            let character = match word {
                 Some(word) => word[row % word.len()],
                 None => glyphs[Self::noise(index * 97 + row) as usize % glyphs.len()],
             };
-            column.push(glyph);
-            column.push('\n');
+            column_glyphs.push(character);
         }
-        let head = column.pop().map(|_| column.pop()).unwrap_or_default();
-
-        let seconds = 3.0 + (Self::noise(index) % 1000) as f64 / 200.0;
-        let delay = (Self::noise(index * 31) % 1000) as f64 / 160.0;
+        let duration_seconds = 5.0 + (Self::noise(index * 17) % 4500) as f64 / 1000.0;
+        let delay_seconds =
+            -((Self::noise(index * 31) % 10_000) as f64 / 10_000.0 * duration_seconds);
         Self {
-            trail: column,
-            head: head.unwrap_or(' '),
-            style: format!(
-                "left:{}px;animation:vmux-rain {seconds:.2}s linear {delay:.2}s infinite;\
-                 mask-image:linear-gradient(to bottom,transparent,#000 60%,#000 100%);",
-                index as f64 * FONT_PX
-            ),
+            index,
+            glyphs: column_glyphs,
+            duration_seconds,
+            delay_seconds,
         }
+    }
+
+    fn style(&self) -> String {
+        format!("left:{}px;", self.index as f64 * FONT_PX)
+    }
+
+    fn animation_style(&self) -> String {
+        format!(
+            "animation:vmux-rain-window {:.3}s linear {:.3}s infinite both;",
+            self.duration_seconds, self.delay_seconds
+        )
     }
 
     fn noise(seed: usize) -> u64 {
@@ -133,10 +149,9 @@ mod tests {
         let column = RainColumn::at(3, &words);
 
         let shown: String = column
-            .trail
+            .glyphs
             .chars()
-            .filter(|c| *c != '\n')
-            .chain(std::iter::once(column.head))
+            .filter(|glyph| *glyph != '\n')
             .collect();
         assert_eq!(shown.chars().count(), COLUMN_GLYPHS);
         assert!(shown.starts_with("CLAUDE"), "got {shown}");
@@ -147,8 +162,8 @@ mod tests {
         let first = RainColumn::at(10, &[]);
         let second = RainColumn::at(11, &[]);
 
-        assert_ne!(first.style, second.style);
-        assert_ne!(first.trail, second.trail);
+        assert_ne!(first.animation_style(), second.animation_style());
+        assert_ne!(first.glyphs, second.glyphs);
     }
 
     #[test]

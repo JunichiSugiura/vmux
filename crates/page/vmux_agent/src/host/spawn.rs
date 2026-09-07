@@ -5,7 +5,7 @@ use vmux_core::agent::{
     PageAgentAttachDefaultRequest, PageAgentAttachRequest, PageAgentSpawnDefaultRequest,
     PageAgentSpawnStackRequest, RestartAgentPty, SpawnAgentInStackRequest,
 };
-use vmux_core::{LastActivatedAt, PageMetadata, PageOpenError, PageOpenHandled};
+use vmux_core::{LastActivatedAt, PageMetadata, PageOpenDeferred, PageOpenError, PageOpenHandled};
 use vmux_layout::event::TERMINAL_PAGE_URL;
 use vmux_layout::pane::ForcePaneClose;
 use vmux_service::client::ServiceClient;
@@ -144,7 +144,11 @@ pub fn detect_agent_session_process_exit(
     }
 }
 
-pub(crate) type PendingPageOpen = (Without<PageOpenHandled>, Without<PageOpenError>);
+pub(crate) type PendingPageOpen = (
+    Without<PageOpenHandled>,
+    Without<PageOpenDeferred>,
+    Without<PageOpenError>,
+);
 
 pub(super) fn handle_spawn_agent_requests(
     mut reader: MessageReader<SpawnAgentInStackRequest>,

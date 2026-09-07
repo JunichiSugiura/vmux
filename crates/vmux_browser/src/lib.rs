@@ -1171,8 +1171,8 @@ mod tests {
         use vmux_agent::host::AgentSessionPlugin;
         use vmux_agent::strategy::AgentStrategies;
         use vmux_core::{
-            CefPageAttachRequest, LastActivatedAt, PageMetadata, PageOpenError, PageOpenHandled,
-            PageOpenId, PageOpenRequest, PageOpenSet, PageOpenTask,
+            CefPageAttachRequest, LastActivatedAt, PageMetadata, PageOpenDeferred, PageOpenError,
+            PageOpenHandled, PageOpenId, PageOpenRequest, PageOpenSet, PageOpenTask,
         };
         use vmux_layout::pane::Pane;
         use vmux_layout::settings::{
@@ -1679,6 +1679,32 @@ mod tests {
                 terminal_count, 0,
                 "no terminal should be spawned for unknown vmux URL"
             );
+        }
+
+        #[test]
+        fn deferred_page_open_is_not_claimed_by_fallback() {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_systems(Update, crate::page_open::handle_unclaimed_page_open_tasks);
+            let stack = app.world_mut().spawn_empty().id();
+            let task = app
+                .world_mut()
+                .spawn((
+                    PageOpenTask {
+                        id: PageOpenId::new(),
+                        stack,
+                        url: "vmux://agent/claude".to_string(),
+                        request_id: None,
+                    },
+                    PageOpenDeferred,
+                ))
+                .id();
+
+            app.update();
+            app.update();
+
+            assert!(app.world().get::<PageOpenHandled>(task).is_none());
+            assert!(app.world().get::<PageOpenError>(task).is_none());
         }
 
         #[test]

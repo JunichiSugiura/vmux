@@ -257,18 +257,6 @@ pub struct ChatEscape;
 )]
 pub struct ChatSelectWorkspace;
 
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ChatCreateWorktree;
-
 pub const CHAT_PROJECT_BRANCHES_EVENT: &str = "chat_project_branches";
 
 #[derive(

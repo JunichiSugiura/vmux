@@ -696,6 +696,7 @@ fn on_command_bar_action(
     mut picked: MessageWriter<crate::host::FileStatusPicked>,
     mut issued: MessageWriter<crate::CommandIssued>,
     user_q: Query<Entity, With<vmux_core::team::User>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
     let webview = trigger.event().webview;
@@ -737,6 +738,9 @@ fn on_command_bar_action(
                         && vmux_wire::agent::supports_inline_agent_transition(&url)
                     {
                         inline_transition.write(InlineTransitionRequested { stack, webview });
+                        if let Some(proxy) = proxy.as_deref() {
+                            let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
+                        }
                     }
                     commands
                         .entity(stack)
@@ -793,6 +797,9 @@ fn on_command_bar_action(
                     && let Some(stack) = inline_transition_stack
                 {
                     inline_transition.write(InlineTransitionRequested { stack, webview });
+                    if let Some(proxy) = proxy.as_deref() {
+                        let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
+                    }
                     true
                 } else {
                     false

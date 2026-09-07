@@ -51,6 +51,30 @@ pub struct PrewarmPage {
 pub struct NativelyHosted {
     pub url: &'static str,
     pub title: &'static str,
+    pub owns_subtree: bool,
+}
+
+impl NativelyHosted {
+    pub const fn page(url: &'static str, title: &'static str) -> Self {
+        Self {
+            url,
+            title,
+            owns_subtree: false,
+        }
+    }
+
+    pub const fn subtree(url: &'static str, title: &'static str) -> Self {
+        Self {
+            url,
+            title,
+            owns_subtree: true,
+        }
+    }
+
+    pub fn answers_for(&self, url: &str) -> bool {
+        self.url.trim_end_matches('/') == url.trim_end_matches('/')
+            || (self.owns_subtree && url.starts_with(self.url))
+    }
 }
 
 pub(crate) struct HostHistoryPlugin;

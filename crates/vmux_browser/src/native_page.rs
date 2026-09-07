@@ -183,6 +183,10 @@ pub static SERVICES_PAGE: NativePage = NativePage::pane(
 .titled("Services");
 
 #[cfg(target_os = "macos")]
+pub static SIMULATOR_PAGE: NativePage =
+    NativePage::pane(vmux_simulator::url::PAGE_URL, vmux_simulator::page::Page).owning_subtree();
+
+#[cfg(target_os = "macos")]
 pub static SPACES_PAGE: NativePage =
     NativePage::pane(vmux_wire::space::SPACES_PAGE_URL, vmux_space::page::Page).titled("Spaces");
 
@@ -247,6 +251,7 @@ mod tests {
             &PROJECTS_PAGE,
             &KNOWLEDGE_PAGE,
             &TERMINAL_PAGE,
+            &SIMULATOR_PAGE,
             &VAULT_PAGE,
         ] {
             assert!(

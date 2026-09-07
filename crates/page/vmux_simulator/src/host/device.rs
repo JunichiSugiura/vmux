@@ -2,12 +2,6 @@ use crate::url::IosVersion;
 use std::path::PathBuf;
 use std::process::Command;
 
-/// The `axe` CLI, which injects HID events straight into the guest.
-///
-/// Host-window automation does not work here: Simulator.app reads the real HID stream, so
-/// `CGEventPostToPid` is silently dropped and a global tap would need the window visible and
-/// unobstructed. AXe links Xcode's private CoreSimulator/SimulatorKit and absorbs the
-/// per-Xcode-version churn in those signatures.
 #[derive(bevy::prelude::Resource)]
 pub struct Axe {
     path: PathBuf,
@@ -16,15 +10,8 @@ pub struct Axe {
 impl Axe {
     pub const BIN: &'static str = "axe";
 
-    /// Where Homebrew puts it on Apple silicon and on Intel.
-    ///
-    /// Searched explicitly because a bundle launched from Finder inherits `launchd`'s minimal
-    /// `PATH`, not a login shell's — so a plain `Command::new("axe")` resolves under
-    /// `make dev` and then fails for everyone running the shipped app.
     const BREW_PATHS: [&'static str; 2] = ["/opt/homebrew/bin/axe", "/usr/local/bin/axe"];
 
-    /// First working `axe`, preferring one the user installed over one we shipped, so an Xcode
-    /// upgrade can be fixed with `brew upgrade axe` rather than a vmux release.
     pub fn locate() -> Option<Self> {
         let mut candidates: Vec<PathBuf> = vec![PathBuf::from(Self::BIN)];
         candidates.extend(Self::BREW_PATHS.iter().map(PathBuf::from));
@@ -41,7 +28,6 @@ impl Axe {
         None
     }
 
-    /// A copy shipped inside the app bundle, alongside the executable's `Resources`.
     fn bundled() -> Option<PathBuf> {
         let exe = std::env::current_exe().ok()?;
         let contents = exe.parent()?.parent()?;
@@ -65,8 +51,6 @@ impl Axe {
         &self.path
     }
 
-    /// Waits off-thread: every gesture and keystroke costs a process spawn, and blocking on it
-    /// would stall the frame that produced it.
     pub fn run_detached(mut command: Command) {
         std::thread::spawn(move || {
             let _ = command.status();
@@ -74,7 +58,6 @@ impl Axe {
     }
 }
 
-/// A booted simulator, identified the way AXe addresses it.
 #[derive(bevy::prelude::Resource, Debug, Clone, PartialEq, Eq)]
 pub struct SimulatorDevice {
     pub udid: String,
@@ -87,10 +70,6 @@ impl SimulatorDevice {
         Self::booted_matching(None)
     }
 
-    /// The booted device on `want`, or any booted device when `want` is `None`.
-    ///
-    /// A URL pins a runtime, so a page opened on 27.0 must not silently mirror a 26.5 device
-    /// that happens to also be booted.
     pub fn booted_matching(want: Option<&IosVersion>) -> Option<Self> {
         let output = Command::new("xcrun")
             .args(["simctl", "list", "devices", "booted", "-j"])
@@ -131,10 +110,6 @@ impl SimulatorDevice {
         None
     }
 
-    /// Logical point size of the display, which is the space `axe tap` addresses.
-    ///
-    /// Read from the accessibility root rather than assumed from the device name: the stream
-    /// reports pixels and the two differ by the device scale (3x on this phone, 2x on iPads).
     pub fn point_size(&self, axe: &Axe) -> Option<(f32, f32)> {
         let output = axe
             .command()

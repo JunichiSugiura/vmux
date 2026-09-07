@@ -1,36 +1,30 @@
-//! Everything the mirror needs a real machine for: the `axe` children and the loopback stream.
-
 mod device;
 mod input;
 mod stream;
 
 use crate::event::{SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, SimulatorReady};
-use crate::url::PAGE_HOST;
+use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
 use input::{DeviceGesture, DeviceKey};
 use stream::StreamServer;
-use vmux_core::page::PageReady;
-use vmux_core::{
-    CefPageAttachRequest, PageMetadata, PageOpenError, PageOpenHandled, PageOpenSet, PageOpenTask,
-};
+use vmux_core::PageMetadata;
+use vmux_core::host::page::{NativelyHosted, PageReady};
 
 pub use device::{Axe, SimulatorDevice};
 
-/// Wires the simulator page: serves the booted device's stream and replays gestures onto it.
 pub struct SimulatorPlugin;
 
 impl Plugin for SimulatorPlugin {
     fn build(&self, app: &mut App) {
-        app.world_mut().spawn(PAGE_MANIFEST);
+        app.world_mut().spawn((
+            PAGE_MANIFEST,
+            NativelyHosted::subtree(PAGE_URL, PAGE_MANIFEST.title),
+        ));
         vmux_core::register_host_spawn(app, PAGE_HOST);
         app.init_resource::<Announced>()
             .add_systems(Startup, Self::attach_device)
-            .add_systems(
-                Update,
-                Self::claim_page_open.in_set(PageOpenSet::HandleKnownPages),
-            )
             .add_systems(Update, Self::announce)
             .add_plugins(
                 BinEventEmitterPlugin::<(SimulatorGesture, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
@@ -44,50 +38,21 @@ impl Plugin for SimulatorPlugin {
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
     host: PAGE_HOST,
     title: "Simulator",
+    title_message_id: Some("simulator-title"),
+    replaces_command: None,
     keywords: &["simulator", "ios", "iphone", "device"],
     icon: Some(vmux_core::BuiltinIcon::Layers),
     command_bar: true,
 };
 
-/// The device's point size, measured once; gestures arrive as fractions and need it to land.
 #[derive(Resource)]
 struct DevicePoints(f32, f32);
 
-/// What each view has already been told, so the announcement is not re-sent every tick.
 #[derive(Resource, Default)]
 struct Announced(HashMap<Entity, SimulatorReady>);
 
-/// A page-open task nobody has claimed or failed yet.
-type PendingPageOpen = (Without<PageOpenHandled>, Without<PageOpenError>);
-
 impl SimulatorPlugin {
-    /// URL prefix identifying a browser showing this page, used in place of a marker component.
     const URL_PREFIX: &'static str = "vmux://simulator/";
-
-    /// Claims every simulator URL, pinned or not.
-    ///
-    /// A `PrewarmPage` would only match one exact string, which leaves
-    /// `vmux://simulator/ios/27.0` unroutable from a bookmark or the command bar even though the
-    /// page reaches that URL itself. Prewarming is also wrong here: a hidden warm copy connects
-    /// to the stream and holds an `axe` child at full frame rate for a page nobody is looking at.
-    fn claim_page_open(
-        tasks: Query<(Entity, &PageOpenTask), PendingPageOpen>,
-        mut attach: MessageWriter<CefPageAttachRequest>,
-        mut commands: Commands,
-    ) {
-        for (entity, task) in &tasks {
-            if crate::url::SimulatorRoute::of_url(&task.url).is_none() {
-                continue;
-            }
-            attach.write(CefPageAttachRequest {
-                stack: task.stack,
-                url: task.url.clone(),
-                title: PAGE_MANIFEST.title.to_string(),
-                bg_color: None,
-            });
-            commands.entity(entity).insert(PageOpenHandled);
-        }
-    }
 
     fn attach_device(mut commands: Commands) {
         let Some(axe) = Axe::locate() else {
@@ -125,10 +90,9 @@ impl SimulatorPlugin {
         commands.insert_resource(axe);
     }
 
-    /// Tells every ready simulator view where to point its `<img>`.
     fn announce(
         browsers: NonSend<Browsers>,
-        views: Query<(Entity, &PageMetadata), With<PageReady>>,
+        views: Query<(Entity, &PageMetadata, Option<&ChildOf>), With<PageReady>>,
         server: Option<Res<StreamServer>>,
         device: Option<Res<SimulatorDevice>>,
         mut told: ResMut<Announced>,
@@ -146,12 +110,22 @@ impl SimulatorPlugin {
             },
             _ => SimulatorReady::default(),
         };
-        // Per view, not one global latch: a second view opening later must still be told, and a
-        // reload resets the page's copy without changing the payload.
         told.0.retain(|entity, _| views.contains(*entity));
-        for (entity, meta) in views.iter() {
+        for (entity, meta, child_of) in views.iter() {
             if !meta.url.starts_with(Self::URL_PREFIX) {
                 continue;
+            }
+            if matches!(
+                SimulatorRoute::of_url(&meta.url),
+                Some(SimulatorRoute::Unpinned)
+            ) && let Some(version) = crate::url::IosVersion::parse(&payload.version)
+            {
+                let mut canonical = meta.clone();
+                canonical.url = SimulatorRoute::url(&version);
+                commands.entity(entity).insert(canonical.clone());
+                if let Some(child_of) = child_of {
+                    commands.entity(child_of.parent()).insert(canonical);
+                }
             }
             if told.0.get(&entity) == Some(&payload) {
                 continue;
@@ -168,7 +142,6 @@ impl SimulatorPlugin {
         }
     }
 
-    /// A reload clears the page's copy, so the view must be told again.
     fn forget_on_reload(trigger: On<BinReceive<PageReady>>, mut told: ResMut<Announced>) {
         told.0.remove(&trigger.event().webview);
     }
@@ -205,7 +178,6 @@ impl SimulatorPlugin {
 }
 
 impl SimulatorDevice {
-    /// The URL a bare `vmux://simulator/ios` should settle on.
     pub fn canonical_url(&self) -> Option<String> {
         self.version.as_ref().map(crate::url::SimulatorRoute::url)
     }

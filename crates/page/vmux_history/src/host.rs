@@ -14,10 +14,7 @@ impl Plugin for HistoryPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn((
             crate::PAGE_MANIFEST,
-            NativelyHosted {
-                url: crate::PAGE_URL,
-                title: "History",
-            },
+            NativelyHosted::page(crate::PAGE_URL, "History"),
         ));
         vmux_core::register_host_spawn(app, "history");
         app.add_plugins((

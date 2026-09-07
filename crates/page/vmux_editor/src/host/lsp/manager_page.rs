@@ -20,10 +20,7 @@ impl Plugin for ManagerPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn((
             PAGE_MANIFEST,
-            NativelyHosted {
-                url: "vmux://lsp/",
-                title: "Language Servers",
-            },
+            NativelyHosted::page("vmux://lsp/", "Language Servers"),
         ));
         vmux_core::register_host_spawn(app, "lsp");
         app.init_resource::<ManagerOutbox>()

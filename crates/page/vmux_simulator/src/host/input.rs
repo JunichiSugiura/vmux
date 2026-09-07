@@ -1,7 +1,6 @@
 use super::device::{Axe, SimulatorDevice};
 use crate::event::{SimulatorGesture, SimulatorKey};
 
-/// A gesture resolved onto a specific device, in the points `axe` addresses.
 pub struct DeviceGesture {
     udid: String,
     from: (f32, f32),
@@ -10,7 +9,6 @@ pub struct DeviceGesture {
 }
 
 impl DeviceGesture {
-    /// Scales the view's 0..1 fractions by the device's point size.
     pub fn resolve(
         gesture: &SimulatorGesture,
         device: &SimulatorDevice,
@@ -29,7 +27,6 @@ impl DeviceGesture {
         })
     }
 
-    /// Runs `axe` off-thread: a gesture costs a process spawn, which would otherwise stall a frame.
     pub fn dispatch(self, axe: &Axe) {
         let mut command = axe.command();
         if self.tap {
@@ -50,7 +47,6 @@ impl DeviceGesture {
     }
 }
 
-/// A keystroke resolved onto a specific device.
 pub struct DeviceKey {
     udid: String,
     key: SimulatorKey,

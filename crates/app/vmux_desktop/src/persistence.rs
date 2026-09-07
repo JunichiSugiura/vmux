@@ -433,7 +433,7 @@ impl<'a> PageUrl<'a> {
 
     fn hosted_by(self, pages: &Query<&NativelyHosted>) -> Option<NativelyHosted> {
         for page in pages {
-            if PageUrl::of(page.url) == self {
+            if page.answers_for(self.0) {
                 return Some(*page);
             }
         }
@@ -1074,14 +1074,10 @@ mod tests {
 
             let main = app.world_mut().spawn(Main).id();
             app.world_mut().spawn(PrimaryWindow);
-            app.world_mut().spawn(NativelyHosted {
-                url: "vmux://start/",
-                title: "Start",
-            });
-            app.world_mut().spawn(NativelyHosted {
-                url: "vmux://vault/",
-                title: "Vault",
-            });
+            app.world_mut()
+                .spawn(NativelyHosted::page("vmux://start/", "Start"));
+            app.world_mut()
+                .spawn(NativelyHosted::page("vmux://vault/", "Vault"));
             let space = app.world_mut().spawn((Tab::default(), ChildOf(main))).id();
             let pane = app.world_mut().spawn((Pane, ChildOf(space))).id();
             let stack = app
@@ -1127,10 +1123,8 @@ mod tests {
 
         let main = app.world_mut().spawn(Main).id();
         app.world_mut().spawn(PrimaryWindow);
-        app.world_mut().spawn(NativelyHosted {
-            url: "vmux://start/",
-            title: "Start",
-        });
+        app.world_mut()
+            .spawn(NativelyHosted::page("vmux://start/", "Start"));
         let space = app.world_mut().spawn((Tab::default(), ChildOf(main))).id();
         let pane = app.world_mut().spawn((Pane, ChildOf(space))).id();
         let stack = app

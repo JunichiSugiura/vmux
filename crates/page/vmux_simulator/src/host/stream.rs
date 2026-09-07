@@ -4,12 +4,6 @@ use std::io;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::process::Stdio;
 
-/// Serves the device's MJPEG stream on loopback so the view can point an `<img>` at it.
-///
-/// `axe stream-video` writes a complete HTTP response — status line, then
-/// `multipart/x-mixed-replace` parts — so this copies its stdout to the socket verbatim rather
-/// than parsing and re-encoding. That is also why the page needs no decoder: Chromium renders
-/// this format natively, and the frames never enter the Bevy world at all.
 #[derive(Resource)]
 pub struct StreamServer {
     port: u16,
@@ -19,11 +13,6 @@ impl StreamServer {
     const FPS: &'static str = "20";
     const SCALE: &'static str = "0.5";
 
-    /// Binds an ephemeral loopback port and serves one `axe` child per connection.
-    ///
-    /// A child per connection rather than one shared child: the stream cannot seek or replay, so
-    /// a reload needs a fresh one, and dying with the socket is what stops `axe` when the page
-    /// goes away.
     pub fn start(axe: &Axe, device: SimulatorDevice) -> io::Result<Self> {
         let axe = axe.path().to_path_buf();
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
@@ -68,7 +57,6 @@ impl StreamServer {
             return;
         };
         if let Some(mut stdout) = child.stdout.take() {
-            // Ends when the page navigates away and Chromium drops the socket.
             let _ = io::copy(&mut stdout, &mut socket);
         }
         let _ = child.kill();

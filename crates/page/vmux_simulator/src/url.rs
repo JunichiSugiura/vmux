@@ -1,22 +1,13 @@
-//! The page's URL space, shared by the host and the view.
-//!
-//! `vmux://simulator/ios` names "whichever iOS simulator is booted" and is canonicalised to
-//! `vmux://simulator/ios/<version>` so a URL identifies one runtime rather than drifting with
-//! whatever happens to be running.
-
 pub const PAGE_HOST: &str = "simulator";
+pub const PAGE_URL: &str = "vmux://simulator/";
 pub const PLATFORM: &str = "ios";
 
-/// The shorthand URL, which the view canonicalises to a pinned one. Both forms open: the host
-/// claims any route this module parses.
 pub const UNPINNED_URL: &str = "vmux://simulator/ios";
 
-/// An iOS runtime version, as it appears in a URL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IosVersion(String);
 
 impl IosVersion {
-    /// From a simctl runtime key such as `com.apple.CoreSimulator.SimRuntime.iOS-27-0`.
     pub fn from_runtime_key(key: &str) -> Option<Self> {
         let suffix = key.rsplit_once(".SimRuntime.")?.1;
         let digits = suffix.strip_prefix("iOS-")?;
@@ -26,7 +17,6 @@ impl IosVersion {
         Some(Self(digits.replace('-', ".")))
     }
 
-    /// From a URL segment, rejecting anything that is not a dotted version.
     pub fn parse(segment: &str) -> Option<Self> {
         if segment.is_empty() {
             return None;
@@ -48,12 +38,9 @@ impl std::fmt::Display for IosVersion {
     }
 }
 
-/// What a `vmux://simulator/...` path names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimulatorRoute {
-    /// `/ios` — no runtime chosen yet; the view redirects once the host resolves one.
     Unpinned,
-    /// `/ios/<version>` — one specific runtime.
     Pinned(IosVersion),
 }
 
@@ -72,7 +59,6 @@ impl SimulatorRoute {
         IosVersion::parse(version).map(Self::Pinned)
     }
 
-    /// From a whole `vmux://simulator/...` URL, as page-open tasks carry it.
     pub fn of_url(url: &str) -> Option<Self> {
         let rest = url.strip_prefix("vmux://")?;
         let (host, path) = rest.split_once('/')?;

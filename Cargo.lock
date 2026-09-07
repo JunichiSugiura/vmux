@@ -10232,6 +10232,7 @@ dependencies = [
  "vmux_native",
  "vmux_service",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_team",
@@ -10423,6 +10424,7 @@ dependencies = [
  "vmux_layout",
  "vmux_service",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_team",
@@ -10770,6 +10772,21 @@ dependencies = [
  "vmux_flex",
  "vmux_history",
  "vmux_layout",
+ "vmux_ui",
+]
+
+[[package]]
+name = "vmux_simulator"
+version = "0.0.34"
+dependencies = [
+ "bevy",
+ "bevy_cef",
+ "bevy_ecs",
+ "dioxus",
+ "rkyv",
+ "serde",
+ "serde_json",
+ "vmux_core",
  "vmux_ui",
 ]
 

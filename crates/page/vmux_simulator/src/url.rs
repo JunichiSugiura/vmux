@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 pub const PAGE_HOST: &str = "simulator";
 pub const PAGE_URL: &str = "vmux://simulator/";
 pub const PLATFORM: &str = "ios";
@@ -11,10 +13,7 @@ impl IosVersion {
     pub fn from_runtime_key(key: &str) -> Option<Self> {
         let suffix = key.rsplit_once(".SimRuntime.")?.1;
         let digits = suffix.strip_prefix("iOS-")?;
-        if digits.is_empty() || !digits.starts_with(|c: char| c.is_ascii_digit()) {
-            return None;
-        }
-        Some(Self(digits.replace('-', ".")))
+        Self::parse(&digits.replace('-', "."))
     }
 
     pub fn parse(segment: &str) -> Option<Self> {
@@ -29,6 +28,24 @@ impl IosVersion {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    fn numbers(&self) -> impl Iterator<Item = u32> + '_ {
+        self.0.split('.').map(|part| part.parse().unwrap_or(0))
+    }
+}
+
+impl Ord for IosVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.numbers()
+            .cmp(other.numbers())
+            .then_with(|| self.0.cmp(&other.0))
+    }
+}
+
+impl PartialOrd for IosVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -47,7 +64,7 @@ pub enum SimulatorRoute {
 impl SimulatorRoute {
     pub fn parse(pathname: &str) -> Option<Self> {
         let mut segments = pathname.split('/').filter(|s| !s.is_empty());
-        if segments.next()? != PLATFORM {
+        if !segments.next()?.eq_ignore_ascii_case(PLATFORM) {
             return None;
         }
         let Some(version) = segments.next() else {
@@ -61,11 +78,14 @@ impl SimulatorRoute {
 
     pub fn of_url(url: &str) -> Option<Self> {
         let rest = url.strip_prefix("vmux://")?;
-        let (host, path) = rest.split_once('/')?;
+        let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
         if host != PAGE_HOST {
             return None;
         }
         let path = path.split(['?', '#']).next().unwrap_or(path);
+        if path.is_empty() {
+            return Some(Self::Unpinned);
+        }
         Self::parse(path)
     }
 
@@ -97,6 +117,10 @@ mod tests {
         );
         assert_eq!(
             SimulatorRoute::parse("/ios/"),
+            Some(SimulatorRoute::Unpinned)
+        );
+        assert_eq!(
+            SimulatorRoute::parse("/iOS"),
             Some(SimulatorRoute::Unpinned)
         );
     }
@@ -137,9 +161,20 @@ mod tests {
     }
 
     #[test]
-    fn another_host_or_a_bare_host_does_not_route_here() {
+    fn bare_simulator_urls_are_unpinned() {
+        assert_eq!(
+            SimulatorRoute::of_url("vmux://simulator/"),
+            Some(SimulatorRoute::Unpinned)
+        );
+        assert_eq!(
+            SimulatorRoute::of_url("vmux://simulator"),
+            Some(SimulatorRoute::Unpinned)
+        );
+    }
+
+    #[test]
+    fn another_host_does_not_route_here() {
         assert_eq!(SimulatorRoute::of_url("vmux://terminal/ios"), None);
-        assert_eq!(SimulatorRoute::of_url("vmux://simulator/"), None);
         assert_eq!(SimulatorRoute::of_url("vmux://simulator/android/15"), None);
         assert_eq!(SimulatorRoute::of_url("https://simulator/ios"), None);
     }
@@ -166,6 +201,14 @@ mod tests {
             None
         );
         assert_eq!(IosVersion::from_runtime_key("nonsense"), None);
+    }
+
+    #[test]
+    fn versions_sort_numerically() {
+        let older = IosVersion::parse("9.5").expect("version");
+        let newer = IosVersion::parse("10.0").expect("version");
+
+        assert!(newer > older);
     }
 
     #[test]

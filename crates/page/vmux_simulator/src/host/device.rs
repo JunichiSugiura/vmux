@@ -71,23 +71,70 @@ impl SimulatorDevice {
     }
 
     pub fn booted_matching(want: Option<&IosVersion>) -> Option<Self> {
-        let output = Command::new("xcrun")
-            .args(["simctl", "list", "devices", "booted", "-j"])
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+        Self::listed("booted", want).ok().flatten()
+    }
+
+    pub fn booted_or_boot(want: Option<&IosVersion>) -> Result<Self, String> {
+        if let Some(device) = Self::booted_matching(want) {
+            return Ok(device);
         }
-        Self::from_simctl_json(&output.stdout, want)
+        let Some(device) = Self::listed("available", want)? else {
+            let runtime = want
+                .map(|version| format!(" for iOS {version}"))
+                .unwrap_or_default();
+            return Err(format!("no available iOS Simulator{runtime}"));
+        };
+        device.boot()
+    }
+
+    fn listed(scope: &str, want: Option<&IosVersion>) -> Result<Option<Self>, String> {
+        let output = Command::new("xcrun")
+            .args(["simctl", "list", "devices", scope, "-j"])
+            .output()
+            .map_err(|error| format!("could not run simctl: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "simctl could not list {scope} devices: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        Ok(Self::from_simctl_json(&output.stdout, want))
+    }
+
+    fn boot(self) -> Result<Self, String> {
+        bevy::log::info!("booting {} ({})", self.name, self.udid);
+        let boot = Command::new("xcrun")
+            .args(["simctl", "boot", &self.udid])
+            .output()
+            .map_err(|error| format!("could not run simctl boot: {error}"))?;
+        let ready = Command::new("xcrun")
+            .args(["simctl", "bootstatus", &self.udid, "-b"])
+            .output()
+            .map_err(|error| format!("could not run simctl bootstatus: {error}"))?;
+        if !ready.status.success() {
+            let boot_error = String::from_utf8_lossy(&boot.stderr);
+            let ready_error = String::from_utf8_lossy(&ready.stderr);
+            return Err(format!(
+                "could not boot {}: {} {}",
+                self.name,
+                boot_error.trim(),
+                ready_error.trim()
+            ));
+        }
+        bevy::log::info!("booted {} ({})", self.name, self.udid);
+        Ok(self)
     }
 
     fn from_simctl_json(bytes: &[u8], want: Option<&IosVersion>) -> Option<Self> {
         let parsed: serde_json::Value = serde_json::from_slice(bytes).ok()?;
         let runtimes = parsed.get("devices")?.as_object()?;
+        let mut selected: Option<Self> = None;
         for (runtime, entries) in runtimes {
-            let version = IosVersion::from_runtime_key(runtime);
+            let Some(version) = IosVersion::from_runtime_key(runtime) else {
+                continue;
+            };
             if let Some(want) = want
-                && version.as_ref() != Some(want)
+                && &version != want
             {
                 continue;
             }
@@ -95,19 +142,29 @@ impl SimulatorDevice {
                 continue;
             };
             for entry in entries {
+                if entry.get("isAvailable").and_then(|value| value.as_bool()) == Some(false) {
+                    continue;
+                }
                 let udid = entry.get("udid").and_then(|v| v.as_str());
                 let name = entry.get("name").and_then(|v| v.as_str());
                 let (Some(udid), Some(name)) = (udid, name) else {
                     continue;
                 };
-                return Some(Self {
-                    udid: udid.to_string(),
-                    name: name.to_string(),
-                    version,
-                });
+                let replace = match selected.as_ref().and_then(|device| device.version.as_ref()) {
+                    Some(current) => version > *current,
+                    None => true,
+                };
+                if replace {
+                    selected = Some(Self {
+                        udid: udid.to_string(),
+                        name: name.to_string(),
+                        version: Some(version.clone()),
+                    });
+                }
+                break;
             }
         }
-        None
+        selected
     }
 
     pub fn point_size(&self, axe: &Axe) -> Option<(f32, f32)> {
@@ -155,11 +212,11 @@ mod tests {
     fn carries_the_runtime_version_of_the_device_it_picks() {
         let device = SimulatorDevice::from_simctl_json(TWO_RUNTIMES, None).expect("device");
 
-        let version = device.version.expect("version");
-        assert!(
-            ["26.5", "27.0"].contains(&version.as_str()),
-            "got {version}"
+        assert_eq!(
+            device.version.as_ref().map(IosVersion::as_str),
+            Some("27.0")
         );
+        assert_eq!(device.name, "iPhone 17 Pro");
     }
 
     #[test]
@@ -194,6 +251,24 @@ mod tests {
     fn malformed_output_does_not_panic() {
         assert_eq!(SimulatorDevice::from_simctl_json(b"not json", None), None);
         assert_eq!(SimulatorDevice::from_simctl_json(b"{}", None), None);
+    }
+
+    #[test]
+    fn unavailable_and_non_ios_devices_are_ignored() {
+        let json = br#"{"devices":{
+            "com.apple.CoreSimulator.SimRuntime.watchOS-27-0":[
+                {"udid":"WATCH","name":"Apple Watch"}
+            ],
+            "com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+                {"udid":"UNAVAILABLE","name":"iPhone 17 Pro","isAvailable":false},
+                {"udid":"AVAILABLE","name":"iPhone 17 Pro Max","isAvailable":true}
+            ]
+        }}"#;
+
+        let device = SimulatorDevice::from_simctl_json(json, None).expect("device");
+
+        assert_eq!(device.udid, "AVAILABLE");
+        assert_eq!(device.name, "iPhone 17 Pro Max");
     }
 
     #[test]

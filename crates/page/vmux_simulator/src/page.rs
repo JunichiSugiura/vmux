@@ -7,6 +7,7 @@ use crate::url::SimulatorRoute;
 use dioxus::prelude::*;
 use std::rc::Rc;
 use vmux_ui::hooks::{send, use_event, use_theme};
+use vmux_ui::i18n::translate;
 
 #[component]
 pub fn Page() -> Element {
@@ -107,7 +108,7 @@ impl Keystroke {
 fn Waiting(route: Option<SimulatorRoute>) -> Element {
     let label = match route {
         Some(SimulatorRoute::Pinned(version)) => format!("iOS {version}"),
-        _ => String::new(),
+        _ => translate("common-loading"),
     };
     rsx! {
         div { class: "text-sm text-muted-foreground", "{label}" }

@@ -1,7 +1,7 @@
 [package]
 name = "vmux_simulator"
 build = "../../build_cfg.rs"
-description = "Mirror and drive a booted iOS Simulator"
+description = "Boot, mirror, and drive an iOS Simulator"
 version.workspace = true
 edition.workspace = true
 publish = false

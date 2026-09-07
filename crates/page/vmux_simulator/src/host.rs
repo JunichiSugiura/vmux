@@ -6,8 +6,10 @@ use crate::event::{SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, Simula
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
 use input::{DeviceGesture, DeviceKey};
+use std::sync::{Arc, Mutex};
 use stream::StreamServer;
 use vmux_core::PageMetadata;
 use vmux_core::host::page::{NativelyHosted, PageReady};
@@ -23,9 +25,9 @@ impl Plugin for SimulatorPlugin {
             NativelyHosted::subtree(PAGE_URL, PAGE_MANIFEST.title),
         ));
         vmux_core::register_host_spawn(app, PAGE_HOST);
-        app.init_resource::<Announced>()
-            .add_systems(Startup, Self::attach_device)
-            .add_systems(Update, Self::announce)
+        app.init_resource::<DeviceAttachment>()
+            .init_resource::<Announced>()
+            .add_systems(Update, (Self::attach_device, Self::announce).chain())
             .add_plugins(
                 BinEventEmitterPlugin::<(SimulatorGesture, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
             )
@@ -51,43 +53,72 @@ struct DevicePoints(f32, f32);
 #[derive(Resource, Default)]
 struct Announced(HashMap<Entity, SimulatorReady>);
 
+#[derive(Resource, Default)]
+struct DeviceAttachment {
+    phase: AttachmentPhase,
+}
+
+#[derive(Default)]
+enum AttachmentPhase {
+    #[default]
+    Idle,
+    Starting(Arc<Mutex<Option<Result<AttachedDevice, String>>>>),
+    Complete,
+}
+
+struct AttachedDevice {
+    axe: Axe,
+    device: SimulatorDevice,
+    points: Option<(f32, f32)>,
+    server: StreamServer,
+}
+
 impl SimulatorPlugin {
     const URL_PREFIX: &'static str = "vmux://simulator/";
 
-    fn attach_device(mut commands: Commands) {
-        let Some(axe) = Axe::locate() else {
-            warn!(
-                "`{}` not found — the simulator page needs it; \
-                 install with `brew install cameroncooke/axe/axe`",
-                Axe::BIN
-            );
+    fn attach_device(
+        views: Query<&PageMetadata>,
+        mut attachment: ResMut<DeviceAttachment>,
+        wake: Option<Res<EventLoopProxyWrapper>>,
+        mut commands: Commands,
+    ) {
+        if attachment.is_idle() {
+            let Some(route) = views
+                .iter()
+                .find_map(|metadata| SimulatorRoute::of_url(&metadata.url))
+            else {
+                return;
+            };
+            let wake = wake.map(|wrapper| {
+                let proxy = (**wrapper).clone();
+                Box::new(move || {
+                    let _ = proxy.send_event(WinitUserEvent::WakeUp);
+                }) as Box<dyn FnOnce() + Send>
+            });
+            attachment.start(route.version().cloned(), wake);
             return;
+        }
+        let Some(result) = attachment.take() else {
+            return;
+        };
+        let attached = match result {
+            Ok(attached) => attached,
+            Err(error) => {
+                error!("could not attach an iOS Simulator: {error}");
+                return;
+            }
         };
         info!(
-            "axe {} at {}",
-            axe.version().unwrap_or_default(),
-            axe.path().display()
+            "mirroring {} on loopback port {}",
+            attached.device.name,
+            attached.server.port()
         );
-        let Some(device) = SimulatorDevice::booted() else {
-            info!("no booted simulator; the simulator page will be empty");
-            return;
-        };
-        if let Some((w, h)) = device.point_size(&axe) {
-            commands.insert_resource(DevicePoints(w, h));
+        if let Some((width, height)) = attached.points {
+            commands.insert_resource(DevicePoints(width, height));
         }
-        match StreamServer::start(&axe, device.clone()) {
-            Ok(server) => {
-                info!(
-                    "mirroring {} on loopback port {}",
-                    device.name,
-                    server.port()
-                );
-                commands.insert_resource(server);
-            }
-            Err(error) => error!("could not serve the simulator stream: {error}"),
-        }
-        commands.insert_resource(device);
-        commands.insert_resource(axe);
+        commands.insert_resource(attached.server);
+        commands.insert_resource(attached.device);
+        commands.insert_resource(attached.axe);
     }
 
     fn announce(
@@ -174,6 +205,76 @@ impl SimulatorPlugin {
             return;
         };
         DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
+    }
+}
+
+impl DeviceAttachment {
+    fn is_idle(&self) -> bool {
+        matches!(self.phase, AttachmentPhase::Idle)
+    }
+
+    fn start(
+        &mut self,
+        want: Option<crate::url::IosVersion>,
+        wake: Option<Box<dyn FnOnce() + Send>>,
+    ) {
+        let result = Arc::new(Mutex::new(None));
+        let worker_result = result.clone();
+        let spawned = std::thread::Builder::new()
+            .name("vmux-simulator-attach".into())
+            .spawn(move || {
+                let attached = AttachedDevice::start(want.as_ref());
+                if let Ok(mut result) = worker_result.lock() {
+                    *result = Some(attached);
+                }
+                if let Some(wake) = wake {
+                    wake();
+                }
+            });
+        match spawned {
+            Ok(_) => self.phase = AttachmentPhase::Starting(result),
+            Err(error) => {
+                error!("could not start simulator attachment: {error}");
+                self.phase = AttachmentPhase::Complete;
+            }
+        }
+    }
+
+    fn take(&mut self) -> Option<Result<AttachedDevice, String>> {
+        let ready = match &self.phase {
+            AttachmentPhase::Starting(result) => result.lock().ok()?.take(),
+            AttachmentPhase::Idle | AttachmentPhase::Complete => None,
+        };
+        if ready.is_some() {
+            self.phase = AttachmentPhase::Complete;
+        }
+        ready
+    }
+}
+
+impl AttachedDevice {
+    fn start(want: Option<&crate::url::IosVersion>) -> Result<Self, String> {
+        let axe = Axe::locate().ok_or_else(|| {
+            format!(
+                "`{}` not found; install it with `brew install cameroncooke/axe/axe`",
+                Axe::BIN
+            )
+        })?;
+        info!(
+            "axe {} at {}",
+            axe.version().unwrap_or_default(),
+            axe.path().display()
+        );
+        let device = SimulatorDevice::booted_or_boot(want)?;
+        let points = device.point_size(&axe);
+        let server = StreamServer::start(&axe, device.clone())
+            .map_err(|error| format!("could not serve the simulator stream: {error}"))?;
+        Ok(Self {
+            axe,
+            device,
+            points,
+            server,
+        })
     }
 }
 

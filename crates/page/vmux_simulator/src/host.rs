@@ -119,6 +119,9 @@ impl SimulatorPlugin {
         commands.insert_resource(attached.server);
         commands.insert_resource(attached.device);
         commands.insert_resource(attached.axe);
+        if let Some(wake) = wake {
+            let _ = wake.send_event(WinitUserEvent::WakeUp);
+        }
     }
 
     fn announce(

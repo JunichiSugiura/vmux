@@ -164,7 +164,7 @@ impl SimulatorPlugin {
             if told.0.get(&entity) == Some(&payload) {
                 continue;
             }
-            if !browsers.has_browser(entity) || !browsers.host_emit_ready(&entity) {
+            if !browsers.can_emit_to(&entity) {
                 continue;
             }
             commands.trigger(BinHostEmitEvent::from_rkyv(

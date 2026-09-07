@@ -610,8 +610,8 @@ pub fn Page() -> Element {
                                     rsx! {
                                         div {
                                             key: "{doc_row}",
-                                            class: "absolute inset-x-0",
-                                            style: "top:{top}px;",
+                                            class: "absolute inset-x-0 top-[var(--terminal-row-top)]",
+                                            style: "--terminal-row-top:{top}px;",
                                             TerminalRow {
                                                 row_idx: *doc_row as usize,
                                                 row: *row,

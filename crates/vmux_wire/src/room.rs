@@ -610,7 +610,7 @@ mod tests {
         let request = NewChatRequest {
             client_op_id: ClientOpId::new("op-1"),
             text: "start here".to_string(),
-            agent_url: Some("vmux://agent/claude".to_string()),
+            agent_url: Some("vmux://sessions/claude".to_string()),
         };
         let json = serde_json::to_string(&request).unwrap();
         let back: NewChatRequest = serde_json::from_str(&json).unwrap();

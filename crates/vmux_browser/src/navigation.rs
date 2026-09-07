@@ -99,11 +99,11 @@ pub(crate) fn sync_page_metadata_to_tab(
             continue;
         }
         let content_is_web = meta.url.starts_with("http://") || meta.url.starts_with("https://");
-        let content_is_agent = meta.url.starts_with("vmux://agent/");
-        if parent_meta
-            .as_ref()
-            .is_some_and(|m| m.url.starts_with("vmux://agent/"))
-            && !content_is_web
+        let content_is_agent =
+            meta.url.starts_with("vmux://sessions/") || meta.url.starts_with("vmux://agent/");
+        if parent_meta.as_ref().is_some_and(|m| {
+            m.url.starts_with("vmux://sessions/") || m.url.starts_with("vmux://agent/")
+        }) && !content_is_web
             && !content_is_agent
         {
             continue;

@@ -19,9 +19,11 @@ pub fn agent_host(url: &str) -> Option<&'static str> {
         ("gemini", "gemini.google.com"),
     ];
     for &(kind, host) in AGENTS {
-        let base = format!("vmux://agent/{kind}");
-        if url == base || url.starts_with(&format!("{base}/")) {
-            return Some(host);
+        for prefix in ["vmux://sessions/", "vmux://agent/"] {
+            let base = format!("{prefix}{kind}");
+            if url == base || url.starts_with(&format!("{base}/")) {
+                return Some(host);
+            }
         }
     }
     None
@@ -199,30 +201,36 @@ mod tests {
     #[test]
     fn agent_host_maps_vibe() {
         assert_eq!(
-            agent_host("vmux://agent/vibe/chat/abc"),
+            agent_host("vmux://sessions/vibe/chat/abc"),
             Some("chat.mistral.ai")
         );
         assert_eq!(
-            agent_host("vmux://agent/vibe/cli/abc"),
+            agent_host("vmux://sessions/vibe/cli/abc"),
             Some("chat.mistral.ai")
         );
         assert_eq!(
-            agent_host("vmux://agent/mistral-vibe/session-1"),
+            agent_host("vmux://sessions/mistral-vibe/session-1"),
             Some("chat.mistral.ai")
         );
     }
 
     #[test]
     fn agent_host_maps_claude_and_codex() {
-        assert_eq!(agent_host("vmux://agent/claude/x"), Some("claude.ai"));
-        assert_eq!(agent_host("vmux://agent/claude-acp/x"), Some("claude.ai"));
-        assert_eq!(agent_host("vmux://agent/codex/x"), Some("chatgpt.com"));
-        assert_eq!(agent_host("vmux://agent/codex-acp/x"), Some("chatgpt.com"));
+        assert_eq!(agent_host("vmux://sessions/claude/x"), Some("claude.ai"));
+        assert_eq!(
+            agent_host("vmux://sessions/claude-acp/x"),
+            Some("claude.ai")
+        );
+        assert_eq!(agent_host("vmux://sessions/codex/x"), Some("chatgpt.com"));
+        assert_eq!(
+            agent_host("vmux://sessions/codex-acp/x"),
+            Some("chatgpt.com")
+        );
     }
 
     #[test]
     fn agent_host_unknown_returns_none() {
-        assert_eq!(agent_host("vmux://agent/unknown/x"), None);
+        assert_eq!(agent_host("vmux://sessions/unknown/x"), None);
         assert_eq!(agent_host("https://example.com"), None);
     }
 
@@ -237,7 +245,10 @@ mod tests {
     #[test]
     fn favicon_src_prefers_agent_host_over_passed_icon() {
         assert_eq!(
-            favicon_src_for_url("https://cdn.example/claude-acp.svg", "vmux://agent/claude"),
+            favicon_src_for_url(
+                "https://cdn.example/claude-acp.svg",
+                "vmux://sessions/claude"
+            ),
             Some("https://www.google.com/s2/favicons?domain=claude.ai&sz=64".to_string())
         );
     }
@@ -261,7 +272,7 @@ mod tests {
     #[test]
     fn favicon_src_falls_back_to_agent_host() {
         assert_eq!(
-            favicon_src_for_url("", "vmux://agent/vibe/chat/abc"),
+            favicon_src_for_url("", "vmux://sessions/vibe/chat/abc"),
             Some("https://www.google.com/s2/favicons?domain=chat.mistral.ai&sz=64".to_string())
         );
     }
@@ -281,18 +292,21 @@ mod tests {
 
     #[test]
     fn agent_host_matches_single_segment_acp_url() {
-        assert_eq!(agent_host("vmux://agent/claude"), Some("claude.ai"));
-        assert_eq!(agent_host("vmux://agent/codex"), Some("chatgpt.com"));
-        assert_eq!(agent_host("vmux://agent/claude/cli"), Some("claude.ai"));
+        assert_eq!(agent_host("vmux://sessions/claude"), Some("claude.ai"));
+        assert_eq!(agent_host("vmux://sessions/codex"), Some("chatgpt.com"));
+        assert_eq!(agent_host("vmux://sessions/claude/cli"), Some("claude.ai"));
     }
 
     #[test]
     fn agent_host_maps_gemini() {
-        assert_eq!(agent_host("vmux://agent/gemini"), Some("gemini.google.com"));
+        assert_eq!(
+            agent_host("vmux://sessions/gemini"),
+            Some("gemini.google.com")
+        );
     }
 
     #[test]
     fn agent_host_does_not_over_match_similar_ids() {
-        assert_eq!(agent_host("vmux://agent/claudex"), None);
+        assert_eq!(agent_host("vmux://sessions/claudex"), None);
     }
 }

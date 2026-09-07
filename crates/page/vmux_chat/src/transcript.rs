@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use std::collections::HashMap;
+use vmux_ui::components::avatar::Avatar;
 use vmux_ui::file_icon::{FilePath, TypeIcon};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::icon::{LineIcon, LineIconView};
@@ -17,27 +18,51 @@ pub fn UserBubble(
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
+    let you = translate("team-you");
+    let initial = you
+        .chars()
+        .next()
+        .map(|character| character.to_uppercase().to_string())
+        .unwrap_or_default();
     rsx! {
-        div { class: "chat-user-bubble flex max-w-[80%] self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border p-2.5 text-sm [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
-            {children}
+        div { class: "chat-user-bubble group flex w-full gap-3 px-1 py-1 text-sm [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
+            Avatar {
+                src: None,
+                fallback: initial,
+                background: "#71717a".to_string(),
+                alt: you.clone(),
+                class: "mt-0.5 h-8 w-8 text-[10px]".to_string(),
+            }
+            div { class: "relative min-w-0 flex-1 pr-8",
+                div { class: "mb-1 text-xs font-semibold text-foreground", "{you}" }
+                div { class: "flex min-w-0 flex-col gap-2", {children} }
+            }
         }
     }
 }
 
 #[component]
 pub fn AssistantTurn(
-    #[props(default = true)] standalone: bool,
+    name: String,
+    avatar_src: Option<String>,
+    avatar_fallback: String,
+    avatar_background: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
-    let placement = if standalone {
-        "max-w-[94%] self-start"
-    } else {
-        "w-full"
-    };
     rsx! {
-        div { class: "chat-assistant-turn relative flex flex-col gap-2.5 overflow-hidden rounded-2xl border px-3.5 py-3 [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto] {placement}", ..attributes,
-            {children}
+        div { class: "chat-assistant-turn group flex w-full gap-3 px-1 py-1 [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
+            Avatar {
+                src: avatar_src,
+                fallback: avatar_fallback,
+                background: avatar_background,
+                alt: name.clone(),
+                class: "mt-0.5 h-8 w-8 text-[10px]".to_string(),
+            }
+            div { class: "relative min-w-0 flex-1 pr-8",
+                div { class: "mb-1 text-xs font-semibold text-foreground", "{name}" }
+                div { class: "flex min-w-0 flex-col gap-2.5", {children} }
+            }
         }
     }
 }
@@ -47,7 +72,7 @@ pub fn MessageCopyButton(text: String) -> Element {
     let label = translate("agent-copy");
     rsx! {
         button {
-            class: "pointer-events-none flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 opacity-0 transition group-hover/message:pointer-events-auto group-hover/message:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100",
+            class: "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition hover:bg-foreground/[0.08] hover:text-foreground",
             title: "{label}",
             aria_label: "{label}",
             onclick: move |event| {
@@ -65,6 +90,10 @@ pub fn ChatItemRow(
     item: ChatItem,
     attachment_previews: Signal<HashMap<String, ChatAttachment>>,
     latest_tool_block: Option<usize>,
+    agent_name: String,
+    agent_avatar: Option<String>,
+    agent_initial: String,
+    agent_color: String,
 ) -> Element {
     let key = absolute_index;
     let item = &item;
@@ -74,46 +103,42 @@ pub fn ChatItemRow(
             context,
             attachments,
         } => rsx! {
-            div {
+            UserBubble {
                 key: "{key}",
-                class: "group/message flex max-w-[80%] self-end flex-col items-end gap-0.5",
-                UserBubble {
-                    class: "chat-user-bubble flex max-w-full self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border p-2.5 text-sm [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
-                    if let Some(context) = context {
-                        details { class: "disclosure user-context-panel rounded-xl border",
-                            summary { class: "flex cursor-pointer select-none items-center gap-2 px-2.5 py-2 text-xs list-none [&::-webkit-details-marker]:hidden",
-                                span { class: "agent-themed-activity flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
-                                    LineIconView { icon: LineIcon::Shield, class: "h-3 w-3" }
-                                }
-                                span { class: "font-medium", {translate("agent-prompt-context")} }
-                                span {
-                                    class: "text-[10px] text-muted-foreground",
-                                    {translate_with(
-                                        "agent-bytes",
-                                        &[("count", TranslationValue::Number(context.len() as i64))],
-                                    )}
-                                }
-                                DisclosureIcon {}
+                if !text.is_empty() {
+                    MessageCopyButton { text: text.clone() }
+                }
+                if let Some(context) = context {
+                    details { class: "disclosure user-context-panel rounded-xl border",
+                        summary { class: "flex cursor-pointer select-none items-center gap-2 px-2.5 py-2 text-xs list-none [&::-webkit-details-marker]:hidden",
+                            span { class: "agent-themed-activity flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+                                LineIconView { icon: LineIcon::Shield, class: "h-3 w-3" }
                             }
-                            pre { class: "user-context-content max-h-72 overflow-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground", "{context}" }
-                        }
-                    }
-                    if !text.is_empty() {
-                        div { class: "whitespace-pre-wrap px-1.5", "{text}" }
-                    }
-                    if !attachments.is_empty() {
-                        div { class: "flex w-full flex-col gap-2",
-                            for attachment in attachments {
-                                UserAttachment {
-                                    attachment: attachment.clone(),
-                                    previews: attachment_previews,
-                                }
+                            span { class: "font-medium", {translate("agent-prompt-context")} }
+                            span {
+                                class: "text-[10px] text-muted-foreground",
+                                {translate_with(
+                                    "agent-bytes",
+                                    &[("count", TranslationValue::Number(context.len() as i64))],
+                                )}
                             }
+                            DisclosureIcon {}
                         }
+                        pre { class: "user-context-content max-h-72 overflow-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground", "{context}" }
                     }
                 }
                 if !text.is_empty() {
-                    MessageCopyButton { text: text.clone() }
+                    div { class: "whitespace-pre-wrap px-1.5", "{text}" }
+                }
+                if !attachments.is_empty() {
+                    div { class: "flex w-full flex-col gap-2",
+                        for attachment in attachments {
+                            UserAttachment {
+                                attachment: attachment.clone(),
+                                previews: attachment_previews,
+                            }
+                        }
+                    }
                 }
             }
         },
@@ -122,6 +147,10 @@ pub fn ChatItemRow(
                 turn_index: key,
                 turn: turn.clone(),
                 latest_tool_index: latest_tool_block,
+                agent_name,
+                agent_avatar,
+                agent_initial,
+                agent_color,
             }
         },
     }
@@ -164,7 +193,15 @@ fn UserAttachment(
 }
 
 #[component]
-pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usize>) -> Element {
+pub fn TurnView(
+    turn_index: usize,
+    turn: ChatTurn,
+    latest_tool_index: Option<usize>,
+    agent_name: String,
+    agent_avatar: Option<String>,
+    agent_initial: String,
+    agent_color: String,
+) -> Element {
     let key = turn_index;
     let turn = &turn;
     let reconnecting = matches!(turn.blocks.last(), Some(ChatBlock::Reconnect { .. }));
@@ -228,11 +265,16 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
     rsx! {
         div {
             key: "{key}",
-            class: "group/message flex max-w-[92%] flex-col gap-0.5 self-start [contain-intrinsic-size:auto_180px] [content-visibility:auto]",
-            if !blocks.is_empty() {
+            class: "flex w-full flex-col gap-2 [contain-intrinsic-size:auto_180px] [content-visibility:auto]",
+            if !blocks.is_empty() || turn.running || duration_label.is_some() {
                 AssistantTurn {
-                    standalone: false,
-                    class: "chat-assistant-turn flex flex-col gap-2.5 overflow-hidden rounded-2xl border px-3.5 py-3",
+                    name: agent_name,
+                    avatar_src: agent_avatar,
+                    avatar_fallback: agent_initial,
+                    avatar_background: agent_color,
+                    if !copy_text.is_empty() {
+                        MessageCopyButton { text: copy_text.clone() }
+                    }
                     for item in items {
                         match item {
                             TurnItem::Block((j, block, children)) => rsx! {
@@ -250,19 +292,14 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                             },
                         }
                     }
-                }
-                if !copy_text.is_empty() {
-                    div { class: "flex justify-end px-1",
-                        MessageCopyButton { text: copy_text.clone() }
+                    if turn.running && !reconnecting {
+                        WorkingIndicator {}
+                    } else if let Some(label) = duration_label {
+                        div { class: "flex items-center gap-2 text-sm text-muted-foreground/70",
+                            span { class: "h-1.5 w-1.5 rounded-full bg-[color:var(--agent-accent)]" }
+                            span { class: "tabular-nums", "{label}" }
+                        }
                     }
-                }
-            }
-            if turn.running && !reconnecting {
-                WorkingIndicator {}
-            } else if let Some(label) = duration_label {
-                div { class: "flex items-center gap-2 px-1 pt-1.5 text-sm text-muted-foreground/70",
-                    span { class: "h-1.5 w-1.5 rounded-full bg-[color:var(--agent-accent)]" }
-                    span { class: "tabular-nums", "{label}" }
                 }
             }
         }
@@ -968,26 +1005,18 @@ fn md_to_html(src: &str) -> String {
 }
 
 pub const MD_CSS: &str = r#"
-.agent-chat-prompt-shell::before{content:"";position:absolute;inset:-28px -42px;z-index:-1;border-radius:2.5rem;background:radial-gradient(60% 90% at 50% 75%,rgba(255,255,255,0.1),transparent 72%);pointer-events:none}
-.agent-chat-page{background-image:radial-gradient(80% 55% at 15% 0%,color-mix(in srgb,var(--agent-accent) 9%,transparent),transparent 65%),radial-gradient(75% 55% at 90% 10%,color-mix(in srgb,var(--agent-accent) 7%,transparent),transparent 62%),radial-gradient(65% 45% at 55% 100%,color-mix(in srgb,var(--agent-accent) 5%,transparent),transparent 70%)}
-.agent-chat-header{border-color:color-mix(in srgb,var(--agent-accent) 12%,transparent)}
-.chat-user-bubble,.chat-assistant-turn{transition:border-color 180ms ease,box-shadow 180ms ease,transform 180ms ease}
-.chat-user-bubble{border-color:color-mix(in srgb,var(--agent-accent) 18%,transparent);background:linear-gradient(135deg,color-mix(in srgb,var(--agent-accent) 19%,transparent),color-mix(in srgb,var(--agent-accent) 9%,transparent) 58%,color-mix(in srgb,var(--agent-accent) 4%,transparent));box-shadow:0 10px 32px color-mix(in srgb,var(--agent-accent) 9%,transparent)}
-.chat-user-bubble:hover{border-color:color-mix(in srgb,var(--agent-accent) 30%,transparent);box-shadow:0 14px 38px color-mix(in srgb,var(--agent-accent) 14%,transparent);transform:translateY(-1px)}
-.chat-assistant-turn{border-color:color-mix(in srgb,var(--agent-accent) 9%,rgba(127,127,127,0.08));background:linear-gradient(135deg,color-mix(in srgb,var(--agent-accent) 5%,transparent),rgba(127,127,127,0.025) 55%,transparent);box-shadow:0 10px 35px rgba(0,0,0,0.035)}
-.chat-assistant-turn::before{content:"";position:absolute;inset:0 auto 0 0;width:2px;background:linear-gradient(180deg,color-mix(in srgb,var(--agent-accent) 82%,transparent),color-mix(in srgb,var(--agent-accent) 52%,transparent),color-mix(in srgb,var(--agent-accent) 28%,transparent));opacity:0.75}
-.chat-assistant-turn:hover{border-color:color-mix(in srgb,var(--agent-accent) 17%,transparent);box-shadow:0 14px 40px color-mix(in srgb,var(--agent-accent) 5%,rgba(0,0,0,0.055))}
+.session-chat-page{background-image:none}
 .chat-assistant-turn .disclosure>summary{transition:color 160ms ease}
 .chat-assistant-turn .disclosure>summary:hover{color:color-mix(in srgb,currentColor 68%,var(--agent-accent))}
 .agent-themed-activity{color:var(--agent-accent);background:color-mix(in srgb,var(--agent-accent) 11%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 18%,transparent)}
 .python-activity-icon{background:linear-gradient(145deg,rgba(55,118,171,0.15),rgba(255,212,59,0.11));color:#3776ab;box-shadow:inset 0 0 0 1px rgba(55,118,171,0.3)}
 .agent-working-label{color:color-mix(in srgb,var(--agent-accent) 82%,currentColor)}
 .agent-row-hover:hover{background:color-mix(in srgb,var(--agent-accent) 4%,transparent)}
-.agent-code-panel,.user-context-content{background:color-mix(in srgb,var(--agent-accent) 4%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 11%,transparent)}
+.agent-code-panel,.user-context-content{background:rgba(127,127,127,0.07);box-shadow:inset 0 0 0 1px rgba(127,127,127,0.14)}
 .agent-context-tree{border-color:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .agent-turn-meta{color:color-mix(in srgb,var(--agent-accent) 72%,currentColor);border-color:color-mix(in srgb,var(--agent-accent) 13%,transparent);background:color-mix(in srgb,var(--agent-accent) 7%,transparent)}
 .agent-turn-meta-dot{background:var(--agent-accent)}
 .user-context-panel{border-color:color-mix(in srgb,var(--agent-accent) 14%,transparent);background:color-mix(in srgb,var(--agent-accent) 5%,rgba(127,127,127,0.025))}
 .user-context-panel>summary:hover{color:color-mix(in srgb,currentColor 65%,var(--agent-accent))}
-@media (prefers-reduced-motion:reduce){.agent-chat-caret{animation:none}.chat-user-bubble,.chat-assistant-turn{transition:none}.chat-user-bubble:hover{transform:none}}
+@media (prefers-reduced-motion:reduce){.agent-chat-caret{animation:none}}
 "#;

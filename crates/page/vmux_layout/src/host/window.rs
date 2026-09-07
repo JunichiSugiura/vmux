@@ -946,7 +946,7 @@ mod tests {
                 focus_ring: crate::settings::FocusRingSettings::default(),
             })
             .insert_resource(vmux_core::EffectiveStartupUrl(
-                "vmux://agent/vibe/".to_string(),
+                "vmux://sessions/vibe/".to_string(),
             ))
             .add_systems(
                 Startup,
@@ -999,7 +999,7 @@ mod tests {
                 focus_ring: crate::settings::FocusRingSettings::default(),
             })
             .insert_resource(vmux_core::EffectiveStartupUrl(
-                "vmux://agent/vibe/".to_string(),
+                "vmux://sessions/vibe/".to_string(),
             ))
             .add_systems(
                 Startup,

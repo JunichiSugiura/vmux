@@ -22,7 +22,7 @@ impl Plugin for CommandBarPlugin {
     }
 }
 
-const DEFAULT_AGENT_URLS: [&str; 2] = ["vmux://agent/", "vmux://agent"];
+const DEFAULT_AGENT_URLS: [&str; 2] = ["vmux://sessions/", "vmux://sessions"];
 
 #[derive(Component)]
 struct AgentContribution;
@@ -35,7 +35,7 @@ impl AgentContribution {
                 id: agent.id.clone(),
                 rank: 0,
                 page: CommandBarPage {
-                    host: "agent".to_string(),
+                    host: "sessions".to_string(),
                     url: agent.url.clone(),
                     title: agent.name.clone(),
                     keywords: vec![agent.id.clone(), "acp".to_string(), "agent".to_string()],
@@ -54,7 +54,7 @@ impl AgentContribution {
                 id: agent.id.clone(),
                 rank: 0,
                 page: CommandBarPage {
-                    host: "agent".to_string(),
+                    host: "sessions".to_string(),
                     url: agent.url.clone(),
                     title: format!("{} (CLI)", agent.name),
                     keywords: vec![agent.id.clone(), "cli".to_string(), "agent".to_string()],
@@ -196,13 +196,13 @@ mod tests {
             providers: vec![AgentProviderSummary {
                 id: "codex".to_string(),
                 name: "Codex".to_string(),
-                url: "vmux://agent/codex/cli".to_string(),
+                url: "vmux://sessions/codex/cli".to_string(),
                 icon: String::new(),
             }],
             acp: vec![AgentProviderSummary {
                 id: "claude-acp".to_string(),
                 name: "Claude Agent".to_string(),
-                url: "vmux://agent/claude".to_string(),
+                url: "vmux://sessions/claude".to_string(),
                 icon: "https://cdn.example/claude-acp.svg".to_string(),
             }],
             recent: vec![
@@ -219,9 +219,9 @@ mod tests {
         assert_eq!(pages.len(), 2);
         assert_eq!(pages[0].id, "codex");
         assert_eq!(pages[0].rank, 0);
-        assert_eq!(pages[0].page.url, "vmux://agent/codex/cli");
+        assert_eq!(pages[0].page.url, "vmux://sessions/codex/cli");
         assert_eq!(pages[0].page.title, "Codex (CLI)");
-        assert_eq!(pages[0].page.host, "agent");
+        assert_eq!(pages[0].page.host, "sessions");
         assert_eq!(pages[1].rank, 1);
         assert_eq!(pages[1].page.title, "Claude Agent");
         assert!(matches!(
@@ -262,10 +262,10 @@ mod tests {
         let claimed = world
             .run_system_once(|contributions: Contributions| {
                 [
-                    contributions.claims_url("vmux://agent/"),
-                    contributions.claims_url("vmux://agent"),
-                    contributions.claims_url("vmux://agent/codex"),
-                    contributions.claims_url("vmux://agent/codex/cli"),
+                    contributions.claims_url("vmux://sessions/"),
+                    contributions.claims_url("vmux://sessions"),
+                    contributions.claims_url("vmux://sessions/codex"),
+                    contributions.claims_url("vmux://sessions/codex/cli"),
                 ]
             })
             .expect("claims_url system runs");

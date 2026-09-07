@@ -88,7 +88,7 @@ impl AppSettings {
             .map(str::trim)
             .filter(|s| !s.is_empty());
         let chosen = per_space.unwrap_or_else(|| self.browser.startup_url.trim());
-        if chosen.is_empty() || chosen == "vmux://agent/" || chosen == "vmux://agent" {
+        if chosen.is_empty() || chosen == "vmux://sessions/" || chosen == "vmux://sessions" {
             default_browser_startup_url()
         } else {
             chosen.to_string()
@@ -1827,7 +1827,7 @@ mod tests {
     #[test]
     fn resolve_startup_url_treats_legacy_agent_default_as_start() {
         let mut s = base_settings();
-        s.browser.startup_url = "vmux://agent/".into();
+        s.browser.startup_url = "vmux://sessions/".into();
         assert_eq!(s.startup_url("space-1"), "vmux://start/");
     }
 

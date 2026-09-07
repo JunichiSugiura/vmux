@@ -2802,7 +2802,7 @@ mod tests {
             tab,
             1,
             Vec2::new(800.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
         place_pane_with_url(
             &mut app,
@@ -2865,7 +2865,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -2960,7 +2960,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3030,7 +3030,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3099,7 +3099,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3176,7 +3176,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3260,7 +3260,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
         let browser_pane = place_pane_with_url(
             &mut app,
@@ -3332,7 +3332,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3408,7 +3408,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for (i, url) in [
@@ -3482,7 +3482,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         for i in 0..2 {
@@ -3529,7 +3529,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         app.world_mut()
@@ -3603,7 +3603,7 @@ mod tests {
             tab,
             1,
             Vec2::new(1600.0, 900.0),
-            "vmux://agent/claude/session",
+            "vmux://sessions/claude/session",
         );
 
         app.world_mut()
@@ -4287,7 +4287,7 @@ mod tests {
     #[test]
     fn run_terminal_spirals_off_newest_nonagent_leaf() {
         let (mut app, agent) = spiral_app(
-            "vmux://agent/vibe/x",
+            "vmux://sessions/vibe/x",
             Some(("https://a.com", 9, Vec2::new(1600.0, 900.0))),
         );
         let browser = app
@@ -4322,7 +4322,7 @@ mod tests {
     #[test]
     fn run_terminal_adds_tab_to_existing_terminal_stack() {
         let (mut app, agent) = spiral_app(
-            "vmux://agent/vibe/x",
+            "vmux://sessions/vibe/x",
             Some(("vmux://terminal/7", 9, Vec2::new(1600.0, 900.0))),
         );
         let term_pane = app

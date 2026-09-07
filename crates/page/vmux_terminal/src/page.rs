@@ -519,7 +519,7 @@ pub fn Page() -> Element {
                     } else {
                         label.clone()
                     };
-                    let favicon_url = format!("vmux://agent/{segment}/cli/");
+                    let favicon_url = format!("vmux://sessions/{segment}/cli/");
                     let words = vec![display_label.to_uppercase()];
                     let (draft_text, draft_skipped) = prompt_draft.read().clone();
                     let composing = !draft_skipped && !draft_text.is_empty();

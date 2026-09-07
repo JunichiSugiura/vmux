@@ -770,7 +770,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<Messages<crate::NewTabRequest>>()
             .write(crate::NewTabRequest {
-                url: "vmux://agent/codex/cli".to_string(),
+                url: "vmux://sessions/codex/cli".to_string(),
                 pending_prompt: Some("continue from my phone".to_string()),
             });
 
@@ -778,7 +778,7 @@ mod tests {
 
         let collected = app.world().resource::<CollectedSpawns>();
         assert_eq!(collected.0.len(), 1);
-        assert_eq!(collected.0[0].url, "vmux://agent/codex/cli");
+        assert_eq!(collected.0[0].url, "vmux://sessions/codex/cli");
         let prompts = app
             .world_mut()
             .query::<&vmux_core::PendingPrompt>()

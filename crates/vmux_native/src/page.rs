@@ -149,12 +149,12 @@ mod tests {
             dioxus_core::VNode::empty()
         }
         let list = NativePage::pane("vmux://agents/", nowhere).titled("Agents");
-        let chat = NativePage::pane("vmux://agent/", nowhere)
-            .titled("Agent")
+        let chat = NativePage::pane("vmux://sessions/", nowhere)
+            .titled("Sessions")
             .owning_subtree();
 
-        assert!(chat.answers_for("vmux://agent/"));
-        assert!(chat.answers_for("vmux://agent/claude/sess-7"));
+        assert!(chat.answers_for("vmux://sessions/"));
+        assert!(chat.answers_for("vmux://sessions/claude/sess-7"));
         assert!(!chat.answers_for("vmux://agents/"));
         assert!(list.answers_for("vmux://agents/"));
         assert!(!list.answers_for("vmux://agents/anything"));

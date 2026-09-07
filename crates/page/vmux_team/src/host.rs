@@ -567,7 +567,7 @@ mod tests {
                 kind: None,
             },
             PageMetadata {
-                url: "vmux://agent/mistral-vibe".to_string(),
+                url: "vmux://sessions/mistral-vibe".to_string(),
                 icon: vmux_core::PageIcon::favicon("https://cdn.example/vibe.svg"),
                 ..default()
             },
@@ -610,6 +610,6 @@ mod tests {
             .expect("acp agent in roster");
         assert_eq!(agent.name, "Mistral Vibe");
         assert_eq!(agent.icon, "https://cdn.example/vibe.svg");
-        assert_eq!(agent.url, "vmux://agent/mistral-vibe");
+        assert_eq!(agent.url, "vmux://sessions/mistral-vibe");
     }
 }

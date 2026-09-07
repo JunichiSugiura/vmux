@@ -841,7 +841,7 @@ mod tests {
             },
             CommandBarPage {
                 host: "agent".into(),
-                url: "vmux://agent/vibe/".into(),
+                url: "vmux://sessions/vibe/".into(),
                 title: "Vibe".into(),
                 keywords: vec!["vibe".into(), "agent".into()],
                 icon: vmux_wire::PageIcon::None,
@@ -1060,7 +1060,7 @@ mod tests {
         assert!(results.iter().any(|r| matches!(
             r,
             CommandBarResultItem::Page { url, icon, .. }
-                if url == "vmux://agent/vibe/" && matches!(icon, vmux_wire::PageIcon::None)
+                if url == "vmux://sessions/vibe/" && matches!(icon, vmux_wire::PageIcon::None)
         )));
     }
 
@@ -1079,7 +1079,7 @@ mod tests {
         let mut pages = sample_pages();
         pages.push(CommandBarPage {
             host: "agent".into(),
-            url: "vmux://agent/codex/cli".into(),
+            url: "vmux://sessions/codex/cli".into(),
             title: "Codex (CLI)".into(),
             keywords: vec!["codex".into(), "agent".into()],
             icon: vmux_wire::PageIcon::None,
@@ -1096,7 +1096,10 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(urls, vec!["vmux://agent/vibe/", "vmux://agent/codex/cli"]);
+        assert_eq!(
+            urls,
+            vec!["vmux://sessions/vibe/", "vmux://sessions/codex/cli"]
+        );
     }
 
     #[test]
@@ -1104,7 +1107,7 @@ mod tests {
         let mut pages = sample_pages();
         pages.push(CommandBarPage {
             host: "agent".into(),
-            url: "vmux://agent/codex/cli".into(),
+            url: "vmux://sessions/codex/cli".into(),
             title: "Codex (CLI)".into(),
             keywords: vec!["codex".into(), "agent".into()],
             icon: vmux_wire::PageIcon::None,
@@ -1117,7 +1120,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert!(matches!(
             &results[0],
-            CommandBarResultItem::Page { url, .. } if url == "vmux://agent/vibe/"
+            CommandBarResultItem::Page { url, .. } if url == "vmux://sessions/vibe/"
         ));
     }
 
@@ -1126,7 +1129,7 @@ mod tests {
         let mut pages = sample_pages();
         pages.push(CommandBarPage {
             host: "agent".into(),
-            url: "vmux://agent/codex-acp".into(),
+            url: "vmux://sessions/codex-acp".into(),
             title: "Codex".into(),
             keywords: vec!["codex-acp".into(), "acp".into(), "agent".into()],
             icon: vmux_wire::PageIcon::None,
@@ -1146,7 +1149,7 @@ mod tests {
         let mut pages = sample_pages();
         pages.push(CommandBarPage {
             host: "agent".into(),
-            url: "vmux://agent/codex/cli".into(),
+            url: "vmux://sessions/codex/cli".into(),
             title: "Codex (CLI)".into(),
             keywords: vec!["codex".into(), "agent".into()],
             icon: vmux_wire::PageIcon::None,
@@ -1157,7 +1160,10 @@ mod tests {
         let results = prompt_target_results(&pages, "show me something fun in terminal");
         let urls: Vec<_> = results.iter().filter_map(prompt_target_url).collect();
 
-        assert_eq!(urls, vec!["vmux://agent/vibe/", "vmux://agent/codex/cli"]);
+        assert_eq!(
+            urls,
+            vec!["vmux://sessions/vibe/", "vmux://sessions/codex/cli"]
+        );
     }
 
     #[test]
@@ -1201,7 +1207,7 @@ mod tests {
         pages.extend([
             CommandBarPage {
                 host: "agent".into(),
-                url: "vmux://agent/codex/cli".into(),
+                url: "vmux://sessions/codex/cli".into(),
                 title: "Codex".into(),
                 keywords: vec!["codex".into(), "agent".into()],
                 icon: vmux_wire::PageIcon::None,
@@ -1210,7 +1216,7 @@ mod tests {
             },
             CommandBarPage {
                 host: "agent".into(),
-                url: "vmux://agent/claude".into(),
+                url: "vmux://sessions/claude".into(),
                 title: "Claude".into(),
                 keywords: vec!["claude".into(), "agent".into()],
                 icon: vmux_wire::PageIcon::None,
@@ -1237,10 +1243,16 @@ mod tests {
 
         assert_eq!(
             prompt_target_url(&results[0]),
-            Some("vmux://agent/codex/cli")
+            Some("vmux://sessions/codex/cli")
         );
-        assert_eq!(prompt_target_url(&results[1]), Some("vmux://agent/vibe/"));
-        assert_eq!(prompt_target_url(&results[2]), Some("vmux://agent/claude"));
+        assert_eq!(
+            prompt_target_url(&results[1]),
+            Some("vmux://sessions/vibe/")
+        );
+        assert_eq!(
+            prompt_target_url(&results[2]),
+            Some("vmux://sessions/claude")
+        );
         assert!(matches!(results[3], CommandBarResultItem::Search { .. }));
     }
 
@@ -1359,7 +1371,7 @@ mod tests {
             prompt_target: false,
         };
 
-        assert_eq!(prompt_target_url(&agent), Some("vmux://agent/vibe/"));
+        assert_eq!(prompt_target_url(&agent), Some("vmux://sessions/vibe/"));
         assert_eq!(prompt_target_url(&settings), None);
     }
 
@@ -1432,8 +1444,8 @@ mod tests {
         assert_eq!(
             urls,
             vec![
-                "vmux://agent/vibe/",
                 "vmux://history/",
+                "vmux://sessions/vibe/",
                 "vmux://settings/",
                 "vmux://spaces/",
             ]
@@ -1597,7 +1609,7 @@ mod tests {
         let tabs = vec![
             CommandBarTab {
                 title: "Fun terminal demo".into(),
-                url: "vmux://agent/claude/abc".into(),
+                url: "vmux://sessions/claude/abc".into(),
                 pane_id: 7,
                 tab_index: 0,
                 is_active: true,
@@ -1605,7 +1617,7 @@ mod tests {
             },
             CommandBarTab {
                 title: "Docs".into(),
-                url: "vmux://agent/codex/def".into(),
+                url: "vmux://sessions/codex/def".into(),
                 pane_id: 8,
                 tab_index: 1,
                 is_active: false,

@@ -11,7 +11,7 @@ pub enum PageKind {
 }
 
 pub fn page_kind_for_url(url: &str) -> PageKind {
-    if url.starts_with("vmux://agent/") {
+    if url.starts_with("vmux://sessions/") || url.starts_with("vmux://agent/") {
         PageKind::Agent
     } else if url.starts_with("vmux://terminal/") {
         PageKind::Terminal
@@ -168,7 +168,10 @@ mod tests {
 
     #[test]
     fn classifies_core_four_kinds() {
-        assert_eq!(page_kind_for_url("vmux://agent/vibe/abc"), PageKind::Agent);
+        assert_eq!(
+            page_kind_for_url("vmux://sessions/vibe/abc"),
+            PageKind::Agent
+        );
         assert_eq!(page_kind_for_url("vmux://terminal/123"), PageKind::Terminal);
         assert_eq!(page_kind_for_url("file:///x.rs"), PageKind::File);
         assert_eq!(page_kind_for_url("https://example.com"), PageKind::Browser);
@@ -365,7 +368,7 @@ mod tests {
             leaf(1, &[PageKind::Agent], 1, (800.0, 900.0)),
             leaf(2, &[PageKind::Browser], 9, (900.0, 400.0)),
         ];
-        let got = resolve_placement("vmux://agent/vibe/x", None, &leaves, e(2));
+        let got = resolve_placement("vmux://sessions/vibe/x", None, &leaves, e(2));
         assert_eq!(got, Placement::AddTab { pane: e(1) });
     }
 
@@ -385,7 +388,7 @@ mod tests {
     #[test]
     fn agent_page_bootstraps_by_splitting_newest_nonagent_when_no_agent_pane() {
         let leaves = [leaf(2, &[PageKind::Browser], 9, (400.0, 900.0))];
-        let got = resolve_placement("vmux://agent/vibe/x", None, &leaves, e(2));
+        let got = resolve_placement("vmux://sessions/vibe/x", None, &leaves, e(2));
         assert_eq!(
             got,
             Placement::Spiral {

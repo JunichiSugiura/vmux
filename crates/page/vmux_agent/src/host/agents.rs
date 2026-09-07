@@ -156,7 +156,7 @@ fn catalog_snapshot(
                 icon: a.icon.clone().unwrap_or_default(),
                 description: a.description.clone().unwrap_or_default(),
                 source: "acp".to_string(),
-                launch_url: format!("vmux://agent/{}", a.id),
+                launch_url: format!("vmux://sessions/{}", a.id),
                 uninstallable: true,
                 runtime: match a.preferred_runtime() {
                     Runtime::None => "native",
@@ -419,7 +419,7 @@ mod tests {
         assert_eq!(rows.len(), 3);
         let codex = rows.iter().find(|row| row.id == "cli:codex").unwrap();
         assert_eq!(codex.source, "cli");
-        assert_eq!(codex.launch_url, "vmux://agent/codex/cli");
+        assert_eq!(codex.launch_url, "vmux://sessions/codex/cli");
         assert_eq!(codex.status, "installed");
         assert!(!codex.uninstallable);
         assert!(

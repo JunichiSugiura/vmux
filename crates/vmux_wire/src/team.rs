@@ -97,7 +97,7 @@ mod tests {
                 initials: "You".to_string(),
                 color: "#3b82f6".to_string(),
                 icon: "https://x/favicon.png".to_string(),
-                url: "vmux://agent/vibe/".to_string(),
+                url: "vmux://sessions/vibe/".to_string(),
                 title: "Vibe session".to_string(),
                 sid: "021fb65c".to_string(),
                 is_user: true,

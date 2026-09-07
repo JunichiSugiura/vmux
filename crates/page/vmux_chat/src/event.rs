@@ -708,7 +708,7 @@ mod tests {
                 project: "w".into(),
                 branch: "main".into(),
                 cross_runtime: true,
-                url: "vmux://agent/claude/sid-9".into(),
+                url: "vmux://sessions/claude/sid-9".into(),
             }],
             offset: 0,
             total: 1,

@@ -623,11 +623,11 @@ mod tests {
             waker: super::PageWaker(None),
         };
 
-        vmux_native::Outbox::set_page(&outbox, "vmux://agent/claude");
+        vmux_native::Outbox::set_page(&outbox, "vmux://sessions/claude");
         vmux_native::Outbox::send(&outbox, "event", &[1, 2, 3]).unwrap();
 
         let emitted = rx.recv_blocking().unwrap();
-        assert_eq!(emitted.host, "agent");
+        assert_eq!(emitted.host, "sessions");
     }
 
     #[test]

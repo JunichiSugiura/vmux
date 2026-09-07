@@ -272,7 +272,7 @@ mod tests {
         assert!(close_install_pane_after_success("vmux://agents"));
         assert!(close_install_pane_after_success("vmux://agents/"));
         assert!(!close_install_pane_after_success(
-            "vmux://agent/codex/setup"
+            "vmux://sessions/codex/setup"
         ));
     }
 }

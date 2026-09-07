@@ -1085,7 +1085,7 @@ mod tests {
         let command = AgentCommand::Shared(SharedAgentCommand::NewAgentChat {
             client_op_id: ClientOpId::new("op"),
             prompt: "continue from my phone".to_string(),
-            agent_url: Some("vmux://agent/claude".to_string()),
+            agent_url: Some("vmux://sessions/claude".to_string()),
         });
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&command).unwrap();
         let back: AgentCommand =

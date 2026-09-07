@@ -129,8 +129,8 @@ pub static AGENTS_PAGE: NativePage =
     NativePage::pane("vmux://agents/", vmux_agent::page::Page).titled("Agents");
 
 #[cfg(target_os = "macos")]
-pub static CHAT_PAGE: NativePage = NativePage::pane("vmux://agent/", vmux_chat::page::Page)
-    .titled("Agent")
+pub static CHAT_PAGE: NativePage = NativePage::pane("vmux://sessions/", vmux_chat::page::Page)
+    .titled("Sessions")
     .preserving_host_title()
     .without_favicon()
     .owning_subtree();
@@ -257,6 +257,18 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn chat_document_uses_the_host_that_serves_its_assets() {
+        let host = CHAT_PAGE
+            .document_url()
+            .strip_prefix("vmux://")
+            .and_then(|url| url.split('/').next())
+            .unwrap();
+
+        assert_eq!(host, vmux_agent::host::chat::PAGE_MANIFEST.host);
+    }
+
     #[test]
     fn the_editor_still_answers_for_file_urls() {
         assert_eq!(FILES_PAGE.url, "file://");

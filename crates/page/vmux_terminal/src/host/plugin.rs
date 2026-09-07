@@ -5194,7 +5194,7 @@ mod tests {
                 pid,
                 PageMetadata {
                     title: "Vibe (abc12345)".to_string(),
-                    url: "vmux://agent/vibe/abc12345".to_string(),
+                    url: "vmux://sessions/vibe/abc12345".to_string(),
                     icon: vmux_core::PageIcon::None,
                     bg_color: None,
                 },

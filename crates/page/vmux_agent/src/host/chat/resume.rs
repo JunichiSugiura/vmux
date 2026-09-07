@@ -552,7 +552,7 @@ mod tests {
     fn foreign_resume_keeps_active_acp_agent_fresh() {
         assert_eq!(
             foreign_handoff_target("claude", Some(AgentKind::Claude), AgentKind::Codex,),
-            Some("vmux://agent/claude".to_string())
+            Some("vmux://sessions/claude".to_string())
         );
         assert_eq!(
             foreign_handoff_target("claude", Some(AgentKind::Claude), AgentKind::Claude,),
@@ -560,7 +560,7 @@ mod tests {
         );
         assert_eq!(
             foreign_handoff_target("custom-acp", None, AgentKind::Codex),
-            Some("vmux://agent/custom-acp".to_string())
+            Some("vmux://sessions/custom-acp".to_string())
         );
     }
 
@@ -600,7 +600,7 @@ mod tests {
             assert_eq!(
                 got,
                 Some((
-                    format!("vmux://agent/{cli_segment}/cli/sid-9"),
+                    format!("vmux://sessions/{cli_segment}/cli/sid-9"),
                     std::path::PathBuf::from("/w")
                 ))
             );

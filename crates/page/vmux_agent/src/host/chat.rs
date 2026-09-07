@@ -28,15 +28,15 @@ impl Plugin for AgentChatPagePlugin {
             workspace::ChatWorkspacePlugin,
         ))
         .add_plugins(BinEventEmitterPlugin::<(ChatOpenPage,)>::for_hosts(&[
-            "agent", "start",
+            "sessions", "agent", "start",
         ]))
         .add_observer(on_chat_open_page);
     }
 }
 
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
-    host: "agent",
-    title: "Agent",
+    host: "sessions",
+    title: "Sessions",
     title_message_id: None,
     replaces_command: None,
     keywords: &["ai", "chat", "assistant", "agent"],

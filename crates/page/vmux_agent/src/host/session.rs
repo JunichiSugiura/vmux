@@ -132,7 +132,7 @@ mod url_tests {
             .id();
         app.update();
         let url = &app.world().get::<PageMetadata>(entity).unwrap().url;
-        assert_eq!(url, "vmux://agent/vibe/cli/abc");
+        assert_eq!(url, "vmux://sessions/vibe/cli/abc");
     }
 
     #[test]
@@ -154,7 +154,7 @@ mod url_tests {
             .id();
         app.update();
         let url = &app.world().get::<PageMetadata>(entity).unwrap().url;
-        assert_eq!(url, "vmux://agent/vibe/cli");
+        assert_eq!(url, "vmux://sessions/vibe/cli");
     }
 
     #[test]

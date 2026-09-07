@@ -5,7 +5,7 @@ use crate::AgentVariant;
 pub const CLI_FRESH_SID: &str = "cli";
 
 pub fn page_url_prefix(provider: &str, model: &str) -> String {
-    format!("vmux://agent/{provider}/{model}/")
+    format!("vmux://sessions/{provider}/{model}/")
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,7 +28,9 @@ pub enum AgentUrl {
 
 impl AgentUrl {
     pub fn parse(url: &str) -> Option<Self> {
-        let body = url.strip_prefix("vmux://agent/")?;
+        let body = url
+            .strip_prefix("vmux://sessions/")
+            .or_else(|| url.strip_prefix("vmux://agent/"))?;
         let segs: Vec<&str> = body.split('/').filter(|s| !s.is_empty()).collect();
         match segs.as_slice() {
             [] => Some(AgentUrl::PageDefault),
@@ -99,15 +101,15 @@ impl AgentUrl {
                 }
             }
             AgentUrl::Acp { id, sid } => match sid {
-                Some(sid) => format!("vmux://agent/{id}/{sid}"),
-                None => format!("vmux://agent/{id}"),
+                Some(sid) => format!("vmux://sessions/{id}/{sid}"),
+                None => format!("vmux://sessions/{id}"),
             },
             AgentUrl::Page {
                 provider,
                 model,
                 sid,
             } => format!("{}{sid}", page_url_prefix(provider, model)),
-            AgentUrl::PageDefault => "vmux://agent/".to_string(),
+            AgentUrl::PageDefault => "vmux://sessions/".to_string(),
         }
     }
 
@@ -134,7 +136,7 @@ mod tests {
     #[test]
     fn bare_agent_url_parses_to_page_default() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/"),
+            AgentUrl::parse("vmux://sessions/"),
             Some(AgentUrl::PageDefault)
         );
     }
@@ -142,14 +144,14 @@ mod tests {
     #[test]
     fn single_segment_is_acp_fresh() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/claude"),
+            AgentUrl::parse("vmux://sessions/claude"),
             Some(AgentUrl::Acp {
                 id: "claude".into(),
                 sid: None,
             })
         );
         assert_eq!(
-            AgentUrl::parse("vmux://agent/mistral-vibe"),
+            AgentUrl::parse("vmux://sessions/mistral-vibe"),
             Some(AgentUrl::Acp {
                 id: "mistral-vibe".into(),
                 sid: None,
@@ -160,7 +162,7 @@ mod tests {
     #[test]
     fn two_segment_plain_is_acp_session() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/claude/abc-123"),
+            AgentUrl::parse("vmux://sessions/claude/abc-123"),
             Some(AgentUrl::Acp {
                 id: "claude".into(),
                 sid: Some("abc-123".into()),
@@ -171,7 +173,7 @@ mod tests {
     #[test]
     fn two_segment_cli_marker_is_fresh_cli() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/claude/cli"),
+            AgentUrl::parse("vmux://sessions/claude/cli"),
             Some(AgentUrl::Cli {
                 kind: AgentKind::Claude,
                 sid: CLI_FRESH_SID.into(),
@@ -182,7 +184,7 @@ mod tests {
     #[test]
     fn three_segment_cli_marker_is_cli_resume() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/vibe/cli/abc-123"),
+            AgentUrl::parse("vmux://sessions/vibe/cli/abc-123"),
             Some(AgentUrl::Cli {
                 kind: AgentKind::Vibe,
                 sid: "abc-123".into(),
@@ -193,7 +195,7 @@ mod tests {
     #[test]
     fn three_segment_plain_is_page() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/openai/gpt-5.5/xHigh"),
+            AgentUrl::parse("vmux://sessions/openai/gpt-5.5/xHigh"),
             Some(AgentUrl::Page {
                 provider: "openai".into(),
                 model: "gpt-5.5".into(),
@@ -205,7 +207,7 @@ mod tests {
     #[test]
     fn cli_marker_with_non_kind_falls_through_to_acp() {
         assert_eq!(
-            AgentUrl::parse("vmux://agent/fast-agent/cli"),
+            AgentUrl::parse("vmux://sessions/fast-agent/cli"),
             Some(AgentUrl::Acp {
                 id: "fast-agent".into(),
                 sid: Some("cli".into()),
@@ -215,8 +217,8 @@ mod tests {
 
     #[test]
     fn too_many_segments_rejected() {
-        assert_eq!(AgentUrl::parse("vmux://agent/vibe/cli/abc/extra"), None);
-        assert_eq!(AgentUrl::parse("vmux://agent/o/m/sid/extra"), None);
+        assert_eq!(AgentUrl::parse("vmux://sessions/vibe/cli/abc/extra"), None);
+        assert_eq!(AgentUrl::parse("vmux://sessions/o/m/sid/extra"), None);
     }
 
     #[test]
@@ -241,14 +243,14 @@ mod tests {
             kind: AgentKind::Codex,
             sid: CLI_FRESH_SID.into(),
         };
-        assert_eq!(fresh.format(), "vmux://agent/codex/cli");
+        assert_eq!(fresh.format(), "vmux://sessions/codex/cli");
         assert_eq!(AgentUrl::parse(&fresh.format()), Some(fresh));
 
         let resume = AgentUrl::Cli {
             kind: AgentKind::Codex,
             sid: "xyz".into(),
         };
-        assert_eq!(resume.format(), "vmux://agent/codex/cli/xyz");
+        assert_eq!(resume.format(), "vmux://sessions/codex/cli/xyz");
         assert_eq!(AgentUrl::parse(&resume.format()), Some(resume));
     }
 
@@ -259,17 +261,23 @@ mod tests {
             model: "claude-opus-4.7".into(),
             sid: "xyz".into(),
         };
-        assert_eq!(u.format(), "vmux://agent/anthropic/claude-opus-4.7/xyz");
+        assert_eq!(u.format(), "vmux://sessions/anthropic/claude-opus-4.7/xyz");
         assert_eq!(AgentUrl::parse(&u.format()), Some(u));
     }
 
     #[test]
     fn page_default_round_trips() {
-        assert_eq!(AgentUrl::PageDefault.format(), "vmux://agent/");
+        assert_eq!(AgentUrl::PageDefault.format(), "vmux://sessions/");
         assert_eq!(
             AgentUrl::parse(&AgentUrl::PageDefault.format()),
             Some(AgentUrl::PageDefault)
         );
+    }
+
+    #[test]
+    fn legacy_agent_url_parses_but_formats_as_session() {
+        let parsed = AgentUrl::parse("vmux://agent/codex/cli/xyz").unwrap();
+        assert_eq!(parsed.format(), "vmux://sessions/codex/cli/xyz");
     }
 
     #[test]

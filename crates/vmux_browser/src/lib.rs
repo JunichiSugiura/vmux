@@ -685,6 +685,11 @@ fn should_emit_update(
 
 fn normalize_vmux_url(url: &str) -> String {
     let url = url.trim();
+    if let Some(rest) = url.strip_prefix("vmux://agent")
+        && (rest.is_empty() || rest.starts_with('/'))
+    {
+        return normalize_vmux_url(&format!("vmux://sessions{rest}"));
+    }
     if let Some(rest) = url.strip_prefix("vmux://")
         && !rest.is_empty()
         && !rest.contains('/')
@@ -806,8 +811,8 @@ mod tests {
         assert_eq!(normalize_vmux_url("vmux://terminal"), "vmux://terminal/");
         assert_eq!(normalize_vmux_url("vmux://lsp/"), "vmux://lsp/");
         assert_eq!(
-            normalize_vmux_url("vmux://agent/vibe/"),
-            "vmux://agent/vibe/"
+            normalize_vmux_url("vmux://sessions/vibe/"),
+            "vmux://sessions/vibe/"
         );
         assert_eq!(
             normalize_vmux_url("vmux://error/?title=x"),
@@ -818,8 +823,12 @@ mod tests {
             "file:///tmp/main.rs"
         );
         assert_eq!(
-            normalize_vmux_url("  vmux://agent/codex/session-id  "),
-            "vmux://agent/codex/session-id"
+            normalize_vmux_url("  vmux://sessions/codex/session-id  "),
+            "vmux://sessions/codex/session-id"
+        );
+        assert_eq!(
+            normalize_vmux_url("vmux://agent/codex/session-id"),
+            "vmux://sessions/codex/session-id"
         );
     }
 
@@ -857,7 +866,7 @@ mod tests {
             .spawn((
                 Stack::default(),
                 PageMetadata {
-                    url: "vmux://agent/vibe/".to_string(),
+                    url: "vmux://sessions/vibe/".to_string(),
                     ..default()
                 },
             ))
@@ -867,7 +876,7 @@ mod tests {
             .spawn((
                 Browser,
                 PageMetadata {
-                    url: "vmux://agent/vibe/".to_string(),
+                    url: "vmux://sessions/vibe/".to_string(),
                     ..default()
                 },
                 ChildOf(stack),
@@ -877,12 +886,12 @@ mod tests {
         app.update();
 
         app.world_mut().get_mut::<PageMetadata>(child).unwrap().url =
-            "vmux://agent/vibe/abc-123".to_string();
+            "vmux://sessions/vibe/abc-123".to_string();
 
         app.update();
 
         let stack_url = app.world().get::<PageMetadata>(stack).unwrap().url.clone();
-        assert_eq!(stack_url, "vmux://agent/vibe/abc-123");
+        assert_eq!(stack_url, "vmux://sessions/vibe/abc-123");
     }
 
     #[test]
@@ -1132,7 +1141,7 @@ mod tests {
                     crate::clear_stack_children(task.stack, &children_q, &mut commands);
                     commands.spawn((Browser, Terminal, ChildOf(task.stack)));
                     commands.entity(entity).insert(PageOpenHandled);
-                } else if task.url.starts_with("vmux://agent/") {
+                } else if task.url.starts_with("vmux://sessions/") {
                     crate::clear_stack_children(task.stack, &children_q, &mut commands);
                     commands.entity(entity).insert(PageOpenHandled);
                 }
@@ -1561,7 +1570,7 @@ mod tests {
                     PageOpenTask {
                         id: PageOpenId::new(),
                         stack,
-                        url: "vmux://agent/claude".to_string(),
+                        url: "vmux://sessions/claude".to_string(),
                         request_id: None,
                     },
                     PageOpenDeferred,
@@ -1649,7 +1658,7 @@ mod tests {
                     request_id: AgentRequestId::new(),
                     origin: vmux_service::agent_events::CommandOrigin::User,
                     command: ServiceAgentCommand::BrowserNavigate {
-                        url: "vmux://agent/claude/cli/".into(),
+                        url: "vmux://sessions/claude/cli/".into(),
                         pane: None,
                     },
                 });
@@ -1695,7 +1704,7 @@ mod tests {
                     request_id: AgentRequestId::new(),
                     origin: vmux_service::agent_events::CommandOrigin::User,
                     command: ServiceAgentCommand::BrowserNavigate {
-                        url: "vmux://agent/codex/cli/".into(),
+                        url: "vmux://sessions/codex/cli/".into(),
                         pane: None,
                     },
                 });
@@ -1757,7 +1766,7 @@ mod tests {
                 },
             );
             for host in [
-                "terminal", "agent", "services", "settings", "team", "spaces",
+                "terminal", "sessions", "services", "settings", "team", "spaces",
             ] {
                 vmux_core::register_host_spawn(&mut app, host);
             }
@@ -1862,7 +1871,7 @@ mod tests {
                 .resource_mut::<Messages<AppCommand>>()
                 .write(AppCommand::Browser(BrowserCommand::Open(
                     OpenCommand::InPlace {
-                        url: Some("vmux://agent/vibe".into()),
+                        url: Some("vmux://sessions/vibe".into()),
                     },
                 )));
 
@@ -1872,7 +1881,7 @@ mod tests {
             assert!(navigates.0.is_empty());
             let page_opens = app.world().resource::<CapturedPageOpenRequests>();
             assert_eq!(page_opens.0.len(), 1);
-            assert_eq!(page_opens.0[0].url, "vmux://agent/vibe");
+            assert_eq!(page_opens.0[0].url, "vmux://sessions/vibe");
             assert!(matches!(page_opens.0[0].target, PageOpenTarget::Stack(_)));
         }
 

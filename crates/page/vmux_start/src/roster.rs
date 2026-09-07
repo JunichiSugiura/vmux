@@ -58,7 +58,7 @@ impl Launcher {
             let cwd = vmux_ui::file_icon::FilePath(&session.cwd).name();
             tabs.push(CommandBarTab {
                 title: session.name.clone(),
-                url: format!("vmux://agent/{sid}", sid = session.sid),
+                url: format!("vmux://sessions/{sid}", sid = session.sid),
                 pane_id: 0,
                 tab_index: index as u32,
                 is_active: false,
@@ -107,7 +107,7 @@ mod tests {
                 agents: vec![RemoteAgent {
                     id: "claude".into(),
                     name: "Claude".into(),
-                    url: "vmux://agent/claude".into(),
+                    url: "vmux://sessions/claude".into(),
                     icon: String::new(),
                 }],
             }
@@ -179,7 +179,7 @@ mod tests {
         let started = Started::with(Roster::of_one());
         let tab = &started.launcher().tabs[0];
 
-        assert_eq!(tab.url, "vmux://agent/sid-api");
+        assert_eq!(tab.url, "vmux://sessions/sid-api");
         assert!(
             tab.location.contains("api") && tab.location.contains("claude"),
             "the row names the runtime and the directory: {}",
@@ -194,7 +194,7 @@ mod tests {
 
         assert_eq!(pages.len(), 1);
         assert!(pages[0].prompt_target);
-        assert_eq!(pages[0].url, "vmux://agent/claude");
+        assert_eq!(pages[0].url, "vmux://sessions/claude");
     }
 
     #[test]

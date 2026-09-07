@@ -717,7 +717,7 @@ fn window_value(
                 tabs.into_iter()
                     .enumerate()
                     .map(|(index, tab)| {
-                        tab_value(tab, window.id, index as u32, request, authorization)
+                        tab.disclosed_value(window.id, index as u32, request, authorization)
                     })
                     .collect(),
             ),
@@ -728,33 +728,6 @@ fn window_value(
 
 fn window_base_value(window: &ChromeWindow) -> Value {
     serde_json::to_value(window).expect("ChromeWindow serializes")
-}
-
-fn tab_value(
-    mut tab: ChromeTab,
-    window_id: i32,
-    index: u32,
-    request: &ApiRequest,
-    authorization: &BridgeAuthorization,
-) -> Value {
-    tab.window_id = window_id;
-    tab.index = index;
-    let disclose = authorization.permissions.contains("tabs")
-        || url::Url::parse(&tab.url).is_ok_and(|url| {
-            (url.scheme() == "chrome-extension"
-                && url.host_str() == Some(request.caller_context.extension_id()))
-                || authorization
-                    .host_permissions
-                    .iter()
-                    .any(|pattern| pattern.matches(&url))
-        });
-    let mut value = serde_json::to_value(tab).expect("ChromeTab serializes");
-    if !disclose {
-        let object = value.as_object_mut().expect("tab object");
-        object.remove("url");
-        object.remove("title");
-    }
-    value
 }
 
 fn virtual_tabs(window: &ExtensionWindow, model: &ChromeModel) -> Vec<ChromeTab> {

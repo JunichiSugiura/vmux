@@ -36,8 +36,24 @@ impl Plugin for ExtensionBrokerPlugin {
                 Update,
                 forward_chrome_model_events.after(super::project::rebuild_chrome_model),
             )
-            .add_systems(Update, fire_conformance_wake_timer);
+            .add_systems(Update, fire_conformance_wake_timer)
+            .add_systems(Update, arm_bridge_wake);
     }
+}
+
+fn arm_bridge_wake(
+    server: Res<ExtensionBridgeServer>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut armed: Local<bool>,
+) {
+    if *armed {
+        return;
+    }
+    let Some(proxy) = proxy else {
+        return;
+    };
+    server.arm_wake(&proxy);
+    *armed = true;
 }
 
 const CONFORMANCE_NAMESPACE: &str = "__vmux_conformance";
@@ -857,6 +873,21 @@ fn dispatch_api_request(
     }
     if matches!(
         (request.namespace.as_str(), request.method.as_str()),
+        ("tabs", "query" | "get")
+    ) {
+        return match super::tabs::ChromeTabs::of(model).dispatch(&request, authorization) {
+            Ok(result) => dispatched_response(BridgeServerMessage::Response(ApiResponse::success(
+                request.request_id,
+                result,
+            ))),
+            Err(error) => dispatched_response(BridgeServerMessage::Response(ApiResponse::failure(
+                request.request_id,
+                error,
+            ))),
+        };
+    }
+    if matches!(
+        (request.namespace.as_str(), request.method.as_str()),
         ("tabs", "create")
     ) {
         return match create_page_command(&request) {
@@ -1206,8 +1237,8 @@ mod tests {
             .send(Message::Text(
                 serde_json::to_string(&BridgeClientMessage::ApiRequest(ApiRequest {
                     request_id: "r1".into(),
-                    namespace: "tabs".into(),
-                    method: "query".into(),
+                    namespace: "runtime".into(),
+                    method: "sendMessage".into(),
                     arguments: serde_json::json!({}),
                     caller_context: caller_context(),
                 }))
@@ -1244,7 +1275,7 @@ mod tests {
                 ChromeError::new(
                     "unsupported_api",
                     format!(
-                        "tabs.query is Untested for Chromium 148 on {}",
+                        "runtime.sendMessage is Untested for Chromium 148 on {}",
                         current_platform()
                     )
                 )

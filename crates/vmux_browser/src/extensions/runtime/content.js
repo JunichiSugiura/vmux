@@ -77,4 +77,12 @@
   }
 
   runtime.sendMessage = patchedSendMessage;
+
+  if (globalThis.top === globalThis) {
+    sendCallback(
+      [{ __vmuxSenderContext: true, __vmuxSenderUrl: globalThis.location?.href || "" }],
+      () => {},
+      0,
+    );
+  }
 })();

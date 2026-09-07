@@ -95,7 +95,7 @@ mod tests {
         assert_eq!(matrix.chromium_major, 148);
         assert_eq!(
             matrix
-                .lookup("macos", "tabs", "query", CapabilityKind::Method)
+                .lookup("macos", "runtime", "sendMessage", CapabilityKind::Method)
                 .unwrap()
                 .status,
             CapabilityStatus::Untested

@@ -402,6 +402,13 @@ fn install_native_mouse_wake_monitor(proxy: Option<Res<EventLoopProxyWrapper>>) 
         let event_type = ev.r#type();
         let mut titlebar_gesture = None;
         let capture_window_gesture = match event_type {
+            NSEventType::LeftMouseDown if !event_window_wears_the_window_chrome(ev) => {
+                titlebar_clicks
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .forget();
+                false
+            }
             NSEventType::LeftMouseDown => {
                 let drag = begin_native_window_resize(ev);
                 *local_resize_drag
@@ -629,6 +636,15 @@ fn event_window_is_key(event: &objc2_app_kit::NSEvent) -> bool {
         return false;
     };
     event.window(mtm).is_some_and(|window| window.isKeyWindow())
+}
+
+fn event_window_wears_the_window_chrome(event: &objc2_app_kit::NSEvent) -> bool {
+    let Some(mtm) = objc2::MainThreadMarker::new() else {
+        return false;
+    };
+    event
+        .window(mtm)
+        .is_some_and(|window| window.canBecomeMainWindow())
 }
 
 fn native_mouse_buttons() -> bevy_cef_core::prelude::NativeMouseButtons {

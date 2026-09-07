@@ -4,10 +4,11 @@
   var BRIDGE_CHANNEL = __VMUX_BRIDGE_CHANNEL__;
   var KEEPALIVE_CHANNEL = __VMUX_KEEPALIVE_CHANNEL__;
   var BRIDGE_URL = c.runtime && c.runtime.getURL ? c.runtime.getURL("vmux_bridge.html") : null;
-  var ACTIVE_TAB_KEY = "__vmux_active_tab_v1";
   var FAKE_WINDOW_ID = 1;
-  var FAKE_TAB_ID = 1;
   var lastTab = null;
+  var nativeTabs = {};
+  var nativeTabIds = {};
+  var modelTabIds = {};
   var knownWindows = [];
 
   function webUrl(value) {
@@ -29,7 +30,7 @@
     var url = senderUrl(message, sender);
     if (!url) return null;
     var tab = Object.assign({}, (sender && sender.tab) || (message && message.tab) || {});
-    if (typeof tab.id !== "number" || tab.id < 0) tab.id = FAKE_TAB_ID;
+    if (typeof tab.id !== "number" || tab.id < 0) return null;
     if (typeof tab.windowId !== "number" || tab.windowId < 0) tab.windowId = FAKE_WINDOW_ID;
     if (!webUrl(tab.url)) tab.url = url;
     if (typeof tab.index !== "number") tab.index = 0;
@@ -37,14 +38,7 @@
     if (typeof tab.highlighted !== "boolean") tab.highlighted = tab.active;
     if (!tab.status) tab.status = "complete";
     lastTab = tab;
-    if (c.storage && c.storage.session) {
-      var stored = {};
-      stored[ACTIVE_TAB_KEY] = tab;
-      try {
-        var result = c.storage.session.set(stored);
-        if (result && typeof result.catch === "function") result.catch(function () {});
-      } catch (_error) {}
-    }
+    nativeTabs[tab.id] = tab;
     return tab;
   }
 
@@ -81,37 +75,29 @@
   }
 
   function requestActiveTab(done) {
-    if (lastTab) {
-      done(lastTab);
-      return;
-    }
-    if (!c.storage || !c.storage.session) {
-      done(null);
-      return;
-    }
-    try {
-      var result = c.storage.session.get(ACTIVE_TAB_KEY);
-      Promise.resolve(result).then(
-        function (stored) {
-          var tab = stored && stored[ACTIVE_TAB_KEY];
-          if (tab && webUrl(tab.url)) lastTab = tab;
-          done(lastTab);
-        },
-        function () {
-          done(null);
-        },
-      );
-    } catch (_error) {
-      done(null);
-    }
+    done(lastTab);
   }
   var nativeTabsCreate = c.tabs && c.tabs.create ? c.tabs.create.bind(c.tabs) : null;
   var bridgeRuntime = globalThis.__vmuxExtensionRuntime;
+  function withNativeTabIds(window) {
+    if (!window || !Array.isArray(window.tabs)) return window;
+    var named = [];
+    for (var i = 0; i < window.tabs.length; i++) {
+      var tab = withNativeTabId(window.tabs[i]);
+      if (tab) named.push(tab);
+    }
+    return Object.assign({}, window, { tabs: named });
+  }
   function rememberWindows(windows) {
     if (Array.isArray(windows)) {
-      knownWindows = windows;
-      return windows;
+      var namedWindows = [];
+      for (var i = 0; i < windows.length; i++) {
+        namedWindows.push(withNativeTabIds(windows[i]));
+      }
+      knownWindows = namedWindows;
+      return namedWindows;
     }
+    windows = withNativeTabIds(windows);
     if (windows && typeof windows.id === "number") {
       knownWindows = knownWindows.filter(function (known) { return known.id !== windows.id; });
       knownWindows.push(windows);
@@ -135,7 +121,11 @@
       var win = knownWindows[i];
       var tabs = win && Array.isArray(win.tabs) ? win.tabs : [];
       for (var j = 0; j < tabs.length; j++) {
-        if (tabs[j].id === tab.id || sameDocument(tabs[j].url, tab.url)) return win.id;
+        if (
+          tabs[j].id === tab.id ||
+          modelTabIds[tabs[j].id] === tab.id ||
+          sameDocument(tabs[j].url, tab.url)
+        ) return win.id;
       }
     }
     return null;
@@ -158,7 +148,9 @@
   function tabMatchesQuery(tab, queryInfo, ignoreWindowId) {
     if (!queryInfo) return true;
     var requestedWindowId = typeof queryInfo.windowId === "number"
-      ? queryInfo.windowId
+      ? queryInfo.windowId === -2
+        ? focusedWindowId()
+        : queryInfo.windowId
       : queryInfo.currentWindow || queryInfo.lastFocusedWindow
         ? focusedWindowId()
         : null;
@@ -230,6 +222,49 @@
     } catch (_error) {
       return Promise.resolve(w);
     }
+  }
+  function sameOrigin(left, right) {
+    try {
+      return new URL(left).origin === new URL(right).origin;
+    } catch (_error) {
+      return false;
+    }
+  }
+  function availableNativeTabId(tab) {
+    var known = nativeTabIds[tab.id];
+    if (typeof known === "number") return known;
+    var matching = null;
+    var ids = Object.keys(nativeTabs);
+    for (var i = 0; i < ids.length; i++) {
+      var native = nativeTabs[ids[i]];
+      if (!native || !sameDocument(native.url, tab.url)) continue;
+      var claimed = modelTabIds[native.id];
+      if (typeof claimed === "number" && claimed !== tab.id) continue;
+      if (native.index === tab.index) return native.id;
+      if (matching === null) matching = native.id;
+    }
+    if (matching !== null) return matching;
+    if (!lastTab || !sameOrigin(lastTab.url, tab.url)) return null;
+    var lastClaimed = modelTabIds[lastTab.id];
+    return typeof lastClaimed !== "number" || lastClaimed === tab.id ? lastTab.id : null;
+  }
+  function withNativeTabId(tab) {
+    if (!tab || typeof tab.url !== "string") return tab;
+    var native = availableNativeTabId(tab);
+    if (typeof native === "number") {
+      nativeTabIds[tab.id] = native;
+      modelTabIds[native] = tab.id;
+      return native === tab.id ? tab : Object.assign({}, tab, { id: native });
+    }
+    if (webUrl(tab.url)) return null;
+    modelTabIds[tab.id] = tab.id;
+    return tab;
+  }
+  function bridgeTabs(method, args, fallback) {
+    if (bridgeRuntime && typeof bridgeRuntime.request === "function") {
+      return bridgeRuntime.request("tabs", method, args);
+    }
+    return Promise.resolve(fallback());
   }
   function windowRequest(method, args, fallback) {
     var useFallback = function () {
@@ -448,20 +483,40 @@
       var promise = new Promise(function (resolve) {
         var fallback = function () {
           queryNative(queryInfo, function (tabs) {
-            resolve(tabs);
+            if (tabs && tabs.length) {
+              resolve(tabs);
+              return;
+            }
+            if (!wantsActive) {
+              resolve(tabs || []);
+              return;
+            }
+            requestActiveTab(function (tab) {
+              if (!tab) {
+                resolve([]);
+                return;
+              }
+              normalizeTabWindowIds([tab], queryInfo).then(resolve);
+            });
           });
         };
-        if (!wantsActive) {
-          fallback();
-          return;
-        }
-        requestActiveTab(function (tab) {
-          if (!tab) {
+        bridgeTabs("query", [queryInfo || {}], fallback).then(function (tabs) {
+          if (!Array.isArray(tabs)) {
             fallback();
             return;
           }
-          normalizeTabWindowIds([tab], queryInfo).then(resolve);
-        });
+          normalizeTabWindowIds(tabs, queryInfo).then(function (normalized) {
+            var named = [];
+            var dropped = false;
+            for (var i = 0; i < normalized.length; i++) {
+              var tab = withNativeTabId(normalized[i]);
+              if (tab) named.push(tab);
+              else dropped = true;
+            }
+            if (!dropped) resolve(named);
+            else fallback();
+          }, fallback);
+        }, fallback);
       });
       if (typeof cb === "function") {
         promise.then(cb);
@@ -470,32 +525,59 @@
       return promise;
     };
     var origGet = c.tabs.get ? c.tabs.get.bind(c.tabs) : null;
+    function getNativeTab(id, fallbackTab) {
+      if (!origGet) return Promise.resolve(fallbackTab);
+      return new Promise(function (resolve) {
+        try {
+          var result = origGet(id, function (nativeTab) {
+            if (c.runtime) void c.runtime.lastError;
+            resolve(nativeTab || fallbackTab);
+          });
+          if (result && typeof result.then === "function") {
+            result.then(resolve, function () { resolve(fallbackTab); });
+          }
+        } catch (_error) {
+          resolve(fallbackTab);
+        }
+      });
+    }
     c.tabs.get = function (id, cb) {
-      var promise = new Promise(function (resolve) {
+      var promise = new Promise(function (resolve, reject) {
         requestActiveTab(function (tab) {
           if (tab && (id == null || id === tab.id)) {
             resolve(tab);
             return;
           }
-          if (!origGet) {
-            resolve(tab);
+          if (!bridgeRuntime || typeof bridgeRuntime.request !== "function") {
+            getNativeTab(id, tab).then(resolve);
             return;
           }
-          try {
-            var result = origGet(id, function (nativeTab) {
-              if (c.runtime) void c.runtime.lastError;
-              resolve(nativeTab || tab);
-            });
-            if (result && typeof result.then === "function") {
-              result.then(resolve, function () { resolve(tab); });
-            }
-          } catch (_error) {
-            resolve(tab);
+          var modelId = modelTabIds[id];
+          if (typeof modelId !== "number") {
+            getNativeTab(id, tab).then(resolve);
+            return;
           }
+          bridgeRuntime.request("tabs", "get", [modelId]).then(
+            function (result) {
+              var named = withNativeTabId(result);
+              if (named) {
+                resolve(named);
+                return;
+              }
+              getNativeTab(id, tab).then(resolve);
+            },
+            function (error) {
+              if (error && error.code === "bridge_unavailable") {
+                getNativeTab(id, tab).then(resolve);
+                return;
+              }
+              reject(error);
+            }
+          );
         });
       });
       if (typeof cb === "function") {
-        promise.then(cb);
+        promise.then(cb, function () { cb(undefined); });
         return;
       }
       return promise;

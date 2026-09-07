@@ -154,8 +154,6 @@ mod tests {
         assert!(patch.contains("typeof result === \"undefined\" ? useFallback() : result"));
         assert!(!patch.contains("self.clients.openWindow"));
         assert!(!patch.contains("openPopout(info)"));
-        assert!(patch.contains("__vmux_active_tab_v1"));
-        assert!(patch.contains("c.storage.session.set(stored)"));
         assert!(patch.contains("event.addListener = function"));
     }
 

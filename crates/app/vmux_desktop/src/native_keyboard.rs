@@ -16,14 +16,21 @@ pub(crate) struct NativeKeyboardPlugin;
 
 impl Plugin for NativeKeyboardPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Startup,
-            install_native_key_monitor.after(crate::shortcut::init_shortcuts),
-        )
-        .add_systems(
-            Update,
-            process_monitored_keys.in_set(vmux_command::WriteAppCommands),
-        );
+        app.add_message::<vmux_simulator::HardwareButtonRequest>()
+            .add_systems(
+                Startup,
+                install_native_key_monitor.after(crate::shortcut::init_shortcuts),
+            )
+            .add_systems(
+                Update,
+                sync_simulator_shortcuts.after(vmux_layout::stack::ComputeFocusSet),
+            )
+            .add_systems(
+                Update,
+                process_monitored_keys
+                    .in_set(vmux_command::WriteAppCommands)
+                    .before(vmux_simulator::SimulatorInputSet),
+            );
     }
 }
 
@@ -32,10 +39,13 @@ static PENDING_PREFIX: LazyLock<Mutex<Option<(KeyCombo, Instant)>>> =
     LazyLock::new(|| Mutex::new(None));
 static PENDING_COMMANDS: LazyLock<Mutex<Vec<AppCommand>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static PENDING_SIMULATOR_BUTTONS: LazyLock<Mutex<Vec<vmux_simulator::event::HardwareButton>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
 static WINDOW_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 static EXIT_FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static SIMULATOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_shortcut_map(map: Keymap) {
     *SHORTCUT_MAP.lock() = Some(map);
@@ -67,6 +77,22 @@ fn escape_exits_fullscreen(combo: &KeyCombo) -> bool {
     combo.is_bare_escape()
         && WINDOW_FULLSCREEN.load(Ordering::Relaxed)
         && !vmux_browser::native_page_owns_escape()
+}
+
+fn simulator_button(combo: &KeyCombo) -> Option<vmux_simulator::event::HardwareButton> {
+    if !combo.modifiers.super_key
+        || combo.modifiers.ctrl
+        || combo.modifiers.alt
+        || combo.modifiers.shift
+    {
+        return None;
+    }
+    match combo.key {
+        KeyCode::KeyH => Some(vmux_simulator::event::HardwareButton::Home),
+        KeyCode::KeyL => Some(vmux_simulator::event::HardwareButton::Lock),
+        KeyCode::KeyS => Some(vmux_simulator::event::HardwareButton::Siri),
+        _ => None,
+    }
 }
 
 enum KeyAction {
@@ -111,6 +137,12 @@ fn decide(
 }
 
 fn classify(combo: KeyCombo) -> KeyAction {
+    if SIMULATOR_ACTIVE.load(Ordering::Relaxed)
+        && let Some(button) = simulator_button(&combo)
+    {
+        PENDING_SIMULATOR_BUTTONS.lock().push(button);
+        return KeyAction::Consume(None);
+    }
     if escape_exits_fullscreen(&combo) {
         EXIT_FULLSCREEN_REQUESTED.store(true, Ordering::Relaxed);
         return KeyAction::Consume(None);
@@ -278,20 +310,42 @@ fn install_native_key_monitor(proxy: Option<Res<EventLoopProxyWrapper>>) {
     });
 }
 
+fn sync_simulator_shortcuts(
+    focus: Option<Res<vmux_layout::stack::FocusedStack>>,
+    pages: Query<&vmux_core::PageMetadata>,
+) {
+    let active = focus
+        .as_deref()
+        .and_then(|focus| focus.stack)
+        .and_then(|stack| pages.get(stack).ok())
+        .is_some_and(|metadata| {
+            vmux_simulator::url::SimulatorRoute::of_url(&metadata.url).is_some()
+        });
+    SIMULATOR_ACTIVE.store(active, Ordering::Relaxed);
+}
+
 fn process_monitored_keys(
     mut issuer: vmux_command::CommandIssuer,
+    mut simulator_buttons: MessageWriter<vmux_simulator::HardwareButtonRequest>,
     user: Query<Entity, With<vmux_core::team::User>>,
 ) {
-    let drained = {
+    let commands = {
         let mut queue = PENDING_COMMANDS.lock();
-        if queue.is_empty() {
-            return;
-        }
         std::mem::take(&mut *queue)
     };
+    let buttons = {
+        let mut queue = PENDING_SIMULATOR_BUTTONS.lock();
+        std::mem::take(&mut *queue)
+    };
+    if commands.is_empty() && buttons.is_empty() {
+        return;
+    }
     let caller = user.single().unwrap_or(Entity::PLACEHOLDER);
-    for cmd in drained {
+    for cmd in commands {
         issuer.issue(caller, cmd);
+    }
+    for button in buttons {
+        simulator_buttons.write(vmux_simulator::HardwareButtonRequest(button));
     }
 }
 
@@ -442,5 +496,32 @@ mod tests {
                 _ => panic!("expected command bar shortcut"),
             }
         }
+    }
+
+    #[test]
+    fn simulator_shortcuts_map_command_h_l_and_s_to_hardware_buttons() {
+        use vmux_simulator::event::HardwareButton;
+
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyH)),
+            Some(HardwareButton::Home)
+        );
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyL)),
+            Some(HardwareButton::Lock)
+        );
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyS)),
+            Some(HardwareButton::Siri)
+        );
+    }
+
+    #[test]
+    fn simulator_shortcuts_require_command_without_other_modifiers() {
+        let mut shifted = super_combo(KeyCode::KeyH);
+        shifted.modifiers.shift = true;
+
+        assert_eq!(simulator_button(&shifted), None);
+        assert_eq!(simulator_button(&combo(KeyCode::KeyH, false)), None);
     }
 }

@@ -2,7 +2,9 @@ mod device;
 mod input;
 mod stream;
 
-use crate::event::{SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, SimulatorReady};
+use crate::event::{
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, SimulatorReady,
+};
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -27,7 +29,12 @@ impl Plugin for SimulatorPlugin {
         vmux_core::register_host_spawn(app, PAGE_HOST);
         app.init_resource::<DeviceAttachment>()
             .init_resource::<Announced>()
+            .add_message::<HardwareButtonRequest>()
             .add_systems(Update, (Self::attach_device, Self::announce).chain())
+            .add_systems(
+                Update,
+                Self::handle_button_requests.in_set(SimulatorInputSet),
+            )
             .add_plugins(
                 BinEventEmitterPlugin::<(SimulatorGesture, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
             )
@@ -36,6 +43,12 @@ impl Plugin for SimulatorPlugin {
             .add_observer(Self::forget_on_reload);
     }
 }
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HardwareButtonRequest(pub HardwareButton);
+
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SimulatorInputSet;
 
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
     host: PAGE_HOST,
@@ -208,6 +221,19 @@ impl SimulatorPlugin {
             return;
         };
         DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
+    }
+
+    fn handle_button_requests(
+        mut requests: MessageReader<HardwareButtonRequest>,
+        device: Option<Res<SimulatorDevice>>,
+        axe: Option<Res<Axe>>,
+    ) {
+        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
+            return;
+        };
+        for request in requests.read() {
+            DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
+        }
     }
 }
 

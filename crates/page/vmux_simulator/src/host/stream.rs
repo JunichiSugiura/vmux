@@ -10,8 +10,9 @@ pub struct StreamServer {
 }
 
 impl StreamServer {
-    const FPS: &'static str = "20";
-    const SCALE: &'static str = "0.5";
+    const FPS: &'static str = "30";
+    const QUALITY: &'static str = "90";
+    const SCALE: &'static str = "1.0";
 
     pub fn start(axe: &Axe, device: SimulatorDevice) -> io::Result<Self> {
         let axe = axe.path().to_path_buf();
@@ -48,6 +49,7 @@ impl StreamServer {
             .args(["stream-video", "--udid", &device.udid])
             .args(["--format", "mjpeg"])
             .args(["--fps", Self::FPS])
+            .args(["--quality", Self::QUALITY])
             .args(["--scale", Self::SCALE])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

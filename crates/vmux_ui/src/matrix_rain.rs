@@ -25,10 +25,8 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
 
     rsx! {
         div {
-            class: "absolute inset-0 overflow-hidden",
-            style: "--vmux-rain-head:{head};--vmux-rain-trail:{trail};font:{FONT_PX}px monospace;line-height:{FONT_PX}px;",
-
-            style { dangerous_inner_html: RainColumn::CSS }
+            class: "absolute inset-0 overflow-hidden font-mono text-[16px] leading-[16px]",
+            style: "--vmux-rain-head:{head};--vmux-rain-trail:{trail};",
 
             for index in 0..COLUMNS {
                 {
@@ -39,12 +37,12 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
                             class: "absolute top-0 whitespace-pre",
                             style: "{column.style()}",
                             div {
-                                class: "vmux-rain-trail",
+                                class: "absolute left-0 top-0 text-[var(--vmux-rain-trail)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,rgb(0_0_0/.08)_18%,rgb(0_0_0/.4)_65%,#000_100%)] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:100%_320px] [mask-image:linear-gradient(to_bottom,transparent_0%,rgb(0_0_0/.08)_18%,rgb(0_0_0/.4)_65%,#000_100%)] [mask-repeat:no-repeat] [mask-size:100%_320px] motion-reduce:!animate-none motion-reduce:opacity-[0.08] motion-reduce:[-webkit-mask-image:none] motion-reduce:[mask-image:none]",
                                 style: "{column.animation_style()}",
                                 "{column.glyphs}"
                             }
                             div {
-                                class: "vmux-rain-head",
+                                class: "absolute left-0 top-0 text-[var(--vmux-rain-head)] [text-shadow:0_0_8px_var(--vmux-rain-head)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,transparent_88%,#000_96%,transparent_100%)] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:100%_320px] [mask-image:linear-gradient(to_bottom,transparent_0%,transparent_88%,#000_96%,transparent_100%)] [mask-repeat:no-repeat] [mask-size:100%_320px] motion-reduce:hidden",
                                 style: "{column.animation_style()}",
                                 "{column.glyphs}"
                             }
@@ -64,8 +62,6 @@ struct RainColumn {
 }
 
 impl RainColumn {
-    const CSS: &'static str = "@keyframes vmux-rain-window{from{-webkit-mask-position:0 -320px;mask-position:0 -320px}to{-webkit-mask-position:0 calc(100vh + 320px);mask-position:0 calc(100vh + 320px)}}.vmux-rain-trail,.vmux-rain-head{position:absolute;top:0;left:0;-webkit-mask-size:100% 320px;mask-size:100% 320px;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}.vmux-rain-trail{color:var(--vmux-rain-trail);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,rgb(0 0 0/.08) 18%,rgb(0 0 0/.4) 65%,#000 100%);mask-image:linear-gradient(to bottom,transparent 0%,rgb(0 0 0/.08) 18%,rgb(0 0 0/.4) 65%,#000 100%)}.vmux-rain-head{color:var(--vmux-rain-head);text-shadow:0 0 8px var(--vmux-rain-head);-webkit-mask-image:linear-gradient(to bottom,transparent 0%,transparent 88%,#000 96%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0%,transparent 88%,#000 96%,transparent 100%)}@media(prefers-reduced-motion:reduce){.vmux-rain-trail{animation:none!important;-webkit-mask-image:none;mask-image:none;opacity:.08}.vmux-rain-head{display:none}}";
-
     fn at(index: usize, words: &[Vec<char>]) -> Self {
         let glyphs: Vec<char> = GLYPHS.chars().collect();
         let word = (!words.is_empty() && index % 7 == 3).then(|| &words[index % words.len()]);

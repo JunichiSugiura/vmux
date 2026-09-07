@@ -16,7 +16,7 @@ use vmux_ui::i18n::translate;
 pub(super) fn ChatDock(chat: Chat) -> Element {
     rsx! {
         div { class: "relative z-10 bg-gradient-to-t from-background via-background/95 to-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8",
-            div { class: "agent-chat-prompt-shell vmux-agent-prompt-dock-enter relative mx-auto flex max-w-3xl flex-col gap-2",
+            div { class: "agent-chat-prompt-shell relative mx-auto flex max-w-3xl animate-agent-prompt-dock flex-col gap-2 motion-reduce:animate-none",
                 if chat.media_menu_open() {
                     MediaMenu { chat }
                 }

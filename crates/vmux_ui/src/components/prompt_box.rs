@@ -71,10 +71,14 @@ pub fn PromptPopup(
     let root = PROMPT_POPUP_ROOT;
     let class = match placement {
         PromptPopupPlacement::Upward => {
-            format!("{root} vmux-prompt-popup-upward bottom-full mb-2")
+            format!(
+                "{root} bottom-full mb-2 origin-bottom animate-prompt-popup-upward motion-reduce:animate-none"
+            )
         }
         PromptPopupPlacement::Downward => {
-            format!("{root} vmux-prompt-popup-downward top-full mt-2")
+            format!(
+                "{root} top-full mt-2 origin-top animate-prompt-popup-downward motion-reduce:animate-none"
+            )
         }
         PromptPopupPlacement::Inline => String::new(),
     };

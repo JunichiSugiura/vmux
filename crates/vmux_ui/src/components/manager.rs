@@ -68,8 +68,7 @@ impl ManagerButtonVariant {
 pub fn ManagerPage(children: Element) -> Element {
     rsx! {
         main {
-            class: "flex h-full w-full flex-col overflow-hidden bg-background text-foreground font-sans text-sm",
-            style: "background-image:radial-gradient(120% 80% at 50% -10%, rgba(34,211,238,0.05), transparent 60%);",
+            class: "flex h-full w-full flex-col overflow-hidden bg-background bg-[radial-gradient(120%_80%_at_50%_-10%,rgba(34,211,238,0.05),transparent_60%)] text-foreground font-sans text-sm",
             {children}
         }
     }

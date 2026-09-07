@@ -1,56 +1,21 @@
-pub mod accordion;
 pub mod agent_menu;
 pub mod alert_dialog;
-pub mod avatar;
-pub mod badge;
 pub mod button;
-pub mod calendar;
 pub mod card;
-pub mod checkbox;
-pub mod collapsible;
 pub mod composer;
 pub mod composer_bar;
 pub mod context_menu;
-pub mod date_picker;
-pub mod dialog;
-pub mod drag_and_drop_list;
-pub mod dropdown_menu;
 pub mod effort_menu;
-pub mod hover_card;
 pub mod icon;
 pub mod input;
-pub mod label;
 pub mod manager;
-pub mod menubar;
 pub mod model_menu;
-pub mod pagination;
-pub mod popover;
-pub mod progress;
 pub mod project_picker;
 pub mod prompt_box;
 pub mod prompt_media_options;
-pub mod radio_group;
-pub mod scroll_area;
 pub mod select;
-pub mod separator;
-pub mod sheet;
-pub mod skeleton;
-pub mod slider;
 pub mod start_hero;
-pub mod switch;
-pub mod tabs;
-pub mod text;
-pub mod textarea;
-pub mod toast;
-pub mod toggle;
-pub mod toggle_group;
-pub mod toolbar;
-pub mod tooltip;
 pub mod tree_row;
-pub mod virtual_list;
-
-pub use crate::util::merge_class;
-pub use text::{UiText, UiTextSize, UiTextTone};
 
 #[cfg(test)]
 mod naming_policy {
@@ -96,6 +61,99 @@ mod naming_policy {
              PascalCase, take owned props, and render them as `Foo {{ .. }}`:\n{}",
             offenders.join("\n")
         );
+    }
+
+    #[test]
+    fn static_component_styles_use_tailwind() {
+        let components_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/components");
+        let mut offenders = Vec::new();
+        walk_rs_files(&components_dir, &mut |path, source| {
+            for (index, line) in source.lines().enumerate() {
+                let line = line.trim_start();
+                if static_style_literal(line) || static_css_attribute(line) {
+                    offenders.push(format!("{}:{}: {}", path.display(), index + 1, line.trim()));
+                }
+            }
+        });
+        assert!(
+            offenders.is_empty(),
+            "static component styles belong in Tailwind classes:\n{}",
+            offenders.join("\n")
+        );
+    }
+
+    fn static_style_literal(line: &str) -> bool {
+        let Some(value) = line.strip_prefix("style: \"") else {
+            return false;
+        };
+        !value.contains('{')
+    }
+
+    fn static_css_attribute(line: &str) -> bool {
+        const PREFIXES: &[&str] = &[
+            "background:",
+            "background_color:",
+            "border:",
+            "border_color:",
+            "border_radius:",
+            "border_style:",
+            "border_width:",
+            "bottom:",
+            "box_shadow:",
+            "box_sizing:",
+            "color:",
+            "cursor:",
+            "display:",
+            "flex:",
+            "flex_basis:",
+            "flex_direction:",
+            "flex_grow:",
+            "flex_shrink:",
+            "flex_wrap:",
+            "font_family:",
+            "font_size:",
+            "font_style:",
+            "font_weight:",
+            "gap:",
+            "grid:",
+            "inset:",
+            "justify_content:",
+            "left:",
+            "letter_spacing:",
+            "line_height:",
+            "margin:",
+            "margin_bottom:",
+            "margin_left:",
+            "margin_right:",
+            "margin_top:",
+            "max_height:",
+            "max_width:",
+            "min_height:",
+            "min_width:",
+            "opacity:",
+            "overflow:",
+            "overflow_x:",
+            "overflow_y:",
+            "padding:",
+            "padding_bottom:",
+            "padding_left:",
+            "padding_right:",
+            "padding_top:",
+            "position:",
+            "right:",
+            "text_align:",
+            "text_decoration:",
+            "top:",
+            "transform:",
+            "transition:",
+            "visibility:",
+            "white_space:",
+            "z_index:",
+        ];
+        PREFIXES.iter().any(|prefix| {
+            line.strip_prefix(prefix)
+                .is_some_and(|value| value.trim_start().starts_with('"') && !value.contains('{'))
+        })
     }
 
     fn element_fns_without_component(source: &str) -> Vec<(usize, String)> {

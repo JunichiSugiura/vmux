@@ -1496,11 +1496,10 @@ pub fn ExplorerPanel(visible: Signal<bool>, caret_line: u32, view: Signal<Sideba
                                     div {
                                         key: "{it.path}",
                                         class: if active {
-                                            "group flex items-center gap-1 px-2 py-0.5 cursor-default bg-cyan-400/12 text-foreground transition-[background-color,opacity,transform] duration-150"
+                                            "group flex cursor-default items-center gap-1 bg-cyan-400/12 py-0.5 pl-5 pr-2 text-foreground transition-[background-color,opacity,transform] duration-150"
                                         } else {
-                                            "group flex items-center gap-1 px-2 py-0.5 cursor-default text-foreground/75 transition-[background-color,opacity,transform] duration-150 hover:bg-foreground/[0.08]"
+                                            "group flex cursor-default items-center gap-1 py-0.5 pl-5 pr-2 text-foreground/75 transition-[background-color,opacity,transform] duration-150 hover:bg-foreground/[0.08]"
                                         },
-                                        style: "padding-left:20px;",
                                         onclick: move |_| command.open(),
                                         span {
                                             class: "inline-block w-3 shrink-0 cursor-default text-center text-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 hover:text-foreground",

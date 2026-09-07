@@ -117,8 +117,6 @@ mod component {
     use super::{AGENT_PROMPT_EXAMPLES, PromptTypewriter, TERMINAL_PROMPT_EXAMPLES};
     use crate::platform::{random_index, sleep_ms};
 
-    const PROMPT_CARET_CSS: &str = ".vmux-prompt-caret{animation:vmux-prompt-caret-blink 1s step-end infinite}@keyframes vmux-prompt-caret-blink{0%,49%{opacity:1}50%,100%{opacity:0}}";
-
     const TICK_MS: u32 = 50;
 
     #[component]
@@ -147,12 +145,15 @@ mod component {
             "flex max-w-full items-center whitespace-nowrap text-[15px] leading-6 text-muted-foreground/50"
         };
         let caret_class = if terminal {
-            format!("vmux-prompt-caret ml-px inline-block h-3.5 w-1.5 align-middle {accent_bg}")
+            format!(
+                "ml-px inline-block h-3.5 w-1.5 animate-prompt-caret align-middle motion-reduce:animate-none {accent_bg}"
+            )
         } else {
-            format!("vmux-prompt-caret ml-px h-5 w-px shrink-0 {accent_bg}")
+            format!(
+                "ml-px h-5 w-px shrink-0 animate-prompt-caret motion-reduce:animate-none {accent_bg}"
+            )
         };
         rsx! {
-            style { dangerous_inner_html: PROMPT_CARET_CSS }
             div {
                 class: "{ghost_class}",
                 span { class: if terminal { "" } else { "min-w-0 truncate" }, "{shown}" }

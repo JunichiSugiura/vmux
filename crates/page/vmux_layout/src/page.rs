@@ -404,8 +404,7 @@ fn SideSheetView(
     });
     rsx! {
         div {
-            class: "flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 pb-3 pt-2 text-foreground",
-            style: "scrollbar-gutter:stable;",
+            class: "flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 pb-3 pt-2 text-foreground [scrollbar-gutter:stable]",
             ..BookmarkDragState::listeners(drag_state),
             if let Some(space) = active_space {
                 div { class: "glass mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
@@ -2315,10 +2314,9 @@ fn TabBoundaryPanel(boundary: crate::event::TabBoundary) -> Element {
                     path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
                 }
                 span {
-                    class: "min-w-0 flex-1 truncate text-xs",
-                    style: "direction:rtl;",
+                    class: "min-w-0 flex-1 truncate text-xs [direction:rtl]",
                     title: "{b.effective_dir}",
-                    bdi { style: "unicode-bidi:isolate;direction:ltr;", "{b.effective_dir}" }
+                    bdi { class: "[direction:ltr] [unicode-bidi:isolate]", "{b.effective_dir}" }
                 }
             }
             if b.is_git_repo {

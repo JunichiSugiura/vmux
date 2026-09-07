@@ -2,7 +2,7 @@
 
 use dioxus::prelude::*;
 use vmux_command::event::CommandBarOpenEvent;
-use vmux_ui::components::start_hero::{START_BACKDROP_STYLE, StartBackdrop, StartHero};
+use vmux_ui::components::start_hero::{START_BACKDROP_CLASS, StartBackdrop, StartHero};
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 
 use crate::event::{
@@ -36,8 +36,7 @@ pub fn Page() -> Element {
 
     rsx! {
         main {
-            class: "relative isolate flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background px-4 py-6 text-foreground sm:px-6",
-            style: START_BACKDROP_STYLE,
+            class: "relative isolate flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain bg-background px-4 py-6 text-foreground sm:px-6 {START_BACKDROP_CLASS}",
             StartBackdrop {}
             div { class: "m-auto w-full",
                 StartHero { revealed: mounted(),

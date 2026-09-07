@@ -23,8 +23,7 @@ pub(crate) fn DirColumns(window: DirWindow) -> Element {
 
     rsx! {
         div {
-            class: "grid min-h-0 flex-1 gap-3 p-3",
-            style: "grid-template-columns: minmax(8rem,14rem) minmax(10rem,1fr) minmax(12rem,1.3fr);",
+            class: "grid min-h-0 flex-1 grid-cols-[minmax(8rem,14rem)_minmax(10rem,1fr)_minmax(12rem,1.3fr)] gap-3 p-3",
             onclick: move |event: Event<MouseData>| clicks.pane(event.client_coordinates()),
 
             div { class: PANE_CLASS,

@@ -796,8 +796,8 @@ pub fn Page() -> Element {
         div {
             id: CONTAINER_ID,
             tabindex: "0",
-            class: "relative flex h-full flex-1 flex-col overflow-hidden bg-background text-foreground font-mono text-sm leading-normal",
-            style: "min-width:{EDITOR_MIN_WIDTH_PX}px;outline:none;background-image:radial-gradient(120% 80% at 50% -10%, rgba(34,211,238,0.05), transparent 60%);--iw:{indent().width};{cell_dims().vars()}{theme_style}",
+            class: "relative flex h-full min-w-[320px] flex-1 flex-col overflow-hidden bg-background bg-[radial-gradient(120%_80%_at_50%_-10%,rgba(34,211,238,0.05),transparent_60%)] text-foreground font-mono text-sm leading-normal outline-none",
+            style: "--iw:{indent().width};{cell_dims().vars()}{theme_style}",
 
             onmousedown: move |e: Event<MouseData>| {
                 match mode() {
@@ -955,7 +955,7 @@ pub fn Page() -> Element {
 
             span {
                 id: MEASURE_ID,
-                style: "position:absolute;top:0;left:0;visibility:hidden;white-space:pre;font:inherit",
+                class: "invisible absolute left-0 top-0 whitespace-pre [font:inherit]",
                 onresize: move |event: Event<ResizeData>| {
                     let Ok(size) = event.get_border_box_size() else {
                         return;
@@ -974,7 +974,7 @@ pub fn Page() -> Element {
 
             span {
                 id: MEASURE_WIDE_ID,
-                style: "position:absolute;top:0;left:0;visibility:hidden;white-space:pre;font:inherit",
+                class: "invisible absolute left-0 top-0 whitespace-pre [font:inherit]",
                 onresize: move |event: Event<ResizeData>| {
                     let Ok(size) = event.get_border_box_size() else {
                         return;
@@ -1156,8 +1156,7 @@ pub fn Page() -> Element {
                 let msg = error.read().clone();
                 (!msg.is_empty()).then(|| rsx! {
                     div {
-                        class: "absolute inset-0 z-50 flex items-center justify-center",
-                        style: "background:rgba(0,0,0,0.6);",
+                        class: "absolute inset-0 z-50 flex items-center justify-center bg-black/60",
                         div {
                             class: "flex max-w-xl flex-col items-center gap-3 rounded-md border border-ansi-1 bg-background px-4 py-3 text-sm text-ansi-1",
                             span { class: "break-all text-center", "{msg}" }
@@ -1647,8 +1646,8 @@ pub fn Page() -> Element {
                                             onmounted: move |event: Event<MountedData>| {
                                                 viewport.field_mounted(event.data());
                                             },
-                                            class: "absolute z-10 resize-none overflow-hidden whitespace-pre border-0 bg-transparent p-0 outline-none {field_caret}",
-                                            style: "left:{cx}px;top:{cy}px;min-width:2ch;height:{ch}px;color:{txtcol};",
+                                            class: "absolute z-10 min-w-[2ch] resize-none overflow-hidden whitespace-pre border-0 bg-transparent p-0 outline-none {field_caret}",
+                                            style: "left:{cx}px;top:{cy}px;height:{ch}px;color:{txtcol};",
                                             autocomplete: "off",
                                             autocapitalize: "off",
                                             spellcheck: "false",
@@ -2257,19 +2256,19 @@ fn EditorLineRow(
     let lt = layout.row as f64 * ch;
     let line_height = layout.rows as f64 * ch;
     let text_class = if wrap_cols > 0 {
-        "pointer-events-none relative whitespace-pre-wrap break-all pr-8"
+        "pointer-events-none relative box-border whitespace-pre-wrap break-all pr-8"
     } else {
         "pointer-events-none relative whitespace-pre pr-8"
     };
     let text_style = if wrap_cols > 0 {
-        format!("box-sizing:border-box;width:calc(var(--cw) * {wrap_cols} + 2rem);")
+        format!("width:calc(var(--cw) * {wrap_cols} + 2rem);")
     } else {
         String::new()
     };
     rsx! {
         div {
-            class: if let Some(marker) = diff_marker { "group flex items-start {diff_marker_row_class(marker)}" } else { "group flex items-start" },
-            style: "position:absolute;left:0;right:0;top:{lt}px;height:{line_height}px;",
+            class: if let Some(marker) = diff_marker { "group absolute inset-x-0 flex items-start {diff_marker_row_class(marker)}" } else { "group absolute inset-x-0 flex items-start" },
+            style: "top:{lt}px;height:{line_height}px;",
             onpointerdown: move |e: Event<PointerData>| {
                 e.prevent_default();
                 ctx_menu.set(None);
@@ -3146,9 +3145,9 @@ fn ExplorerSidebar(
     let open = visible();
     let panel_width = width();
     let wrapper_style = if open {
-        format!("width:{panel_width}px;min-width:{EXPLORER_MIN_WIDTH_PX}px;contain:layout style;")
+        format!("width:{panel_width}px;min-width:{EXPLORER_MIN_WIDTH_PX}px;")
     } else {
-        "width:0px;min-width:0px;contain:layout style;".to_string()
+        "width:0px;min-width:0px;".to_string()
     };
     let panel_style = if open {
         "width:100%;".to_string()
@@ -3162,7 +3161,7 @@ fn ExplorerSidebar(
     };
     rsx! {
         div {
-            class: "relative z-[2] h-full shrink",
+            class: "relative z-[2] h-full shrink [contain:layout_style]",
             style: "{wrapper_style}",
             onkeydown: move |event| {
                 keys.offer(&event);

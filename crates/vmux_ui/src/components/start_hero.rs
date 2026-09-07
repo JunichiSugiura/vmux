@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 
 use crate::i18n::translate;
 
-pub const START_BACKDROP_STYLE: &str = "background-image:radial-gradient(140% 100% at 50% -12%, rgba(129,140,248,0.05), transparent 55%);";
+pub const START_BACKDROP_CLASS: &str =
+    "bg-[radial-gradient(140%_100%_at_50%_-12%,rgba(129,140,248,0.05),transparent_55%)]";
 
 #[component]
 pub fn StartBackdrop() -> Element {

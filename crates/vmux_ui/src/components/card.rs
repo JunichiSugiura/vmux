@@ -10,11 +10,7 @@ const CARD_TITLE: &str = "text-base font-semibold leading-none";
 
 const CARD_DESCRIPTION: &str = "text-sm leading-5 text-muted-foreground";
 
-const CARD_ACTION: &str = "col-start-2 row-span-2 row-start-1 justify-self-end";
-
 const CARD_CONTENT: &str = "px-6";
-
-const CARD_FOOTER: &str = "flex items-center px-6";
 
 #[component]
 pub fn Card(
@@ -77,21 +73,6 @@ pub fn CardDescription(
 }
 
 #[component]
-pub fn CardAction(
-    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
-    children: Element,
-) -> Element {
-    let base = attributes!(div {
-        class: CARD_ACTION,
-        "data-slot": "card-action",
-    });
-    let merged = merge_attributes(vec![base, attributes]);
-    rsx! {
-        div { ..merged, {children} }
-    }
-}
-
-#[component]
 pub fn CardContent(
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
@@ -99,21 +80,6 @@ pub fn CardContent(
     let base = attributes!(div {
         class: CARD_CONTENT,
         "data-slot": "card-content",
-    });
-    let merged = merge_attributes(vec![base, attributes]);
-    rsx! {
-        div { ..merged, {children} }
-    }
-}
-
-#[component]
-pub fn CardFooter(
-    #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
-    children: Element,
-) -> Element {
-    let base = attributes!(div {
-        class: CARD_FOOTER,
-        "data-slot": "card-footer",
     });
     let merged = merge_attributes(vec![base, attributes]);
     rsx! {

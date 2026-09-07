@@ -71,7 +71,7 @@ pub(super) fn ChatTranscript(chat: Chat) -> Element {
         div {
             id: "chat-scroll",
             onmounted: move |e| scroll_container.set(Some(e.data())),
-            class: "vmux-agent-surface-enter vmux-agent-surface-enter-delayed relative z-10 flex-1 overflow-y-auto overscroll-contain px-3 py-6 sm:px-4 md:px-6",
+            class: "relative z-10 flex-1 animate-agent-surface overflow-y-auto overscroll-contain px-3 py-6 [animation-delay:40ms] motion-reduce:animate-none sm:px-4 md:px-6",
             onscroll: move |e: Event<ScrollData>| {
                 let top = e.scroll_top() as i32;
                 let dist = e.scroll_height() - top - e.client_height();
@@ -148,7 +148,7 @@ fn InstallIntro(chat: Chat, detail: String) -> Element {
 #[component]
 fn ReadyIntro(chat: Chat) -> Element {
     rsx! {
-        div { class: "vmux-agent-ready-enter flex flex-col items-center gap-3 py-24 text-center",
+        div { class: "flex animate-agent-ready flex-col items-center gap-3 py-24 text-center motion-reduce:animate-none",
             AgentBanner { chat }
             p { class: "text-sm text-muted-foreground", {translate("agent-ready")} }
         }

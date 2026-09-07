@@ -1105,6 +1105,7 @@ pub struct OpenEditorItem {
     pub path: String,
     pub active: bool,
     pub dirty: bool,
+    pub is_dir: bool,
 }
 
 #[derive(
@@ -1581,6 +1582,7 @@ mod file_event_tests {
                 path: "/r/src/lib.rs".into(),
                 active: true,
                 dirty: false,
+                is_dir: false,
             }],
         };
         let b = rkyv::to_bytes::<rkyv::rancor::Error>(&oe).unwrap();

@@ -292,6 +292,16 @@ pub struct CommandBarPromptContext {
     pub uncommitted: u32,
     pub ahead: u32,
     pub projects: Vec<crate::space::ProjectRow>,
+    pub slash_commands: Vec<crate::chat::SlashCommandEntry>,
+}
+
+impl CommandBarPromptContext {
+    pub fn unrooted() -> Self {
+        Self {
+            slash_commands: crate::chat::SlashCommands::for_start().commands,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(
@@ -730,6 +740,21 @@ impl CommandBarQuery<'_> {
             && !looks_like_url(query)
             && !looks_like_explicit_path(query)
     }
+
+    pub fn slash_token(&self) -> Option<(&str, &str)> {
+        let rest = self.0.trim_start().strip_prefix('/')?;
+        let (name, tail) = match rest.find(char::is_whitespace) {
+            Some(at) => (&rest[..at], rest[at..].trim_start()),
+            None => (rest, ""),
+        };
+        if name.is_empty() {
+            return None;
+        }
+        let named = name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        named.then_some((name, tail))
+    }
 }
 
 pub const PATH_COMPLETE_REQUEST: &str = "path-complete-request";
@@ -900,6 +925,29 @@ mod tests {
     fn looks_like_url_rejects_spaces() {
         assert!(!looks_like_url("search query"));
         assert!(!looks_like_url("hello world.txt"));
+    }
+
+    #[test]
+    fn a_slash_token_is_a_bare_name_and_never_a_path() {
+        assert_eq!(
+            CommandBarQuery("/resume").slash_token(),
+            Some(("resume", ""))
+        );
+        assert_eq!(
+            CommandBarQuery("/resume yesterday").slash_token(),
+            Some(("resume", "yesterday"))
+        );
+        assert_eq!(
+            CommandBarQuery("  /model").slash_token(),
+            Some(("model", ""))
+        );
+        assert_eq!(
+            CommandBarQuery("/Users/jun/notes.md").slash_token(),
+            None,
+            "a path keeps its slashes, so it can never be read as a command"
+        );
+        assert_eq!(CommandBarQuery("/").slash_token(), None);
+        assert_eq!(CommandBarQuery("resume").slash_token(), None);
     }
 
     #[test]

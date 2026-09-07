@@ -5,9 +5,55 @@ use crate::event::{ChatCancelQueuedPrompt, ChatClearQueue, ChatResume};
 use crate::format::composer::is_handoff_boundary;
 use crate::transcript::ChatItemRow;
 use dioxus::prelude::*;
+use std::collections::HashMap;
 use vmux_ui::agent_accent::agent_accent;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
+use vmux_wire::prompt_media::ChatAttachment;
+
+#[component]
+fn QueuedAttachments(
+    names: Vec<String>,
+    paths: Vec<String>,
+    previews: Signal<HashMap<String, ChatAttachment>>,
+) -> Element {
+    let held = previews.read();
+    let mut thumbs = Vec::new();
+    let mut plain = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        let path = paths.get(index).cloned().unwrap_or_default();
+        let preview = held
+            .get(&path)
+            .map(|preview| preview.preview_data_url.clone())
+            .unwrap_or_default();
+        match preview.is_empty() {
+            true => plain.push(name.clone()),
+            false => thumbs.push((path, name.clone(), preview)),
+        }
+    }
+    rsx! {
+        if !thumbs.is_empty() {
+            div { class: "mt-1 flex flex-wrap gap-1.5",
+                for (path , name , preview) in thumbs {
+                    img {
+                        key: "q-thumb-{path}",
+                        src: "{preview}",
+                        alt: "{name}",
+                        title: "{name}",
+                        loading: "lazy",
+                        decoding: "async",
+                        class: "h-16 w-auto max-w-48 rounded-lg object-cover",
+                    }
+                }
+            }
+        }
+        if !plain.is_empty() {
+            span { class: "block text-xs text-foreground/45",
+                {format!("{} {}", translate("agent-attached"), plain.join(", "))}
+            }
+        }
+    }
+}
 
 #[component]
 pub(super) fn ChatTranscript(chat: Chat) -> Element {
@@ -148,12 +194,10 @@ pub(super) fn QueuedPrompts(chat: Chat) -> Element {
                             "{queued_prompt.text}"
                         }
                         if !queued_prompt.attachment_names.is_empty() {
-                            span { class: "block text-xs text-foreground/45",
-                                {format!("{} ", translate("agent-attached"))}
-                                for (i , name) in queued_prompt.attachment_names.iter().enumerate() {
-                                    if i > 0 { ", " }
-                                    "{name}"
-                                }
+                            QueuedAttachments {
+                                names: queued_prompt.attachment_names.clone(),
+                                paths: queued_prompt.attachment_paths.clone(),
+                                previews: chat.composer.attachment_previews,
                             }
                         }
                     }

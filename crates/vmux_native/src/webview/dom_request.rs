@@ -9,6 +9,7 @@ use serde::Serialize;
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum DomRequest {
+    Remount,
     Focus {
         element: String,
     },
@@ -26,9 +27,6 @@ pub(crate) enum DomRequest {
         element: String,
     },
     OfferText {
-        element: String,
-    },
-    ClearText {
         element: String,
     },
     ToggleMedia {
@@ -165,6 +163,7 @@ mod tests {
     #[test]
     fn every_request_kind_is_a_case_the_shim_handles() {
         let requests = [
+            DomRequest::Remount,
             DomRequest::Focus {
                 element: "e".into(),
             },
@@ -182,9 +181,6 @@ mod tests {
                 element: "e".into(),
             },
             DomRequest::OfferText {
-                element: "e".into(),
-            },
-            DomRequest::ClearText {
                 element: "e".into(),
             },
             DomRequest::ToggleMedia {

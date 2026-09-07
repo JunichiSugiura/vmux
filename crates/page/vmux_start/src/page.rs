@@ -8,13 +8,11 @@ use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use crate::event::{
     START_COMMAND_BAR_OPEN_EVENT, START_FOCUS_INPUT_EVENT, StartDataRequest, StartFocusInput,
 };
-use vmux_command::page::{CommandPalette, StartInlineTransition, focus_prompt_input};
+use vmux_command::page::{CommandPalette, focus_prompt_input};
 use vmux_ui::launcher::palette::PaletteSurface;
 
 #[component]
-pub fn Page(
-    #[props(default)] on_inline_transition: Option<EventHandler<StartInlineTransition>>,
-) -> Element {
+pub fn Page() -> Element {
     let locale = use_theme();
     let state = use_event::<CommandBarOpenEvent>(
         START_COMMAND_BAR_OPEN_EVENT,
@@ -50,7 +48,6 @@ pub fn Page(
                             on_close: move |_| {},
                             on_dismiss: move |_| {},
                             on_activity: move |_| {},
-                            on_start_inline_transition: on_inline_transition,
                         }
                     }
                 }
@@ -61,7 +58,5 @@ pub fn Page(
 
 #[component]
 pub fn StartPage() -> Element {
-    rsx! {
-        Page {}
-    }
+    rsx! { Page {} }
 }

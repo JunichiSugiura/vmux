@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::rc::Rc;
 
 use tracing::{error, info, warn};
@@ -56,21 +57,21 @@ impl<'a> PageReport<'a> {
 
 pub(crate) struct PageMessage {
     outbox: Rc<dyn Outbox>,
-    name: &'static str,
+    page: Rc<Cell<&'static NativePage>>,
     reads: PendingReads,
     waker: Rc<dyn Wake>,
 }
 
 impl PageMessage {
     pub(crate) fn new(
-        page: &NativePage,
+        page: Rc<Cell<&'static NativePage>>,
         outbox: Rc<dyn Outbox>,
         reads: PendingReads,
         waker: Rc<dyn Wake>,
     ) -> Self {
         Self {
             outbox,
-            name: page.url,
+            page,
             reads,
             waker,
         }
@@ -86,10 +87,8 @@ impl PageMessage {
     }
 
     fn link(&self, href: &str) {
-        warn!(
-            "{}: no link is followed from a page hosted here, {href} went nowhere",
-            self.name
-        );
+        let name = self.page.get().url;
+        warn!("{name}: no link is followed from a page hosted here, {href} went nowhere");
     }
 
     fn measured(&self, token: u64, measured: Option<Measured>) {
@@ -98,7 +97,7 @@ impl PageMessage {
     }
 
     fn log(&self, level: &str, text: &str) {
-        let name = self.name;
+        let name = self.page.get().url;
         match level {
             "error" | "reject" => error!("{name}: {text}"),
             "warn" => warn!("{name}: {text}"),

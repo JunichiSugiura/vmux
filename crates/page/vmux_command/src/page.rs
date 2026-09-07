@@ -2,7 +2,9 @@ use crate::event::{
     COMMAND_BAR_KEY_EVENT, CommandBarKey, CommandBarOpenEvent, START_PROJECT_BRANCHES_EVENT,
     StartProjectBranches,
 };
-use crate::page::composer::{ComposerChips, ComposerMenuSet, use_project_picking};
+use crate::page::composer::{
+    ComposerChips, ComposerMenuSet, use_project_picking, use_prompt_recall,
+};
 use crate::page::media::use_prompt_media;
 use crate::page::search::{use_host_search, use_palette_feeds};
 use crate::page::signals::{
@@ -16,6 +18,7 @@ use crate::prompt_media::{
 use dioxus::prelude::*;
 use vmux_core::input::{PageKeyContext, Unclaimed};
 use vmux_ui::agent_accent::agent_accent;
+use vmux_ui::caret::{EventSelection, byte_offset_to_utf16};
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
 use vmux_ui::components::composer_bar::{ComposerBar, ComposerMenus, use_composer_menu};
 use vmux_ui::components::icon::Icon;
@@ -32,7 +35,13 @@ use vmux_ui::launcher::style::{
     command_bar_input_class, command_bar_input_row_class, command_bar_input_wrap_class,
     command_bar_row_overlay_class, result_list_class,
 };
+use vmux_ui::prompt_recall::{PromptHistoryDirection, prompt_history_direction};
 use vmux_ui::scroll::ScrollIntoView;
+use vmux_wire::chat::{
+    PROMPT_HISTORY_EVENT, PromptHistory, RESUMABLE_SESSIONS_EVENT, ResumableSessions,
+    ResumeListRequest,
+};
+use vmux_wire::command_bar::CommandBarQuery;
 
 mod composer;
 mod media;
@@ -99,12 +108,72 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         on_activity.call(());
     });
 
-    let model_menu_sel = use_signal(|| 0usize);
+    let mut recall = use_prompt_recall();
+    let _prompt_history = use_listener::<PromptHistory, _>(PROMPT_HISTORY_EVENT, move |incoming| {
+        recall.remember(incoming.prompts);
+    });
+
     let mut picking = use_project_picking();
     let _project_branches =
         use_listener::<StartProjectBranches, _>(START_PROJECT_BRANCHES_EVENT, move |incoming| {
             picking.remember(incoming.project, incoming.branches);
         });
+
+    use_effect(move || {
+        picking.read_ahead(&vmux_ui::launcher::palette::ActiveProject::of(
+            &state().prompt_context,
+        ));
+    });
+
+    let _sessions =
+        use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
+            let mut sessions = feeds.sessions;
+            let mut total = feeds.sessions_total;
+            let mut loading = feeds.sessions_loading;
+            total.set(incoming.total);
+            loading.set(false);
+            if incoming.offset == 0 {
+                sessions.set(incoming.sessions.clone());
+                return;
+            }
+            let mut held = sessions.peek().clone();
+            held.extend(incoming.sessions.iter().cloned());
+            sessions.set(held);
+        });
+    use_effect(move || {
+        let query = (signals.query)();
+        let wants = CommandBarQuery(&query)
+            .slash_token()
+            .is_some_and(|(name, _)| "resume".starts_with(&name.to_lowercase()));
+        let mut asked = feeds.sessions_asked;
+        if !wants {
+            asked.set(false);
+            return;
+        }
+        if *asked.peek() {
+            return;
+        }
+        asked.set(true);
+        let mut sessions = feeds.sessions;
+        let mut loading = feeds.sessions_loading;
+        sessions.set(Vec::new());
+        loading.set(true);
+        let _ = send(&ResumeListRequest { offset: 0 });
+    });
+    use_effect(move || {
+        let selected = (signals.selected)() as u32;
+        let loaded = feeds.sessions.read().len() as u32;
+        let total = (feeds.sessions_total)();
+        if loaded == 0 || loaded >= total || *feeds.sessions_loading.peek() {
+            return;
+        }
+        if selected + 10 < loaded {
+            return;
+        }
+        let mut loading = feeds.sessions_loading;
+        loading.set(true);
+        let _ = send(&ResumeListRequest { offset: loaded });
+    });
 
     let rows = use_memo(move || PaletteRows::of(&state(), &feeds.draft(signals), surface));
     let mut palette_keys = PaletteKeys {
@@ -139,6 +208,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     });
 
     let apply = move |submission: Submission| {
+        if let Some(typed) = submission.retype {
+            let mut signals = signals;
+            signals.retype(typed);
+            focus_prompt_end(PROMPT_INPUT_ID);
+            return;
+        }
         if submission.close {
             on_close.call(());
         }
@@ -184,28 +259,18 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         });
 
     let composer = palette.composer.clone();
+    {
+        let agent = vmux_ui::launcher::palette::AgentSegment::in_url(&composer.agent_url)
+            .unwrap_or_default();
+        let cwd = composer.cwd.clone();
+        use_effect(move || recall.read_ahead(&agent, &cwd));
+    }
     let accent = palette.accent_agent.as_deref().map(agent_accent);
     let start_accent = accent.unwrap_or_else(|| agent_accent("vibe"));
     let start_prompt_attachments = media.composer_attachments();
     let start_action_enabled = !q.trim().is_empty() || !attachments.read().is_empty();
-    let chips = ComposerChips::of(&composer, menu, model_menu_sel);
-    let menus = ComposerMenuSet::of(&composer, signals, model_menu_sel, picking);
-    let start_badges = rsx! {
-        StartContextBadges {
-            is_git_repo: composer.is_git_repo,
-            is_worktree: composer.is_worktree,
-            worktree_title: composer.worktree_title.clone(),
-            uncommitted: composer.uncommitted,
-            ahead: composer.ahead,
-            cwd: composer.cwd.clone(),
-        }
-    };
-    let start_status = rsx! {
-        span { class: "flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[10px] text-muted-foreground",
-            span { class: "h-1.5 w-1.5 rounded-full bg-success" }
-            {translate("composer-ready")}
-        }
-    };
+    let chips = ComposerChips::of(&composer, menu, picking);
+    let menus = ComposerMenuSet::of(&composer, signals, picking);
     let start_composer_footer = rsx! {
         ComposerBar {
             menu,
@@ -213,23 +278,26 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             model: chips.model,
             project: Some(chips.project),
             branch: chips.branch,
-            badges: Some(start_badges),
-            status: Some(start_status),
+            is_git_repo: composer.is_git_repo,
+            workspace_known: !composer.cwd.is_empty(),
+            uncommitted: composer.uncommitted,
+            ahead: composer.ahead,
         }
     };
     let start_menus = rsx! {
         ComposerMenus {
             menu,
             placement: PromptPopupPlacement::Downward,
-            agent: Some(menus.agent),
-            model: Some(menus.model),
-            project: Some(menus.project),
-            branch: Some(menus.branch),
+            agent: Some(menus.agent.clone()),
+            model: Some(menus.model.clone()),
+            project: Some(menus.project.clone()),
+            branch: Some(menus.branch.clone()),
         }
     };
 
     let start_keydown = {
         let palette = palette.clone();
+        let menus = menus.clone();
         move |e: KeyboardEvent| {
             if Readline::chord(&e, signals.query, &palette.ghost, PROMPT_INPUT_ID) {
                 return;
@@ -261,15 +329,54 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             let go_down = direction == Some(MenuDirection::Next);
             let go_up = direction == Some(MenuDirection::Previous);
 
-            if menu.opened().is_some()
-                && (e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC))
-            {
-                e.prevent_default();
-                menu.close();
-                return;
+            if let Some(kind) = menu.opened() {
+                if e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC) {
+                    e.prevent_default();
+                    menu.close();
+                    return;
+                }
+                if let Some(direction) = direction {
+                    e.prevent_default();
+                    menu.step(direction, menus.rows(kind));
+                    return;
+                }
+                if e.key() == Key::Enter && !e.modifiers().shift() {
+                    e.prevent_default();
+                    if menus.choose(kind, menu.cursor()) {
+                        menu.close();
+                    }
+                    return;
+                }
             }
 
             if media_menu_open && media.handle_key(&e, go_down, go_up, signals.query) {
+                return;
+            }
+
+            let wanted = match recall.recalling(&palette.query) {
+                true => PromptHistoryDirection::of(direction),
+                false => {
+                    let (start, end) = EventSelection::in_field(PROMPT_INPUT_ID);
+                    let entering = go_up && palette.selected == 0;
+                    entering
+                        .then(|| {
+                            prompt_history_direction(
+                                &e.key().to_string(),
+                                ctrl,
+                                &palette.query,
+                                byte_offset_to_utf16(&palette.query, start),
+                                byte_offset_to_utf16(&palette.query, end),
+                            )
+                        })
+                        .flatten()
+                }
+            };
+            if let Some(wanted) = wanted
+                && let Some(value) = recall.walk(wanted, &palette.query)
+            {
+                e.prevent_default();
+                signals.retype(value);
+                focus_prompt_end(PROMPT_INPUT_ID);
                 return;
             }
 
@@ -330,13 +437,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             if is_start {
                 {start_menus}
                 PromptComposer {
+                    shared_transition: true,
                     value: q.clone(),
                     overlay: palette.row_text.clone().unwrap_or_default(),
                     completion: ghost_text.clone(),
                     attachments: start_prompt_attachments,
-                    show_examples: q.is_empty() && ghost_text.is_empty(),
                     placeholder: translate("command-composer-placeholder"),
-                    accent_bg: start_accent.accent_bg.to_string(),
                     accent_color: format!("rgb({})", start_accent.rain_rgb),
                     accent_gradient: start_accent.grad.to_string(),
                     footer: Some(start_composer_footer),
@@ -486,36 +592,6 @@ fn PaletteGlyphIcon(glyph: PaletteGlyph) -> Element {
                 path { d: "m21 21-4.3-4.3" }
             }
         },
-    }
-}
-
-#[component]
-fn StartContextBadges(
-    is_git_repo: bool,
-    is_worktree: bool,
-    worktree_title: String,
-    uncommitted: u32,
-    ahead: u32,
-    cwd: String,
-) -> Element {
-    rsx! {
-        if is_git_repo {
-            if is_worktree {
-                span {
-                    class: "flex h-7 shrink-0 items-center gap-1 rounded-lg bg-violet-500/[0.08] px-2 text-[10px] font-medium text-violet-600 ring-1 ring-inset ring-violet-500/15 dark:text-violet-300",
-                    title: "{worktree_title}",
-                    {translate("composer-worktree")}
-                }
-            }
-            if uncommitted > 0 {
-                span { class: "shrink-0 font-mono text-[10px] text-amber-500", title: translate("composer-uncommitted-changes"), "\u{25cf} {uncommitted}" }
-            }
-            if ahead > 0 {
-                span { class: "shrink-0 font-mono text-[10px] text-sky-500", title: translate("composer-commits-ahead"), "\u{2191}{ahead}" }
-            }
-        } else if !cwd.is_empty() {
-            span { class: "h-7 shrink-0 content-center rounded-lg px-2 text-[10px] text-muted-foreground/70", {translate("composer-no-git")} }
-        }
     }
 }
 

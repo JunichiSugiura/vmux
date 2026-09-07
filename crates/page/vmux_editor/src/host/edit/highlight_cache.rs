@@ -68,12 +68,6 @@ impl HighlightCache {
         self.spans.truncate(line);
     }
 
-    /// Parses forward to `line`, keeping the styled spans the parse produces along the way.
-    ///
-    /// syntect is stateful: line N can only be parsed once N-1 has been, so reaching any line
-    /// already costs the highlighting of every line before it. Throwing those spans away meant
-    /// every window redraw re-ran `fancy_regex` over the whole screen, which is what made
-    /// cursor movement cost a full re-highlight.
     fn ensure_rendered(&mut self, rope: &Rope, line: usize) {
         if self.befores.is_empty() {
             self.befores.push(self.initial());

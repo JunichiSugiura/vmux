@@ -4,7 +4,10 @@ pub const COMPOSER_CONTEXT_EVENT: &str = "composer_context";
 pub const CHAT_INITIAL_ITEM_LIMIT: u32 = 48;
 pub const CHAT_HISTORY_PAGE_SIZE: u32 = 40;
 pub const CHAT_HISTORY_MAX_PAGE_SIZE: u32 = 80;
-pub use vmux_wire::chat::{CHAT_KEY_EVENT, ChatKey};
+pub use vmux_wire::chat::{
+    CHAT_KEY_EVENT, ChatKey, RESUMABLE_SESSIONS_EVENT, ResumableSessionEntry, ResumableSessions,
+    ResumeListRequest, ResumeSession, SLASH_COMMANDS_EVENT, SlashCommandEntry, SlashCommands,
+};
 pub use vmux_wire::prompt_media::{
     CHAT_ATTACHMENT_PREVIEWS_EVENT, CHAT_ATTACHMENTS_EVENT, CHAT_MEDIA_ENTRIES_EVENT,
     ChatAttachPaths, ChatAttachment, ChatAttachmentPreviewRequest, ChatAttachments,
@@ -30,6 +33,19 @@ pub struct QueuedPromptSnapshot {
     pub id: u64,
     pub text: String,
     pub attachment_names: Vec<String>,
+    pub attachment_paths: Vec<String>,
+}
+
+impl QueuedPromptSnapshot {
+    pub fn image_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for path in &self.attachment_paths {
+            if vmux_ui::file_icon::FilePath(path).is_image() {
+                paths.push(path.clone());
+            }
+        }
+        paths
+    }
 }
 
 #[derive(
@@ -241,18 +257,6 @@ pub struct ChatEscape;
 )]
 pub struct ChatSelectWorkspace;
 
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ChatCreateWorktree;
-
 pub const CHAT_PROJECT_BRANCHES_EVENT: &str = "chat_project_branches";
 
 #[derive(
@@ -303,73 +307,7 @@ pub struct ChatGoToBranch {
     pub checkout: String,
 }
 
-pub const RESUMABLE_SESSIONS_EVENT: &str = "resumable_sessions";
-pub const SLASH_COMMANDS_EVENT: &str = "slash_commands";
 pub const MODEL_STATE_EVENT: &str = "model_state";
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumableSessionEntry {
-    pub kind: String,
-    pub sid: String,
-    pub cwd: String,
-    pub title: String,
-    pub subtitle: String,
-    pub age_seconds: u64,
-    pub agent_name: String,
-    pub cross_runtime: bool,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumableSessions {
-    pub sessions: Vec<ResumableSessionEntry>,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct SlashCommandEntry {
-    pub name: String,
-    pub description: String,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct SlashCommands {
-    pub commands: Vec<SlashCommandEntry>,
-}
 
 #[derive(
     Clone,
@@ -384,9 +322,11 @@ pub struct SlashCommands {
 pub struct ModelState {
     pub current_model_id: String,
     pub current_model_name: String,
+    pub default_model_id: String,
     pub models: Vec<ModelOptionEntry>,
     pub agent_key: String,
     pub effort_current: String,
+    pub effort_default: String,
     pub effort_levels: Vec<String>,
 }
 
@@ -443,34 +383,6 @@ pub struct ChatOpenPage {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct ResumeListRequest;
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct ResumeSession {
-    pub kind: String,
-    pub sid: String,
-    pub cwd: String,
-}
-
-#[derive(
-    Clone,
-    Debug,
-    Default,
-    serde::Serialize,
-    serde::Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
 pub struct RuntimeSwitchRequest {
     pub to: String,
 }
@@ -479,34 +391,6 @@ pub use vmux_wire::chat::{
     ChatBlock, ChatItem, ChatPlanStep, ChatSubagent, ChatTurn, ToolName, WORKING_VERB_IDS,
     latest_tool_location,
 };
-
-impl SlashCommands {
-    pub fn for_agent(cross_runtime: bool, has_models: bool) -> Self {
-        let mut commands = vec![
-            SlashCommandEntry {
-                name: "upload".into(),
-                description: "Attach files".into(),
-            },
-            SlashCommandEntry {
-                name: "resume".into(),
-                description: "Resume a past session".into(),
-            },
-        ];
-        if has_models {
-            commands.push(SlashCommandEntry {
-                name: "model".into(),
-                description: "Select model".into(),
-            });
-        }
-        if cross_runtime {
-            commands.push(SlashCommandEntry {
-                name: "cli".into(),
-                description: "Continue this session in the CLI".into(),
-            });
-        }
-        Self { commands }
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -530,11 +414,13 @@ mod tests {
                     id: 4,
                     text: "a".into(),
                     attachment_names: vec!["image.png".into()],
+                    attachment_paths: vec!["/tmp/image.png".into()],
                 },
                 QueuedPromptSnapshot {
                     id: 9,
                     text: "b".into(),
                     attachment_names: Vec::new(),
+                    attachment_paths: Vec::new(),
                 },
             ],
             paused: true,
@@ -814,16 +700,24 @@ mod tests {
                 sid: "sid-9".into(),
                 cwd: "/w".into(),
                 title: "fix bug".into(),
+                latest: "and the tests".into(),
                 subtitle: "w".into(),
                 age_seconds: 7200,
+                updated_at: "2026-09-07".into(),
                 agent_name: "Claude".into(),
+                project: "w".into(),
+                branch: "main".into(),
                 cross_runtime: true,
+                url: "vmux://agent/claude/sid-9".into(),
             }],
+            offset: 0,
+            total: 1,
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&v).unwrap();
         let back = rkyv::from_bytes::<ResumableSessions, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(back.sessions.len(), 1);
         assert_eq!(back.sessions[0].sid, "sid-9");
+        assert_eq!(back.sessions[0].latest, "and the tests");
         assert_eq!(back.sessions[0].agent_name, "Claude");
         assert!(back.sessions[0].cross_runtime);
     }

@@ -1,7 +1,10 @@
+use objc2::MainThreadMarker;
+use objc2::rc::Retained;
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSView, NSWindowOrderingMode,
 };
+use objc2_web_kit::WKWebViewConfiguration;
 use tracing::{error, warn};
 use wry::WebViewExtMacOS;
 
@@ -63,11 +66,6 @@ impl WebView {
         layer.setMasksToBounds(true);
         layer.setMaskedCorners(if all_corners { all } else { bottom });
     }
-    /// Draw the focus ring as the view's own border, inside its rounded corners.
-    ///
-    /// CEF panes get theirs from a sibling layer the browser owns, which a page served by another
-    /// engine has no equivalent of. A border on the layer that already carries the corner radius
-    /// follows the pane exactly and costs nothing to keep in step.
     pub fn set_focus_ring(&self, width: f64, color_rgb: [f32; 3]) {
         use objc2_app_kit::NSColor;
         let wk = self.webview.webview();
@@ -116,5 +114,49 @@ impl WebView {
         if !window.makeFirstResponder(Some(view)) {
             warn!("vmux_native: the window refused first responder, this page cannot be typed in");
         }
+    }
+}
+
+pub struct ImmediateAction;
+
+impl ImmediateAction {
+    pub fn forbid(webview: &wry::WebView) {
+        use wry::WebViewExtMacOS;
+
+        unsafe { webview.webview().setAllowsLinkPreview(false) };
+    }
+}
+
+pub struct SharedWebProcess;
+
+impl SharedWebProcess {
+    pub fn configuration() -> Option<Retained<WKWebViewConfiguration>> {
+        let marker = MainThreadMarker::new()?;
+        let config = unsafe { WKWebViewConfiguration::new(marker) };
+        pool::SharedPool::attach_to(&config, marker);
+        Some(config)
+    }
+}
+
+#[allow(deprecated)]
+mod pool {
+    use objc2::MainThreadMarker;
+    use objc2::rc::Retained;
+    use objc2_web_kit::{WKProcessPool, WKWebViewConfiguration};
+    use std::cell::OnceCell;
+
+    pub struct SharedPool;
+
+    impl SharedPool {
+        pub fn attach_to(config: &WKWebViewConfiguration, marker: MainThreadMarker) {
+            POOL.with(|pool| {
+                let shared = pool.get_or_init(|| unsafe { WKProcessPool::new(marker) });
+                unsafe { config.setProcessPool(shared) };
+            });
+        }
+    }
+
+    thread_local! {
+        static POOL: OnceCell<Retained<WKProcessPool>> = const { OnceCell::new() };
     }
 }

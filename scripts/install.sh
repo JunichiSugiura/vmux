@@ -9,14 +9,12 @@ main() {
   echo "Installing ${APP_NAME}..."
   echo ""
 
-  # macOS only
   OS="$(uname -s)"
   if [ "$OS" != "Darwin" ]; then
     echo "Error: ${APP_NAME} currently supports macOS only." >&2
     exit 1
   fi
 
-  # Use Homebrew if available
   if command -v brew >/dev/null 2>&1; then
     echo "Homebrew detected. Installing via cask..."
     brew tap "${REPO}" "https://github.com/${REPO}" 2>/dev/null || true
@@ -28,7 +26,6 @@ main() {
 
   echo "Homebrew not found. Installing from GitHub release..."
 
-  # Architecture
   ARCH="$(uname -m)"
   case "$ARCH" in
     arm64|aarch64) ARCH_LABEL="aarch64" ;;
@@ -39,7 +36,6 @@ main() {
       ;;
   esac
 
-  # Fetch latest version
   LATEST_URL="https://api.github.com/repos/${REPO}/releases/latest"
   VERSION="$(curl -fsSL "$LATEST_URL" | grep '"tag_name"' | sed 's/.*"v\(.*\)".*/\1/')"
 
@@ -50,16 +46,13 @@ main() {
 
   echo "Latest version: v${VERSION}"
 
-  # Find DMG asset
   DMG_NAME="${APP_NAME}_${VERSION}_${ARCH_LABEL}.dmg"
   DMG_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${DMG_NAME}"
   DMG_PATH="/tmp/${DMG_NAME}"
 
-  # Download
   echo "Downloading ${DMG_NAME}..."
   curl -fSL --progress-bar -o "$DMG_PATH" "$DMG_URL"
 
-  # Check existing install
   if [ -d "${INSTALL_DIR}/${APP_NAME}.app" ]; then
     printf "%s.app already exists in %s. Overwrite? [y/N] " "$APP_NAME" "$INSTALL_DIR"
     read -r answer
@@ -75,7 +68,6 @@ main() {
     esac
   fi
 
-  # Mount, copy, unmount
   echo "Installing to ${INSTALL_DIR}..."
   MOUNT_DIR="$(hdiutil attach -nobrowse -noautoopen "$DMG_PATH" | tail -1 | awk -F'\t' '{print $NF}')"
   cp -R "${MOUNT_DIR}/${APP_NAME}.app" "${INSTALL_DIR}/"

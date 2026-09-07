@@ -329,7 +329,7 @@ impl PendingRunTerminalSpawns {
         if request_cwd != desired_cwd {
             return None;
         }
-        let data = run.input(&pending.shell);
+        let data = run.input(&pending.shell, PagerEnv::Inherited);
         match &mut request.pending_input {
             Some(input) => input.extend(data),
             None => request.pending_input = Some(data),
@@ -388,21 +388,17 @@ impl<'a> RunCommand<'a> {
         Self { command, token }
     }
 
-    fn line(&self, shell: &str) -> String {
+    fn line(&self, shell: &str, pager: PagerEnv) -> String {
         match self.token {
-            Some(token) => command_with_marker(shell, self.command, token),
+            Some(token) => command_with_marker(shell, self.command, token, pager),
             None => self.command.to_string(),
         }
     }
 
-    fn input(&self, shell: &str) -> Vec<u8> {
-        let mut data = self.line(shell).into_bytes();
+    fn input(&self, shell: &str, pager: PagerEnv) -> Vec<u8> {
+        let mut data = self.line(shell, pager).into_bytes();
         data.push(b'\r');
         data
-    }
-
-    fn input_for_launch(&self, launch: &TerminalLaunch) -> Vec<u8> {
-        self.input(&launch.command)
     }
 
     pub(crate) fn queue(
@@ -410,26 +406,48 @@ impl<'a> RunCommand<'a> {
         writer: &mut MessageWriter<vmux_terminal::TerminalReinputRequest>,
         process_id: ProcessId,
         launch: &TerminalLaunch,
+        pager: PagerEnv,
     ) {
         writer.write(vmux_terminal::TerminalReinputRequest {
             process_id,
-            data: self.input_for_launch(launch),
+            data: self.input(&launch.command, pager),
         });
     }
 
     pub(crate) fn for_new_terminal(&self, settings: &AppSettings) -> (AgentTerminalShell, Vec<u8>) {
         let shell = AgentTerminalShell::configured(settings);
-        let input = self.input(shell.as_str());
+        let input = self.input(shell.as_str(), PagerEnv::Set);
         (shell, input)
     }
 }
 
-fn command_with_marker(shell: &str, command: &str, token: &str) -> String {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PagerEnv {
+    Set,
+    Inherited,
+}
+
+impl PagerEnv {
+    fn prefix(self, base: &str) -> &'static str {
+        if self == Self::Inherited {
+            return "";
+        }
+        match base {
+            "nu" | "nushell" => {
+                "$env.GIT_PAGER = \"cat\"; $env.PAGER = \"cat\"; $env.LESS = \"FRX\"; "
+            }
+            "fish" => "set -gx GIT_PAGER cat; set -gx PAGER cat; set -gx LESS FRX; ",
+            _ => "export GIT_PAGER=cat PAGER=cat LESS=FRX; ",
+        }
+    }
+}
+
+fn command_with_marker(shell: &str, command: &str, token: &str, env: PagerEnv) -> String {
     let base = std::path::Path::new(shell)
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or(shell);
-    let pager = pager_env_prefix(base);
+    let pager = env.prefix(base);
     let osc = vmux_service::run_marker::VMUX_RUN_OSC;
     match base {
         "nu" | "nushell" => format!(
@@ -444,16 +462,21 @@ fn command_with_marker(shell: &str, command: &str, token: &str) -> String {
     }
 }
 
-fn pager_env_prefix(base: &str) -> &'static str {
-    match base {
-        "nu" | "nushell" => "$env.GIT_PAGER = \"cat\"; $env.PAGER = \"cat\"; $env.LESS = \"FRX\"; ",
-        "fish" => "set -gx GIT_PAGER cat; set -gx PAGER cat; set -gx LESS FRX; ",
-        _ => "export GIT_PAGER=cat PAGER=cat LESS=FRX; ",
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct AgentTerminalShell(String);
+
+static CONFIGURED_SHELL: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+pub fn configured_shell() -> String {
+    let held = CONFIGURED_SHELL
+        .lock()
+        .map(|held| held.clone())
+        .unwrap_or_default();
+    if !held.is_empty() {
+        return held;
+    }
+    std::env::var("SHELL").unwrap_or_default()
+}
 
 impl AgentTerminalShell {
     pub(crate) fn configured(settings: &AppSettings) -> Self {
@@ -466,6 +489,14 @@ impl AgentTerminalShell {
                     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
                 }),
         )
+        .remembered()
+    }
+
+    fn remembered(self) -> Self {
+        if let Ok(mut held) = CONFIGURED_SHELL.lock() {
+            held.clone_from(&self.0);
+        }
+        self
     }
 
     fn as_str(&self) -> &str {
@@ -486,6 +517,16 @@ impl AgentTerminalShell {
             ))
         }
     }
+}
+
+pub(crate) fn remember_configured_shell(settings: Option<Res<AppSettings>>) {
+    let Some(settings) = settings else {
+        return;
+    };
+    if !settings.is_changed() && !configured_shell().is_empty() {
+        return;
+    }
+    AgentTerminalShell::configured(&settings);
 }
 
 pub(crate) fn agent_terminal_shell(settings: &AppSettings) -> String {
@@ -627,33 +668,50 @@ mod tests {
     }
 
     #[test]
+    pub(crate) fn only_the_first_command_in_a_terminal_sets_the_pager() {
+        let primed = command_with_marker("/opt/homebrew/bin/nu", "ls", "abc", PagerEnv::Set);
+        let later = command_with_marker("/opt/homebrew/bin/nu", "ls", "abc", PagerEnv::Inherited);
+
+        assert!(primed.starts_with("$env.GIT_PAGER"), "got: {primed}");
+        assert!(
+            later.starts_with("try { ls;"),
+            "the shell keeps its environment between commands, so repeating the assignment only \
+             buries the command the reader is looking at: {later}"
+        );
+        assert!(later.contains("]6973;abc;"), "got: {later}");
+    }
+
+    #[test]
     pub(crate) fn command_with_marker_is_shell_aware() {
         assert_eq!(
-            command_with_marker("/opt/homebrew/bin/nu", "ls", "abc"),
+            command_with_marker("/opt/homebrew/bin/nu", "ls", "abc", PagerEnv::Set),
             "$env.GIT_PAGER = \"cat\"; $env.PAGER = \"cat\"; $env.LESS = \"FRX\"; try { ls; print -rn $\"\\u{1b}]6973;abc;($env.LAST_EXIT_CODE)\\u{7}\" } catch { |e| print -rn $\"\\u{1b}]6973;abc;($e.exit_code? | default 1)\\u{7}\" }"
         );
         assert_eq!(
-            command_with_marker("/usr/local/bin/fish", "ls", "abc"),
+            command_with_marker("/usr/local/bin/fish", "ls", "abc", PagerEnv::Set),
             "set -gx GIT_PAGER cat; set -gx PAGER cat; set -gx LESS FRX; ls; set __vmux_status $status; printf '\\033]6973;abc;%s\\007' $__vmux_status"
         );
         assert_eq!(
-            command_with_marker("/bin/zsh", "ls", "abc"),
+            command_with_marker("/bin/zsh", "ls", "abc", PagerEnv::Set),
             "export GIT_PAGER=cat PAGER=cat LESS=FRX; ls; __vmux_status=\"$?\"; printf '\\033]6973;abc;%s\\007' \"$__vmux_status\""
         );
         assert_eq!(
-            command_with_marker("/usr/bin/xonsh", "ls", "abc"),
+            command_with_marker("/usr/bin/xonsh", "ls", "abc", PagerEnv::Set),
             "export GIT_PAGER=cat PAGER=cat LESS=FRX; ls; __vmux_status=\"$?\"; printf '\\033]6973;abc;%s\\007' \"$__vmux_status\""
         );
     }
 
     #[test]
     pub(crate) fn run_command_line_noop_when_token_absent() {
-        assert_eq!(RunCommand::new("ls -la", None).line("/bin/zsh"), "ls -la");
+        assert_eq!(
+            RunCommand::new("ls -la", None).line("/bin/zsh", PagerEnv::Set),
+            "ls -la"
+        );
     }
 
     #[test]
     pub(crate) fn run_command_line_embeds_marker_when_token_present() {
-        let out = RunCommand::new("ls -la", Some("tok9")).line("/bin/zsh");
+        let out = RunCommand::new("ls -la", Some("tok9")).line("/bin/zsh", PagerEnv::Set);
         assert!(out.contains("ls -la"), "got: {out}");
         assert!(out.contains("]6973;tok9;"), "got: {out}");
         assert!(
@@ -713,7 +771,7 @@ mod tests {
             kind: vmux_terminal::launch::TerminalKind::Plain,
         };
 
-        let input = RunCommand::new("pwd", Some("tok2")).input_for_launch(&launch);
+        let input = RunCommand::new("pwd", Some("tok2")).input(&launch.command, PagerEnv::Set);
         let input = String::from_utf8(input).unwrap();
 
         assert!(input.contains("set __vmux_status $status"), "got: {input}");
@@ -776,6 +834,7 @@ mod tests {
                 &mut writer,
                 input.process_id,
                 &input.launch,
+                PagerEnv::Inherited,
             );
         }
 

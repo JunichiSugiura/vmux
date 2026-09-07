@@ -244,6 +244,11 @@ fn snapshot_of(
                     .iter()
                     .map(|attachment| attachment.name.clone())
                     .collect(),
+                attachment_paths: item
+                    .attachments
+                    .iter()
+                    .map(|attachment| attachment.path.clone())
+                    .collect(),
             })
             .collect(),
         paused: queue.paused,

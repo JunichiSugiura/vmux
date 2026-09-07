@@ -203,9 +203,6 @@ jobs:
       - uses: dorny/paths-filter@v4
         id: filter
         with:
-          # Under the default 'some' a lone '!' rule matches almost everything, because any file
-          # the rule does not exclude satisfies it. 'some-with-excludes' is the one that reads the
-          # way the lists below look: at least one positive rule, and no negated rule.
           predicate-quantifier: 'some-with-excludes'
           filters: |
             code:
@@ -256,9 +253,6 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@1.95.0
 
-      # No CEF install and no apt packages on purpose. `cargo tree` reads the resolve graph and
-      # `cargo check` on a pure-Rust crate links nothing, so this job proves the headless path
-      # stands up on a box that has never seen the framework.
       - name: No crate on the headless path links bevy_cef
         run: |
           set -euo pipefail
@@ -267,21 +261,12 @@ jobs:
             cargo tree --locked -p "$1" -i bevy_cef >/dev/null 2>&1
           }
 
-          # `cargo tree -i` exits 101 both when the package is absent from the graph and when
-          # the name is misspelled, so a bare "it found nothing" assertion passes for a crate
-          # that is clean and for a check that is broken. Pin the spec against a crate that
-          # must link CEF before trusting the negative results below.
           if ! links_cef vmux_desktop; then
             echo "::error::positive control failed: bevy_cef not found in vmux_desktop, so this job is asserting nothing"
             exit 1
           fi
           echo "control ok: vmux_desktop links bevy_cef"
 
-          # vmux_service still reaches bevy_cef through vmux_core and vmux_git, both of which it
-          # depends on for other reasons and both of which pull the page IPC transport
-          # (BinEventEmitterPlugin, BinReceive) the server never uses. Cutting that needs a
-          # feature split in those two crates; the client-only assertion below is the half of
-          # VMX-142 that does not.
           for pkg in vmux_session; do
             if links_cef "$pkg"; then
               echo "::error::$pkg links bevy_cef:"
@@ -291,31 +276,10 @@ jobs:
             echo "ok: $pkg does not link bevy_cef"
           done
 
-      # A server has no business linking the UI component library, the tiling tree, or a page.
-      # Server versus client is a crate distinction rather than a cfg one: `cfg(host)` is true in
-      # both processes and enforces nothing, whereas a crate edge cannot come back without a
-      # manifest change this job can see.
       - name: The server links no client-only crate
         run: |
           set -euo pipefail
 
-          # Pinned to the host target on purpose. vmux_service also compiles as a page for
-          # wasm and iOS, and that half depends on vmux_ui legitimately; an untargeted query
-          # sees every cfg section at once and reports it. The claim is about the server.
-          #
-          # `cargo tree --target` exits 0 whether or not it found anything and prints "nothing
-          # to print" to stderr, so unlike the untargeted query above, stdout is the only signal.
-          #
-          # Which makes discarding stderr a trap: a query that fails outright — a stale lockfile
-          # under --locked is the easy way in — also produces empty stdout, and an assertion
-          # reading "empty" as "clean" passes precisely when it has stopped working. Status and
-          # stdout are separate answers to separate questions, so keep them apart.
-          # Three outcomes, not two, and only the third is a broken query:
-          #   exit 101 + "did not match any packages"  crate is nowhere in the graph — clean
-          #   exit 0   + empty stdout                  crate resolves but nothing reaches it — clean
-          #   exit 0   + stdout                        linked
-          # Anything else — a stale lockfile under --locked is the easy way in — means the query
-          # itself failed, and that must fail the job rather than read as clean.
           out=$(mktemp)
           err=$(mktemp)
 
@@ -350,9 +314,6 @@ jobs:
             echo "ok: vmux_service does not link $pkg"
           done
 
-      # The graph is not the build. Feature unification across a workspace invocation can supply
-      # a dependency this crate never asked for, which `cargo tree` cannot see and only a
-      # single-package build catches.
       - name: vmux_session builds alone
         run: env -u CEF_PATH cargo check --locked -p vmux_session --all-targets
 
@@ -386,32 +347,18 @@ jobs:
       - name: Install tailwindcss
         run: TAILWINDCSS_INSTALL_DIR="$HOME/.local/bin" ./scripts/install-tailwindcss.sh
 
-      # `dx` runs tailwind before cargo, and `assets/tailwind.out.css` is generated and gitignored.
-      # `asset!()` resolves at compile time, so without this cargo cannot even check the crate.
       - name: Generate the tailwind bundle dx would
         run: |
           tailwindcss \
             -i crates/app/vmux_mobile/assets/tailwind.css \
             -o crates/app/vmux_mobile/assets/tailwind.out.css
 
-      # Build, not check. A dropped codegen-unit symbol once shipped a broken app while every
-      # `cargo check` stayed green. Only a linker catches that, and the bin is
-      # `required-features = ["mobile"]`, so a plain `cargo build -p vmux_mobile` would compile
-      # nothing and pass for free.
       - name: Build the phone app
         run: cargo build --locked -p vmux_mobile --target aarch64-apple-ios --features mobile --bin vmux_mobile
 
-      # Building does not compile the crate's `cfg(test)` half, and the same `required-features`
-      # that makes a bare build vacuous makes a bare `cargo test` skip the bin outright. Three
-      # `Credentials` initializers rotted a field behind exactly that gap. These tests are portable
-      # logic, so they run on the host rather than needing a simulator.
       - name: Test the phone app
         run: cargo test --locked -p vmux_mobile --features mobile --bin vmux_mobile
 
-      # vmux_mobile does not depend on every page that claims to be portable, so compiling it
-      # proves nothing about them. This went green once while vmux_editor for iOS was broken.
-      # Every page crate with a `cfg(ui)` half is listed. vmux_knowledge is the one directory under
-      # page/ that is host-only, with no components to build for the phone.
       - name: Check the pages that ship on the phone
         run: |
           cargo check --locked --target aarch64-apple-ios \
@@ -419,11 +366,6 @@ jobs:
             -p vmux_layout -p vmux_setting -p vmux_space -p vmux_start -p vmux_team \
             -p vmux_terminal -p vmux_ui
 
-      # Neither of these is catchable by building. `dioxus` declares `dioxus-web` in a plain
-      # [dependencies] block, so `dioxus/web` is not target-gated and feature unification can put
-      # the wasm renderer in the phone's graph silently. Nothing builds for wasm32 any more, so
-      # nothing may ask for it at all. And bevy_cef arriving would mean a portable page had taken a
-      # dependency on the desktop's browser engine.
       - name: The phone links no desktop-only crate
         run: |
           set -euo pipefail
@@ -432,13 +374,6 @@ jobs:
             cargo tree --locked --target aarch64-apple-ios -p "$1" -i "$2" 2>/dev/null
           }
 
-          # `cargo tree --target` exits 0 whether or not it matched and prints "nothing to print"
-          # to stderr, so the exit code says nothing and stdout is the only signal. That makes an
-          # empty result ambiguous — absent, or a query that has stopped working — so each row
-          # carries a control the same query must still find. Only one of those reads as clean.
-          #
-          # The control for bevy_cef comes from another package on purpose: the phone is where it
-          # is forbidden, so it can only be proven findable somewhere it is expected.
           while read -r forbidden control_package control_crate; do
             [ -n "$forbidden" ] || continue
             if [ -z "$(reaches "$control_package" "$control_crate")" ]; then

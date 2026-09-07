@@ -13,8 +13,6 @@ homepage = "https://vmux.ai"
 repository = "https://github.com/vmux-ai/vmux"
 
 [workspace.lints.clippy]
-# `let _ = async_fn()` drops the future without polling it, so the work never runs at all — a
-# quieter failure than discarding a completed future's error, and never intentional.
 let_underscore_future = "deny"
 
 [workspace.dependencies]
@@ -34,11 +32,7 @@ bevy = { version = "0.19.0", default-features = false, features = [
 ] }
 bevy_ecs = { version = "0.19.0", default-features = true }
 bevy_reflect = { version = "0.19.0", default-features = true }
-# Reproduces the feature set bevy_internal already resolves bevy_app to. Its defaults would add
-# error_panic_hook, which bevy does not forward, changing the desktop's panic handler.
 bevy_app = { version = "0.19.0", default-features = false, features = ["bevy_reflect", "std"] }
-# For `AppLifecycle` on the phone, where there is no winit to supply it. `std` only: what is wanted
-# is the vocabulary, not the windowing, and the default set also drags `bevy_reflect` in.
 bevy_window = { version = "0.19.0", default-features = false, features = ["std"] }
 bevy_winit = { version = "0.19.0", default-features = false, features = [
     "x11",
@@ -70,11 +64,6 @@ polling = "3.11"
 tungstenite = "0.28"
 url = "2"
 notify = "6"
-# No "web" here, and nothing in this workspace should add it. Dioxus declares `dioxus-web` in a
-# plain `[dependencies]` block — it carries no `[target.*]` sections at all — so the feature is not
-# target-gated, and every crate inheriting this spec would drag the wasm renderer into the iOS
-# build. Nothing here compiles to wasm any more, which makes the mistake cost-free to make and
-# just as expensive to ship.
 dioxus = { version = "=0.7.9", default-features = false, features = [
     "minimal",
     "document",
@@ -93,8 +82,6 @@ rfd = "0.15"
 rkyv = { version = "0.8", features = ["alloc"] }
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 
-# ring, not the default aws-lc-rs: aws-lc-rs needs cmake and NASM and does not cross-compile to
-# aarch64-apple-ios, which is the one target that has no CI job to catch it.
 quinn = { version = "0.11", default-features = false, features = [
     "runtime-tokio",
     "rustls-ring",
@@ -102,13 +89,9 @@ quinn = { version = "0.11", default-features = false, features = [
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-pemfile = "2"
 rcgen = "0.14"
-# Already in the tree via quinn/rcgen/rustls; a direct dep only so the fingerprint hash can
-# reach it without pulling in a second crypto library.
 ring = "0.17"
 syntect = { version = "5", default-features = false, features = ["default-fancy"] }
 
-# Dev builds of a Bevy + CEF app are unusably slow without optimizing dependencies.
-# Our crates stay at opt-level 1 for fast rebuilds; all deps compile at 3 (cached).
 [profile.dev]
 opt-level = 1
 debug = "line-tables-only"
@@ -117,11 +100,6 @@ debug = "line-tables-only"
 opt-level = 3
 debug = false
 
-# Hot CEF render/compositing path: optimize even in dev so the texture pipeline
-# isn't bottlenecked by an unoptimized build during development.
-# codegen-units=1 keeps bevy_cef's reflect/rkyv generic instantiations in one CGU so
-# their internal `_anon.*.llvm.*` symbols aren't dropped across CGUs at -dead_strip link
-# time (otherwise binaries linking bevy_cef fail with undefined bevy_reflect symbols).
 [profile.dev.package.bevy_cef]
 opt-level = 3
 codegen-units = 1
@@ -129,9 +107,6 @@ codegen-units = 1
 [profile.dev.package.bevy_cef_core]
 opt-level = 3
 
-# Single codegen unit so rkyv's derive-generated internal symbols aren't dropped
-# across CGUs at link time (undefined `_anon.*.llvm.*` under --gc-sections /
-# -dead_strip — surfaces in Linux test-binary links and the dev dynamic-linking build).
 [profile.dev.package.vmux_service]
 codegen-units = 1
 

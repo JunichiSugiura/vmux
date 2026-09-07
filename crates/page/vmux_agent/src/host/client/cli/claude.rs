@@ -5,7 +5,7 @@ use std::time::SystemTime;
 use serde_json::{Map, Value};
 
 use crate::client::cli::strategy::{
-    CliAgentStrategy, ResumableSession, lines_skipping_invalid_utf8,
+    CliAgentStrategy, PromptHistory, ResumableSession, SameProject, lines_skipping_invalid_utf8,
 };
 use crate::strategy::AgentStrategy;
 use crate::{AgentKind, AgentVariant, AssistantBlock, McpServerConfig, Message};
@@ -57,6 +57,28 @@ impl CliAgentStrategy for ClaudeStrategy {
         PathBuf::from(home).join(".claude").join("projects")
     }
 
+    fn prompt_history(&self, cwd: &Path) -> Vec<String> {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path = PathBuf::from(home).join(".claude").join("history.jsonl");
+        let mut spoken = Vec::new();
+        for line in PromptHistory::lines_of(&path) {
+            let Ok(entry) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            let Some(project) = entry.get("project").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if !SameProject::covers(project, cwd) {
+                continue;
+            }
+            let Some(text) = entry.get("display").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            spoken.push(text.to_string());
+        }
+        PromptHistory::recent(spoken)
+    }
+
     fn build_args(&self, mcp: &McpServerConfig, session_id: Option<&str>) -> Vec<String> {
         let mut args = vec![
             "--mcp-config".to_string(),
@@ -104,6 +126,10 @@ impl CliAgentStrategy for ClaudeStrategy {
 
     fn list_sessions(&self) -> Vec<ResumableSession> {
         list_claude_sessions(&self.sessions_root())
+    }
+
+    fn latest_message(&self, transcript: &Path) -> String {
+        claude_latest_message(transcript)
     }
 
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {
@@ -239,13 +265,16 @@ fn list_claude_sessions(root: &Path) -> Vec<ResumableSession> {
             let mtime = std::fs::metadata(&path)
                 .and_then(|m| m.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            let (cwd, title) = claude_cwd_and_title(&path, stem);
+            let Some(head) = ClaudeHead::of(&path, stem) else {
+                continue;
+            };
             out.push(ResumableSession {
                 kind: AgentKind::Claude,
                 sid: stem.to_string(),
-                cwd,
+                cwd: head.cwd,
+                transcript: path,
                 mtime,
-                title,
+                title: head.title,
                 cross_runtime: true,
             });
         }
@@ -253,38 +282,116 @@ fn list_claude_sessions(root: &Path) -> Vec<ResumableSession> {
     out
 }
 
-fn claude_cwd_and_title(path: &Path, stem: &str) -> (PathBuf, String) {
-    use std::io::{BufRead, BufReader};
-    let mut cwd: Option<PathBuf> = None;
-    let mut title: Option<String> = None;
-    if let Ok(file) = std::fs::File::open(path) {
-        for line in BufReader::new(file).lines().take(40).filter_map(Result::ok) {
-            let Ok(v) = serde_json::from_str::<Value>(&line) else {
-                continue;
-            };
-            if cwd.is_none()
-                && let Some(c) = v.get("cwd").and_then(|c| c.as_str())
-            {
-                cwd = Some(PathBuf::from(c));
-            }
-            if title.is_none()
-                && v.get("type").and_then(|t| t.as_str()) == Some("user")
-                && let Some(text) = user_message_text(&v)
-            {
-                title = Some(text);
-            }
-            if cwd.is_some() && title.is_some() {
-                break;
-            }
-        }
-    }
-    let cwd = cwd.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default());
-    let title = title.unwrap_or_else(|| stem.split('-').next().unwrap_or(stem).to_string());
-    (cwd, title)
+struct ClaudeHead {
+    cwd: PathBuf,
+    title: String,
 }
 
-fn user_message_text(v: &Value) -> Option<String> {
-    message_text(v).map(|text| text.chars().take(80).collect())
+impl ClaudeHead {
+    fn of(path: &Path, stem: &str) -> Option<Self> {
+        use std::io::{BufRead, BufReader};
+        let mut cwd: Option<PathBuf> = None;
+        let mut title: Option<String> = None;
+        if let Ok(file) = std::fs::File::open(path) {
+            for line in BufReader::new(file).lines().take(40).filter_map(Result::ok) {
+                let Ok(v) = serde_json::from_str::<Value>(&line) else {
+                    continue;
+                };
+                if cwd.is_none()
+                    && let Some(c) = v.get("cwd").and_then(|c| c.as_str())
+                {
+                    cwd = Some(PathBuf::from(c));
+                }
+                if v.get("type").and_then(|t| t.as_str()) != Some("user") {
+                    continue;
+                }
+                if title.is_none() {
+                    if Self::is_driven_by_sdk(&v) {
+                        return None;
+                    }
+                    title = ClaudePromptPreview::of(&v);
+                }
+                if cwd.is_some() && title.is_some() {
+                    break;
+                }
+            }
+        }
+        let cwd = cwd.unwrap_or_else(|| path.parent().map(Path::to_path_buf).unwrap_or_default());
+        let title = title.unwrap_or_else(|| stem.split('-').next().unwrap_or(stem).to_string());
+        Some(Self { cwd, title })
+    }
+
+    fn is_driven_by_sdk(v: &Value) -> bool {
+        let source = v.get("promptSource").and_then(Value::as_str).unwrap_or("");
+        let entry = v.get("entrypoint").and_then(Value::as_str).unwrap_or("");
+        source == "sdk" || entry.starts_with("sdk")
+    }
+}
+
+fn claude_latest_message(path: &Path) -> String {
+    for line in crate::client::cli::strategy::SessionTail::lines_of(path)
+        .iter()
+        .rev()
+    {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if v.get("type").and_then(|t| t.as_str()) != Some("user") {
+            continue;
+        }
+        let Some(text) = ClaudePromptPreview::of(&v) else {
+            continue;
+        };
+        return text;
+    }
+    String::new()
+}
+
+struct ClaudePromptPreview;
+
+impl ClaudePromptPreview {
+    fn of(v: &Value) -> Option<String> {
+        if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
+            return None;
+        }
+        let text = message_text(v)?;
+        let mut visible = Vec::new();
+        let mut hidden_until = None;
+        for line in text.lines() {
+            let line = line.trim();
+            if let Some(tag) = hidden_until {
+                if line.contains(tag) {
+                    hidden_until = None;
+                }
+                continue;
+            }
+            if line.starts_with("<task-notification>") {
+                if !line.contains("</task-notification>") {
+                    hidden_until = Some("</task-notification>");
+                }
+                continue;
+            }
+            if line.starts_with("<system-reminder>") {
+                if !line.contains("</system-reminder>") {
+                    hidden_until = Some("</system-reminder>");
+                }
+                continue;
+            }
+            if line.starts_with("[Image: source:") && line.ends_with(']') {
+                continue;
+            }
+            let line = line
+                .strip_prefix("[Request interrupted by user for tool use]")
+                .or_else(|| line.strip_prefix("[Request interrupted by user]"))
+                .unwrap_or(line)
+                .trim();
+            if !line.is_empty() {
+                visible.push(line);
+            }
+        }
+        let text = visible.join(" ");
+        (!text.is_empty()).then(|| text.chars().take(80).collect())
+    }
 }
 
 fn message_text(v: &Value) -> Option<String> {
@@ -571,7 +678,7 @@ mod tests {
         std::fs::create_dir_all(&proj).unwrap();
         std::fs::write(
             proj.join("11111111-2222.jsonl"),
-            b"{\"type\":\"user\",\"cwd\":\"/Users/me/proj\",\"message\":{\"role\":\"user\",\"content\":\"fix the auth bug\"}}\n",
+            b"{\"type\":\"user\",\"cwd\":\"/Users/me/proj\",\"message\":{\"role\":\"user\",\"content\":\"fix the auth bug\\n[Image: source: /tmp/auth.png]\"}}\n",
         )
         .unwrap();
         std::fs::write(proj.join("agent-log.jsonl"), b"{}\n").unwrap();
@@ -583,6 +690,24 @@ mod tests {
         assert_eq!(s.cwd, PathBuf::from("/Users/me/proj"));
         assert_eq!(s.title, "fix the auth bug");
         assert!(s.cross_runtime);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn latest_message_ignores_generated_user_metadata() {
+        let tmp = unique_tmp("claude-latest-preview");
+        let path = tmp.join("session.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"user\",\"message\":{\"content\":\"fix the layout\\n[Image: source: /tmp/layout.png]\"}}\n",
+                "{\"type\":\"user\",\"message\":{\"content\":\"<task-notification>\\n<task-id>build</task-id>\\n</task-notification>\"}}\n",
+                "{\"type\":\"user\",\"message\":{\"content\":\"[Request interrupted by user]\"}}\n"
+            ),
+        )
+        .unwrap();
+
+        assert_eq!(claude_latest_message(&path), "fix the layout");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

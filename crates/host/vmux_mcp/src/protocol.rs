@@ -25,6 +25,7 @@ pub async fn run_stdio(
     acp_session: bool,
     acp_terminals: bool,
     run_block_timeout: Duration,
+    shell: String,
 ) -> io::Result<()> {
     let stdin = io::stdin();
     let mut reader = stdin.lock();
@@ -38,6 +39,7 @@ pub async fn run_stdio(
             acp_session,
             acp_terminals,
             run_block_timeout,
+            &shell,
         )
         .await
         {
@@ -55,6 +57,7 @@ async fn handle_message(
     acp_session: bool,
     acp_terminals: bool,
     run_block_timeout: Duration,
+    shell: &str,
 ) -> Option<Value> {
     let id = message.get("id").cloned()?;
     let method = message.get("method").and_then(Value::as_str).unwrap_or("");
@@ -63,7 +66,7 @@ async fn handle_message(
     let result = match method {
         "initialize" => Ok(initialize_result(&params)),
         "tools/list" => Ok(json!({
-            "tools": crate::tools::tool_definitions_filtered(acp_session, acp_terminals)
+            "tools": crate::tools::tool_definitions_filtered(acp_session, acp_terminals, shell)
         })),
         "tools/call" => {
             tool_call_result(
@@ -72,6 +75,7 @@ async fn handle_message(
                 acp_session,
                 acp_terminals,
                 run_block_timeout,
+                shell,
             )
             .await
         }
@@ -124,6 +128,7 @@ async fn tool_call_result(
     acp_session: bool,
     acp_terminals: bool,
     run_block_timeout: Duration,
+    host_shell: &str,
 ) -> Result<Value, String> {
     let name = params
         .get("name")
@@ -155,7 +160,7 @@ async fn tool_call_result(
         return Ok(vault_status_response(vmux_profile::vault::status()));
     }
 
-    match crate::tools::dispatch_with_anchor(name, arguments, anchor)? {
+    match crate::tools::dispatch_in_shell(name, arguments, anchor, host_shell)? {
         crate::tools::DispatchTarget::Command(command @ AgentCommand::Run { .. })
         | crate::tools::DispatchTarget::Command(
             command @ AgentCommand::RunWithPlacementOverride { .. },
@@ -901,6 +906,7 @@ mod tests {
                 true,
                 true,
                 Duration::from_secs(50),
+                "",
             )
             .await
             .unwrap();
@@ -926,6 +932,7 @@ mod tests {
             true,
             false,
             Duration::from_secs(50),
+            "",
         )
         .await
         .unwrap();

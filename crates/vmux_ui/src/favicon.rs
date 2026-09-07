@@ -45,10 +45,12 @@ pub use components::{Favicon, GlobeIcon};
 mod components {
     use super::favicon_src_for_url;
     use crate::components::icon::Icon;
+    use crate::platform::sleep_ms;
     use dioxus::prelude::*;
 
     const DEFAULT_FAVICON_CLASS: &str = "h-4 w-4 shrink-0 rounded-sm object-contain";
     const DEFAULT_GLOBE_CLASS: &str = "h-4 w-4 shrink-0 text-muted-foreground";
+    const FALLBACK_DELAY_MS: u32 = 500;
 
     #[component]
     pub fn Favicon(
@@ -59,26 +61,63 @@ mod components {
     ) -> Element {
         let img_class = class.unwrap_or_else(|| DEFAULT_FAVICON_CLASS.to_string());
         let globe_class = globe_class.unwrap_or_else(|| DEFAULT_GLOBE_CLASS.to_string());
-        let mut errored = use_signal(|| false);
-        let mut prev_src = use_signal(|| None::<String>);
         let src = favicon_src_for_url(&favicon_url, &url);
-        if *prev_src.read() != src {
-            prev_src.set(src.clone());
-            errored.set(false);
-        }
+        let source_key = src.clone().unwrap_or_default();
+        let mut fallback_for = use_signal(|| None::<String>);
+        let mut failed_for = use_signal(|| None::<String>);
+        let mut generation = use_signal(|| 0_u32);
+        use_effect(use_reactive!(|(favicon_url, url)| {
+            let source = favicon_src_for_url(&favicon_url, &url);
+            let key = source.clone().unwrap_or_default();
+            let next = generation.peek().wrapping_add(1);
+            generation.set(next);
+            fallback_for.set(None);
+            failed_for.set(None);
+            if source.is_none() {
+                spawn(async move {
+                    sleep_ms(FALLBACK_DELAY_MS).await;
+                    if generation() == next {
+                        fallback_for.set(Some(key));
+                    }
+                });
+            }
+        }));
+        let show_fallback = fallback_for().as_deref() == Some(source_key.as_str());
+        let source_failed = failed_for().as_deref() == Some(source_key.as_str());
         rsx! {
             if let Some(src) = src.as_ref() {
-                if errored() {
-                    GlobeIcon { class: globe_class }
+                if source_failed {
+                    if show_fallback {
+                        GlobeIcon { class: globe_class }
+                    } else {
+                        span { class: "{globe_class} opacity-0" }
+                    }
                 } else {
                     img {
                         class: "{img_class}",
                         src: "{src}",
-                        onerror: move |_| errored.set(true),
+                        onerror: {
+                            let key = source_key.clone();
+                            move |_| {
+                                failed_for.set(Some(key.clone()));
+                                fallback_for.set(None);
+                                let next = generation.peek().wrapping_add(1);
+                                generation.set(next);
+                                let key = key.clone();
+                                spawn(async move {
+                                    sleep_ms(FALLBACK_DELAY_MS).await;
+                                    if generation() == next {
+                                        fallback_for.set(Some(key));
+                                    }
+                                });
+                            }
+                        },
                     }
                 }
-            } else {
+            } else if show_fallback {
                 GlobeIcon { class: globe_class }
+            } else {
+                span { class: "{globe_class} opacity-0" }
             }
         }
     }

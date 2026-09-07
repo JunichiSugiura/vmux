@@ -1082,6 +1082,10 @@ impl VimKeymap {
     }
 
     fn dispatch_inner(&mut self, k: &KeyInput) -> Vec<EditCommand> {
+        if let Some(command) = k.lsp_action() {
+            self.reset();
+            return vec![command];
+        }
         #[cfg(target_os = "macos")]
         if k.mods.meta && !k.mods.ctrl && !k.mods.alt {
             let command = match k.key.to_ascii_lowercase().as_str() {
@@ -2076,6 +2080,32 @@ mod tests {
         assert_eq!(run(&mut km, &["g", "d"]), vec![EditCommand::GotoDefinition]);
         assert_eq!(run(&mut km, &["g", "r"]), vec![EditCommand::FindReferences]);
         assert_eq!(run(&mut km, &["K"]), vec![EditCommand::Hover]);
+    }
+
+    #[test]
+    fn function_keys_reach_the_language_server_in_every_mode() {
+        let mut km = VimKeymap::default();
+        let f12 = KeyInput {
+            key: "F12".into(),
+            mods: Mods::default(),
+            repeat: false,
+        };
+        assert_eq!(km.handle(&f12), vec![EditCommand::GotoDefinition]);
+        km.handle(&KeyInput {
+            key: "i".into(),
+            mods: Mods::default(),
+            repeat: false,
+        });
+        assert_eq!(km.handle(&f12), vec![EditCommand::GotoDefinition]);
+        let shifted = KeyInput {
+            key: "F12".into(),
+            mods: Mods {
+                shift: true,
+                ..Default::default()
+            },
+            repeat: false,
+        };
+        assert_eq!(km.handle(&shifted), vec![EditCommand::FindReferences]);
     }
 
     #[test]

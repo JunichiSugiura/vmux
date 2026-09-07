@@ -15,6 +15,8 @@ mod shim;
 
 pub use embed::{AssetReply, Assets, Embedding, Outbox, Wake};
 
+use std::cell::Cell;
+use std::rc::Rc;
 use tracing::error;
 
 use crate::page::NativePage;
@@ -39,6 +41,8 @@ pub enum SiblingOrder {
 pub struct WebView {
     webview: wry::WebView,
     dom: Dom,
+    page: Rc<Cell<&'static NativePage>>,
+    outbox: Rc<dyn Outbox>,
 }
 
 impl WebView {
@@ -50,9 +54,25 @@ impl WebView {
         instance: crate::Instance,
     ) -> Result<Self, wry::Error> {
         let dom = Dom::mount(page.component, instance, &embed);
-        let message = PageMessage::new(page, embed.outbox, dom.reads(), embed.waker);
+        let current_page = Rc::new(Cell::new(page));
+        let outbox = embed.outbox.clone();
+        let message = PageMessage::new(
+            current_page.clone(),
+            outbox.clone(),
+            dom.reads(),
+            embed.waker,
+        );
         let routes = PageRoutes::new(page, dom.clone(), embed.assets);
-        let webview = wry::WebViewBuilder::new()
+        let builder = wry::WebViewBuilder::new();
+        #[cfg(target_os = "macos")]
+        let builder = match macos::SharedWebProcess::configuration() {
+            Some(config) => {
+                use wry::WebViewBuilderExtMacos;
+                builder.with_webview_configuration(config)
+            }
+            None => builder,
+        };
+        let webview = builder
             .with_transparent(page.transparent)
             .with_initialization_script(WRY_HOST_SHIM)
             .with_asynchronous_custom_protocol("vmux".into(), move |_id, request, responder| {
@@ -62,8 +82,20 @@ impl WebView {
             .with_url(page.document_url())
             .with_bounds(bounds)
             .build_as_child(window)?;
+        #[cfg(target_os = "macos")]
+        macos::ImmediateAction::forbid(&webview);
+        Ok(Self {
+            webview,
+            dom,
+            page: current_page,
+            outbox,
+        })
+    }
 
-        Ok(Self { webview, dom })
+    pub fn navigate(&self, page: &'static NativePage, instance: crate::Instance) {
+        self.page.set(page);
+        self.outbox.set_page(page.url);
+        self.dom.remount(page.component, instance);
     }
 
     pub fn set_bounds(&self, bounds: wry::Rect) {

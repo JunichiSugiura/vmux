@@ -104,7 +104,7 @@ pub fn ChatItemRow(
                     div { class: "whitespace-pre-wrap px-1.5", "{text}" }
                 }
                 if !attachments.is_empty() {
-                    div { class: "flex flex-wrap justify-end gap-2",
+                    div { class: "flex w-full flex-col gap-2",
                         for attachment in attachments {
                             UserAttachment {
                                 attachment: attachment.clone(),
@@ -131,7 +131,7 @@ fn UserAttachment(
     previews: Signal<HashMap<String, ChatAttachment>>,
 ) -> Element {
     let preview_data_url = previews
-        .peek()
+        .read()
         .get(&attachment.path)
         .map(|preview| preview.preview_data_url.clone())
         .unwrap_or_default();
@@ -139,15 +139,15 @@ fn UserAttachment(
         return rsx! {
             figure {
                 key: "message-attachment-{attachment.path}",
-                class: "max-w-full overflow-hidden rounded-xl bg-black/10 ring-1 ring-inset ring-foreground/10",
+                class: "w-full overflow-hidden rounded-xl",
+                title: "{attachment.name}",
                 img {
                     src: "{preview_data_url}",
                     alt: "{attachment.name}",
                     loading: "lazy",
                     decoding: "async",
-                    class: "max-h-80 max-w-full object-contain",
+                    class: "max-h-80 w-full object-cover",
                 }
-                figcaption { class: "max-w-72 truncate px-2.5 py-1.5 text-[10px] text-muted-foreground", "{attachment.name}" }
             }
         };
     }
@@ -180,10 +180,13 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                 .iter()
                 .enumerate()
                 .filter(|(child_key, _)| turn.parent_tool_index(*child_key) == Some(key))
+                .map(|(index, child)| (index, child.clone()))
                 .collect::<Vec<_>>();
-            Some((key, block, children))
+            Some((key, block.clone(), children))
         })
         .collect::<Vec<_>>();
+    let live_tool = turn.running.then_some(latest_tool_index).flatten();
+    let items = TurnItem::over(blocks.clone(), live_tool);
     let duration_label = turn.duration_secs.map(|duration| {
         if turn.step_count == 0 {
             let elapsed = fmt_elapsed(duration);
@@ -232,16 +235,21 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                     if !copy_text.is_empty() {
                         MessageCopyButton { text: copy_text.clone() }
                     }
-                    for (j , block , children) in blocks {
-                        TurnBlock {
-                            block_index: j,
-                            block: block.clone(),
-                            nested: children
-                                .iter()
-                                .map(|(index, child)| (*index, (*child).clone()))
-                                .collect::<Vec<_>>(),
-                            latest_thinking: j + 1 == block_count,
-                            latest_tool: latest_tool_index == Some(j),
+                    for item in items {
+                        match item {
+                            TurnItem::Block((j, block, children)) => rsx! {
+                                TurnBlock {
+                                    key: "{j}",
+                                    block_index: j,
+                                    block,
+                                    nested: children,
+                                    latest_thinking: j + 1 == block_count,
+                                    latest_tool: live_tool == Some(j),
+                                }
+                            },
+                            TurnItem::FinishedTools(held) => rsx! {
+                                FinishedToolCalls { key: "tools-{held[0].0}", blocks: held }
+                            },
                         }
                     }
                 }
@@ -257,6 +265,8 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
         }
     }
 }
+
+const ROW_SUMMARY: &str = "flex min-h-6 cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden";
 
 #[component]
 fn DisclosureIcon() -> Element {
@@ -290,11 +300,11 @@ pub fn WorkingIndicator() -> Element {
     let elapsed_text = fmt_elapsed(elapsed());
     rsx! {
         div { class: "flex items-center gap-2 px-1 text-sm text-muted-foreground",
-            span { class: "agent-working-label font-medium", "{verb_text}" }
+            span { class: "animate-pulse font-medium motion-reduce:animate-none", "{verb_text}" }
             span { class: "flex items-end gap-0.5 text-[color:var(--agent-accent)]",
-                span { class: "agent-working-dot h-1 w-1 rounded-full bg-current" }
-                span { class: "agent-working-dot h-1 w-1 rounded-full bg-current [animation-delay:120ms]" }
-                span { class: "agent-working-dot h-1 w-1 rounded-full bg-current [animation-delay:240ms]" }
+                span { class: "h-1 w-1 animate-bounce rounded-full bg-current motion-reduce:animate-none" }
+                span { class: "h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:120ms] motion-reduce:animate-none" }
+                span { class: "h-1 w-1 animate-bounce rounded-full bg-current [animation-delay:240ms] motion-reduce:animate-none" }
             }
             span { class: "tabular-nums text-xs", "{elapsed_text}" }
         }
@@ -455,6 +465,59 @@ fn ToolArgs(args: String) -> Element {
     }
 }
 
+type NestedBlock = (usize, ChatBlock);
+type PlacedBlock = (usize, ChatBlock, Vec<NestedBlock>);
+
+enum TurnItem {
+    Block(PlacedBlock),
+    FinishedTools(Vec<PlacedBlock>),
+}
+
+impl TurnItem {
+    fn over(placed: Vec<PlacedBlock>, live_tool: Option<usize>) -> Vec<Self> {
+        let mut items: Vec<Self> = Vec::new();
+        for block in placed {
+            let foldable =
+                matches!(block.1, ChatBlock::ToolUse { .. }) && live_tool != Some(block.0);
+            if !foldable {
+                items.push(Self::Block(block));
+                continue;
+            }
+            match items.last_mut() {
+                Some(Self::FinishedTools(held)) => held.push(block),
+                _ => items.push(Self::FinishedTools(vec![block])),
+            }
+        }
+        items
+    }
+}
+
+#[component]
+fn FinishedToolCalls(blocks: Vec<PlacedBlock>) -> Element {
+    let count = blocks.len() as i64;
+    rsx! {
+        details { class: "disclosure",
+            summary { class: "flex cursor-pointer select-none items-center gap-2 rounded-xl px-2 py-1 text-sm text-muted-foreground list-none transition-colors hover:bg-foreground/[0.025] [&::-webkit-details-marker]:hidden",
+                span { class: "font-medium",
+                    {translate_with("agent-tool-calls", &[("count", TranslationValue::Number(count))])}
+                }
+                DisclosureIcon {}
+            }
+            div { class: "mt-1 flex flex-col gap-1",
+                for (index , block , children) in blocks {
+                    TurnBlock {
+                        block_index: index,
+                        block,
+                        nested: children,
+                        latest_thinking: false,
+                        latest_tool: false,
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn TurnBlock(
     block_index: usize,
@@ -482,7 +545,7 @@ pub fn TurnBlock(
             div { key: "{key}", class: "agent-row-hover grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors",
                 ActivityIconView { kind: ActivityIcon::Thinking }
                 details { open: latest_thinking, class: "disclosure min-w-0 text-sm text-muted-foreground",
-                    summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                    summary { class: ROW_SUMMARY,
                         span { class: "font-medium", {translate("agent-thinking")} }
                         DisclosureIcon {}
                     }
@@ -497,7 +560,7 @@ pub fn TurnBlock(
                     ToolActivityIcon { name: name.clone(), args: args.clone(), fallback: icon }
                     div { class: "min-w-0",
                         details { open: latest_tool, class: "disclosure text-sm text-muted-foreground",
-                            summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                            summary { class: ROW_SUMMARY,
                                 span { class: "font-medium", "{label}" }
                                 DisclosureIcon {}
                             }
@@ -532,7 +595,7 @@ pub fn TurnBlock(
                     ActivityIconView { kind: ActivityIcon::Subagent }
                     div { class: "min-w-0",
                         details { open: subagent.status == "in_progress", class: "disclosure text-sm text-muted-foreground",
-                            summary { class: "flex cursor-pointer select-none flex-wrap items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                            summary { class: "{ROW_SUMMARY} flex-wrap",
                                 span { class: "font-medium text-foreground/85", "{title}" }
                                 span { class: "rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {status_class}", "{status_label}" }
                                 DisclosureIcon {}
@@ -572,7 +635,7 @@ pub fn TurnBlock(
                             }
                             if !subagent.raw_input.is_empty() && subagent.raw_input != "{}" {
                                 details { class: "disclosure mt-2 text-[11px] text-muted-foreground",
-                                    summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                                    summary { class: ROW_SUMMARY,
                                         span { class: "font-medium", {translate("agent-raw-event")} }
                                         DisclosureIcon {}
                                     }
@@ -597,7 +660,7 @@ pub fn TurnBlock(
                 div { key: "{key}", class: "grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-indigo-500/[0.035]",
                     ActivityIconView { kind: ActivityIcon::Plan }
                     details { open: true, class: "disclosure min-w-0 text-sm",
-                        summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                        summary { class: ROW_SUMMARY,
                             span { class: "font-medium text-foreground/80", {translate("agent-plan")} }
                             span {
                                 class: "text-xs text-muted-foreground",
@@ -647,7 +710,7 @@ pub fn TurnBlock(
                 div { key: "{key}", class: "grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-success/[0.035]",
                     FileActivityIcon { path: path.clone(), write: true }
                     details { class: "disclosure min-w-0 text-sm text-muted-foreground",
-                        summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                        summary { class: ROW_SUMMARY,
                             span { class: "font-medium", {format!("{} ", translate("agent-edited"))} }
                             code { class: "truncate font-mono text-xs text-foreground/70", "{fname}" }
                             DisclosureIcon {}
@@ -818,7 +881,7 @@ fn StandaloneToolResult(result_key: usize, content: String, is_error: bool) -> E
         div { key: "{key}", class: "grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors {row}",
             ActivityIconView { kind: icon }
             details { class: "disclosure min-w-0 text-sm {tone}",
-                summary { class: "flex cursor-pointer select-none items-center gap-2 list-none [&::-webkit-details-marker]:hidden",
+                summary { class: ROW_SUMMARY,
                     span { class: "font-medium", "{label}" }
                     DisclosureIcon {}
                 }

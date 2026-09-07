@@ -207,6 +207,25 @@ CEF. Even the command bar, which used to be its own webview, is now a panel draw
 the layout page; the entity that survives holds only the state thirty-odd readers ask
 "is the bar open" through.
 
+Every one of those webviews is handed a `WKWebViewConfiguration` carrying one shared
+`WKProcessPool`, which cut the cost of building a webview from 25–40 ms to 2–6 ms. Why it
+helps is not settled: `WKProcessPool` is deprecated on the grounds that extra instances no
+longer do anything, and a running app still shows one WebContent process per page rather
+than one overall, so the obvious explanation — that the pool collapses those processes and
+skips their font enumeration — is not what is happening. The `#[allow(deprecated)]` stays
+because the number is reproducible; treat the mechanism as unknown rather than as described.
+
+They are also told `allowsLinkPreview = NO`, which reads like a nicety and is not. It is
+what removes AppKit's force-click gesture recogniser. Left on, every press asks WebKit for
+an immediate-action hit test; WebKit answers by building the dictionary popup's
+`TextIndicator`, which needs a raster snapshot from the GPU process and waits for it on a
+semaphore **on the page's main thread**. Measured on the composer chips that cost the
+better part of a second on roughly one press in five, worst on the chip whose tooltip
+carries a whole worktree path, because that offers the longest range to snapshot. The
+press was delivered, the thread then stopped, and mousedown, mouseup and click all arrived
+together when it came back — which is why it reads as a dropped click rather than a slow
+one. No page here wants force-click inside its own chrome.
+
 **Content pages are still CEF.** `Browser::new` is the leaf that carries them — windowed,
 natively focused — so scrolling an `https://` page costs what Chrome costs. CEF also still
 backs the extension bridge pages, and the windowless path it paints offscreen.
@@ -262,6 +281,26 @@ One wart worth knowing: `BinIpcEventRaw` and `Requester` are **bevy_cef types**,
 the app's bus. Nothing about a native page's messages touches CEF — wry carries them end to
 end — but the channel they land in is registered by a CEF plugin, so a wry page will not
 build until that plugin has. The transport moved and the channel types did not.
+
+### A controlled field belongs to the state
+
+The page applies every `value` a batch carries, without judging it. That is worth stating
+because the shim used to judge: it shadowed the `value` accessor on whatever field had
+focus and dropped any write matching one of the last sixteen values the box had held, on
+the theory that such a write was a late echo of an earlier keystroke about to clobber a
+newer one.
+
+The theory was sound and the rule was not, because "a value this box held before" is also
+the exact description of a prompt recalled from history, and of the empty string a composer
+returns to after sending. Walking back up the history worked and walking forward down it
+silently did nothing; submitting left the sent text sitting in the box. Both looked like
+state bugs and neither was — the state was right the whole way to the wire.
+
+The race it guarded is closed further up. `answer_event` renders and hands the resulting
+batch to the parked `/__edits` responder inside the event's own handler, and the page
+reports events over a *synchronous* request, so the batch for a keystroke is queued before
+the page can dispatch the next one. There is no window in which an echo arrives stale. A
+field that state owns is only ever written by state, and the document does not get a vote.
 
 ### Who owns ⌘V
 

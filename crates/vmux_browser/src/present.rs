@@ -521,7 +521,6 @@ impl PaneFrames {
     }
 }
 
-/// The ring a pane wears while it holds the keyboard, or while an agent is working in it.
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub(crate) struct FocusRing {
     pub(crate) width: f32,

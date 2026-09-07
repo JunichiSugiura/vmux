@@ -131,28 +131,37 @@ impl AppSettings {
             .space_key(space_id)
             .unwrap_or_else(|| space_id.to_string());
         let overrides = self.spaces.entry(key).or_default();
+        let in_use = project.in_use().to_string();
+        let mut folded = false;
+        if project.checkout.is_some()
+            && let Some(at) = overrides
+                .projects
+                .iter()
+                .position(|held| held.path == in_use)
+        {
+            overrides.projects.remove(at);
+            folded = true;
+        }
         let listed = match overrides
             .projects
             .iter_mut()
-            .find(|p| p.path == project.path)
+            .find(|held| held.path == project.path)
         {
-            Some(existing) => {
-                let gained_parent = existing.parent.is_none() && project.parent.is_some();
-                if gained_parent {
-                    existing.parent = project.parent.clone();
-                }
-                gained_parent
+            Some(held) => {
+                let moved = held.checkout != project.checkout;
+                held.checkout = project.checkout.clone();
+                moved
             }
             None => {
-                overrides.projects.push(project.clone());
+                overrides.projects.push(project);
                 true
             }
         };
-        let promoted = overrides.active_project.as_deref() != Some(project.path.as_str());
+        let promoted = overrides.active_project.as_deref() != Some(in_use.as_str());
         if promoted {
-            overrides.active_project = Some(project.path);
+            overrides.active_project = Some(in_use);
         }
-        known || listed || promoted
+        known || listed || promoted || folded
     }
 
     pub fn activate_space_project(&mut self, space_id: &str, path: &str) -> bool {
@@ -338,7 +347,9 @@ pub struct RecordingSettings {
 pub struct SpaceProject {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
+    pub checkout: Option<String>,
+    #[serde(default, skip_serializing)]
+    parent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
 }
@@ -347,16 +358,32 @@ impl SpaceProject {
     pub fn at(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
+            checkout: None,
             parent: None,
             label: None,
         }
     }
 
-    pub fn under(path: impl Into<String>, parent: impl Into<String>) -> Self {
+    pub fn checked_out(path: impl Into<String>, checkout: impl Into<String>) -> Self {
+        let path = path.into();
+        let checkout = checkout.into();
         Self {
-            path: path.into(),
-            parent: Some(parent.into()),
+            checkout: (checkout != path).then_some(checkout),
+            path,
+            parent: None,
             label: None,
+        }
+    }
+
+    pub fn in_use(&self) -> &str {
+        self.checkout.as_deref().unwrap_or(self.path.as_str())
+    }
+
+    #[cfg(test)]
+    fn legacy_child(path: impl Into<String>, parent: impl Into<String>) -> Self {
+        Self {
+            parent: Some(parent.into()),
+            ..Self::at(path)
         }
     }
 
@@ -395,55 +422,62 @@ impl SpaceOverrides {
                 self.active_project = Some(legacy);
             }
         }
+        let mut roots = Vec::new();
+        let mut nested = Vec::new();
+        for project in std::mem::take(&mut self.projects) {
+            match project.parent.is_some() {
+                true => nested.push(project),
+                false => roots.push(project),
+            }
+        }
+        for project in nested {
+            let Some(root) = project.parent.clone() else {
+                continue;
+            };
+            match roots.iter_mut().find(|held| held.path == root) {
+                Some(held) => {
+                    if held.checkout.is_none() {
+                        held.checkout = Some(project.path);
+                    }
+                }
+                None => roots.push(SpaceProject::checked_out(root, project.path)),
+            }
+        }
+        self.projects = roots;
     }
 
     pub fn project_rows(&self) -> Vec<vmux_core::event::ProjectRow> {
         use vmux_core::event::ProjectRow;
 
-        let listed: std::collections::HashSet<&str> =
-            self.projects.iter().map(|p| p.path.as_str()).collect();
         let active = self.active_dir();
-        let row = |project: &SpaceProject, depth: u32| ProjectRow {
-            path: project.path.clone(),
-            label: project.display_label().to_string(),
-            display_path: project.path.clone(),
-            depth,
-            is_active: active == Some(project.path.as_str()),
-            is_worktree: project.parent.is_some(),
-            missing: !std::path::Path::new(&project.path).is_dir(),
-            branch: String::new(),
-            kind: vmux_core::event::ProjectRowKind::Project,
-            expanded: false,
-        };
-
         let mut rows = Vec::with_capacity(self.projects.len());
         for project in &self.projects {
-            let rooted = project
-                .parent
-                .as_deref()
-                .is_none_or(|parent| !listed.contains(parent));
-            if !rooted {
-                continue;
-            }
-            rows.push(row(project, 0));
-            for child in &self.projects {
-                if child.parent.as_deref() == Some(project.path.as_str()) {
-                    rows.push(row(child, 1));
-                }
-            }
+            let in_use = project.in_use();
+            rows.push(ProjectRow {
+                path: in_use.to_string(),
+                label: project.display_label().to_string(),
+                display_path: in_use.to_string(),
+                depth: 0,
+                is_active: active == Some(in_use),
+                is_worktree: project.checkout.is_some(),
+                missing: !std::path::Path::new(in_use).is_dir(),
+                branch: String::new(),
+                kind: vmux_core::event::ProjectRowKind::Project,
+                expanded: false,
+            });
         }
         rows
     }
 
     pub fn active_dir(&self) -> Option<&str> {
         if let Some(active) = self.active_project.as_deref()
-            && self.projects.iter().any(|p| p.path == active)
+            && self.projects.iter().any(|held| held.in_use() == active)
         {
             return Some(active);
         }
         self.projects
             .first()
-            .map(|p| p.path.as_str())
+            .map(SpaceProject::in_use)
             .or(self.startup_dir.as_deref())
     }
 }
@@ -2242,47 +2276,74 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_sit_under_the_repository_they_came_from() {
-        let space = SpaceOverrides {
+    fn choosing_a_worktree_moves_the_repository_row_instead_of_adding_one() {
+        let mut settings = base_settings();
+        settings.spaces.insert(
+            "work".to_string(),
+            SpaceOverrides {
+                projects: vec![SpaceProject::at("/repo/vmux-cloud")],
+                active_project: Some("/repo/vmux-cloud".to_string()),
+                ..Default::default()
+            },
+        );
+
+        settings.remember_space_project(
+            "work",
+            SpaceProject::checked_out("/repo/vmux-cloud", "/repo/vmux-cloud/.worktrees/vmx-198"),
+        );
+
+        let space = settings.spaces.get("work").expect("space");
+        let rows: Vec<(String, String, bool)> = space
+            .project_rows()
+            .into_iter()
+            .map(|row| (row.label, row.path, row.is_active))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![(
+                "vmux-cloud".to_string(),
+                "/repo/vmux-cloud/.worktrees/vmx-198".to_string(),
+                true
+            )],
+            "the worktree replaces the repository's checkout; it never becomes a second row"
+        );
+    }
+
+    #[test]
+    fn a_worktree_left_over_as_its_own_project_folds_into_its_repository() {
+        let mut space = SpaceOverrides {
             projects: vec![
                 SpaceProject::at("/repo/dashboard"),
-                SpaceProject::at("/repo/vmux"),
-                SpaceProject::under("/worktrees/a1b2", "/repo/dashboard"),
-                SpaceProject::under("/worktrees/c3d4", "/repo/dashboard"),
+                SpaceProject::legacy_child("/worktrees/a1b2", "/repo/dashboard"),
             ],
             active_project: Some("/worktrees/a1b2".to_string()),
             ..Default::default()
         };
 
-        let rows: Vec<(String, u32, bool)> = space
-            .project_rows()
-            .into_iter()
-            .map(|row| (row.path, row.depth, row.is_active))
-            .collect();
+        space.normalize();
 
-        assert_eq!(
-            rows,
-            vec![
-                ("/repo/dashboard".to_string(), 0, false),
-                ("/worktrees/a1b2".to_string(), 1, true),
-                ("/worktrees/c3d4".to_string(), 1, false),
-                ("/repo/vmux".to_string(), 0, false),
-            ]
-        );
+        assert_eq!(space.projects.len(), 1, "{:?}", space.projects);
+        assert_eq!(space.projects[0].path, "/repo/dashboard");
+        assert_eq!(space.projects[0].in_use(), "/worktrees/a1b2");
+        assert_eq!(space.active_dir(), Some("/worktrees/a1b2"));
     }
 
     #[test]
     fn a_worktree_whose_repository_is_not_listed_still_shows_up() {
         let space = SpaceOverrides {
-            projects: vec![SpaceProject::under("/worktrees/a1b2", "/repo/gone")],
+            projects: vec![SpaceProject::checked_out("/repo/gone", "/worktrees/a1b2")],
             ..Default::default()
         };
 
         let rows = space.project_rows();
 
-        assert_eq!(rows.len(), 1, "an unlisted parent must not swallow the row");
+        assert_eq!(
+            rows.len(),
+            1,
+            "an unlisted repository must not swallow the row"
+        );
         assert_eq!(rows[0].path, "/worktrees/a1b2");
-        assert_eq!(rows[0].depth, 0);
+        assert_eq!(rows[0].label, "gone");
     }
 
     #[test]

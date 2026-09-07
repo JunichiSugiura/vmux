@@ -15,13 +15,8 @@ path = "src/main.rs"
 required-features = ["mobile"]
 
 [dependencies]
-# The phone's ECS host, ticked from the event loop Dioxus already owns rather than a thread of its
-# own. `bevy_window` is here for `AppLifecycle` alone: it carries no winit, so taking Bevy's own
-# type costs nothing and keeps one vocabulary across the desktop and the phone.
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
-# Only to drive the pools while plugins report themselves ready, which is what `App`'s own
-# `run_once` does and the one part of a runner this crate has to reimplement.
 bevy_tasks = "0.19"
 bevy_window = { workspace = true }
 tracing = "0.1"
@@ -54,7 +49,6 @@ dispatch2 = "0.3"
 objc2 = "0.6"
 objc2-av-foundation = { version = "0.3", default-features = false, features = [
     "std",
-    # requestAccessForMediaType takes a completion block.
     "block2",
     "AVAnimation",
     "AVCaptureDevice",
@@ -96,7 +90,6 @@ objc2-ui-kit = { version = "0.3", default-features = false, features = [
     "NSText",
     "objc2-core-foundation",
     "objc2-quartz-core",
-    # openSettingsURLString, so a denied camera can be re-granted without hunting through Settings.
     "UIApplication",
     "UIButton",
     "UIColor",

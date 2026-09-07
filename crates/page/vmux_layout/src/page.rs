@@ -799,7 +799,6 @@ fn ProjectListRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Elemen
     let tree = project.kind.opens_a_tree();
     let root = matches!(project.kind, vmux_core::event::ProjectRowKind::Project);
     let activate = project.path.clone();
-    let activate_target = project.path.clone();
     let forget = project.path.clone();
     let forget_title = translate("layout-project-forget");
     let activate_title = translate("layout-project-activate");
@@ -824,22 +823,22 @@ fn ProjectListRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Elemen
                     }
                     false => open_project_path(pane_id, activate.clone()),
                 },
-                trailing: rsx! {
+                label_suffix: rsx! {
                     if !project.branch.is_empty() {
-                        span { class: "shrink-0 truncate text-[10px] text-muted-foreground/70", "{project.branch}" }
+                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
                     }
                 },
             }
             if root {
-                button {
-                    r#type: "button",
-                    aria_label: "{activate_title}",
-                    title: "{activate_title}",
-                    class: if project.is_active { "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground" } else { "mr-1 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground" },
-                    onclick: move |_| emit_project_command("activate", Some(activate_target.clone())),
-                    Icon { class: "h-3.5 w-3.5 pointer-events-none",
-                        path { d: "M12 17v5" }
-                        path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
+                if project.is_active {
+                    span {
+                        aria_label: "{activate_title}",
+                        title: "{activate_title}",
+                        class: "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground",
+                        Icon { class: "h-3.5 w-3.5 pointer-events-none",
+                            path { d: "M12 17v5" }
+                            path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
+                        }
                     }
                 }
                 button {
@@ -1937,7 +1936,7 @@ fn Tab(tab: TabRow) -> Element {
             div {
                 title: "{tooltip}",
                 class: "flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden",
-                StackIcon {
+                HeaderTabIcon {
                     icon: tab.icon.clone(),
                     url: tab.url.clone(),
                     title: display_title.clone(),
@@ -1987,6 +1986,50 @@ fn Tab(tab: TabRow) -> Element {
                     {translate("layout-pin")}
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn HeaderTabIcon(icon: PageIcon, url: String, title: String) -> Element {
+    if title == "New Stack" && url.is_empty() {
+        return rsx! { StackIcon { icon, url, title } };
+    }
+    let initial_ready = !icon.is_none();
+    let mut displayed_icon = use_signal(|| icon.clone());
+    let mut displayed_url = use_signal(|| url.clone());
+    let mut fallback_ready = use_signal(|| initial_ready);
+    let mut generation = use_signal(|| 0_u32);
+    use_effect(use_reactive!(|(icon, url)| {
+        let next = generation.peek().wrapping_add(1);
+        generation.set(next);
+        if !icon.is_none() {
+            displayed_icon.set(icon);
+            displayed_url.set(url);
+            fallback_ready.set(true);
+            return;
+        }
+        fallback_ready.set(false);
+        let url = url.clone();
+        spawn(async move {
+            sleep_ms(500).await;
+            if generation() != next {
+                return;
+            }
+            displayed_icon.set(PageIcon::None);
+            displayed_url.set(url);
+            fallback_ready.set(true);
+        });
+    }));
+    let shown_icon = displayed_icon();
+    if shown_icon.is_none() && !fallback_ready() {
+        return rsx! { span { class: "h-4 w-4 shrink-0" } };
+    }
+    rsx! {
+        StackIcon {
+            icon: shown_icon,
+            url: displayed_url(),
+            title,
         }
     }
 }
@@ -2995,7 +3038,6 @@ fn BookmarkEntry(
             }),
     );
     let remove_index = 3 + move_targets.len();
-    let title_class = format!("min-w-0 flex-1 {} text-ui", dir_truncate_class(&title));
     let drag_item = BookmarkDragItem::Bookmark {
         uuid: row.uuid.clone(),
     };
@@ -3032,26 +3074,30 @@ fn BookmarkEntry(
                             let item = drag_item.clone();
                             move |event| begin_bookmark_drag(drag_state, &event, item.clone())
                         },
-                        SheetEntryRow {
-                            active: false,
-                            onclick: {
-                                let u = url_open.clone();
-                                move |event: MouseEvent| {
-                                    if bookmark_drag_blocks_click(drag_state) {
-                                        event.prevent_default();
-                                        event.stop_propagation();
-                                        return;
+                        SidebarTreeRowGroup {
+                            SidebarTreeRow {
+                                path: row.metadata.url.clone(),
+                                label: title.clone(),
+                                is_dir: false,
+                                title: title.clone(),
+                                leading: rsx! {
+                                    PageIconView {
+                                        icon: row.metadata.icon.clone(),
+                                        url: row.metadata.url.clone(),
+                                        img_class: "h-3.5 w-3.5 shrink-0 rounded-sm object-contain".to_string(),
+                                        icon_class: "h-3.5 w-3.5 shrink-0 text-muted-foreground".to_string(),
                                     }
-                                    open_bookmark(u.clone());
-                                }
-                            },
-                            PageIconView {
-                                icon: row.metadata.icon.clone(),
-                                url: row.metadata.url.clone(),
-                                img_class: "h-4 w-4 shrink-0 rounded-sm object-contain".to_string(),
-                                icon_class: "h-4 w-4 shrink-0 text-muted-foreground".to_string(),
+                                },
+                                on_activate: {
+                                    let u = url_open.clone();
+                                    move |()| {
+                                        if bookmark_drag_blocks_click(drag_state) {
+                                            return;
+                                        }
+                                        open_bookmark(u.clone());
+                                    }
+                                },
                             }
-                            span { class: "{title_class}", "{title}" }
                         }
                     }
                 }
@@ -3603,21 +3649,6 @@ fn StackIcon(icon: PageIcon, url: String, title: String) -> Element {
 fn SideSheetContextMenuContent(children: Element) -> Element {
     rsx! {
         ContextMenuContent { attributes: vec![], {children} }
-    }
-}
-
-#[component]
-fn SheetEntryRow(active: bool, onclick: EventHandler<MouseEvent>, children: Element) -> Element {
-    rsx! {
-        div {
-            class: if active {
-                "glass group flex h-9 cursor-default items-center gap-2 rounded-md px-2"
-            } else {
-                "group flex h-9 cursor-pointer items-center gap-2 rounded-md px-2 border border-transparent text-muted-foreground hover:bg-glass-hover hover:text-foreground"
-            },
-            onclick: move |e| onclick.call(e),
-            {children}
-        }
     }
 }
 

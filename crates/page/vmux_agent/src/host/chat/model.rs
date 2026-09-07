@@ -279,6 +279,7 @@ fn model_state_of(state: Option<&AcpModelState>) -> ModelState {
     ModelState {
         current_model_id: state.display_model_id().to_string(),
         current_model_name: state.current_name().to_string(),
+        default_model_id: state.default_model_id.clone(),
         models: state
             .models
             .iter()
@@ -303,6 +304,7 @@ pub(super) fn emit_model_state(
     let mut state = model_state_of(model_state);
     state.agent_key = agent_key.to_string();
     state.effort_current = effort_current.to_string();
+    state.effort_default = vmux_core::agent::default_effort(agent_key).to_string();
     state.effort_levels = vmux_core::agent::effort_levels(agent_key)
         .iter()
         .map(|level| level.to_string())
@@ -644,6 +646,7 @@ mod tests {
                 AcpModelState {
                     config_id: "model".into(),
                     current_model_id: "default".into(),
+                    default_model_id: "default".into(),
                     pending: None,
                     models: vec![
                         vmux_service::protocol::AcpModelOption {
@@ -760,6 +763,7 @@ mod tests {
                 AcpModelState {
                     config_id: "model".into(),
                     current_model_id: "default".into(),
+                    default_model_id: "default".into(),
                     pending: None,
                     models: vec![
                         vmux_service::protocol::AcpModelOption {

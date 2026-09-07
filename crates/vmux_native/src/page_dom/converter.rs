@@ -1,10 +1,5 @@
 use dioxus_html::*;
 
-/// Builds the backing for one mounted element, as many times as the converter is asked for it.
-///
-/// `HtmlEventConverter::convert_mounted_data` returns a `MountedData` by value and is handed only
-/// a shared reference, so the backing cannot simply be moved out of the event — it has to be
-/// makeable on demand.
 pub(crate) struct MountedBacking(Box<dyn Fn() -> MountedData>);
 
 impl MountedBacking {
@@ -13,12 +8,6 @@ impl MountedBacking {
     }
 }
 
-/// Carries a live element through to `onmounted`, and hands everything else to the serialized path.
-///
-/// `SerializedHtmlEventConverter::convert_mounted_data` answers `MountedData::from(())`, whose
-/// every method is `NotSupported` — it assumes an event that crossed a wire cannot name an element
-/// still in the document. Here the event and the element arrive together, so the backing built for
-/// it survives, and a page can focus, measure and scroll itself.
 pub(crate) struct LiveElements(SerializedHtmlEventConverter);
 
 impl LiveElements {

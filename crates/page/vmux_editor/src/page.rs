@@ -25,7 +25,7 @@ use vmux_core::media::MediaKind;
 use vmux_git::event::{GIT_CHANGED_EVENT, GitChangedEvent};
 use vmux_git::ui::{DiffView, GitFooter, GitStatusFeed};
 use vmux_git::view::EditorDiffMarker;
-use vmux_ui::caret::{EventSelection, TextCaret};
+use vmux_ui::caret::EventSelection;
 use vmux_ui::components::icon::Icon;
 use vmux_ui::file_icon::TypeIcon;
 use vmux_ui::focus::FocusClaim;
@@ -134,6 +134,7 @@ pub fn Page() -> Element {
     let mut source_sel = use_signal(Vec::<vmux_core::editor::SelSpan>::new);
     let mut open_editors = use_signal(Vec::<OpenEditorItem>::new);
     let ime = use_ime_guard();
+    let typed = use_signal(String::new);
     let rename_ime = use_ime_guard();
     let mut lsp_hover = use_signal(|| Option::<FileHoverEvent>::None);
     let mut hover_pos = use_signal(|| Option::<(u32, u32)>::None);
@@ -892,7 +893,11 @@ pub fn Page() -> Element {
                                     open_path(ent.path);
                                 }
                             }
-                            "h" | "ArrowLeft" | "Escape" => {
+                            "Escape" => {
+                                e.prevent_default();
+                                EditorTabCommand { path: git_path() }.close();
+                            }
+                            "h" | "ArrowLeft" => {
                                 let pp = parent_path();
                                 if !pp.is_empty() {
                                     e.prevent_default();
@@ -1311,6 +1316,7 @@ pub fn Page() -> Element {
                                         }
                                         textarea {
                                             id: INPUT_ID,
+                                            value: "{typed}",
                                             onmounted: move |event: Event<MountedData>| {
                                                 viewport.field_mounted(event.data());
                                             },
@@ -1321,13 +1327,13 @@ pub fn Page() -> Element {
                                             oncompositionstart: move |_| ime.start(),
                                             oncompositionend: move |event: Event<CompositionData>| {
                                                 ime.commit();
-                                                send_committed_text(event.data().data());
+                                                send_committed_text(typed, event.data().data());
                                             },
                                             oninput: move |event: Event<FormData>| {
                                                 if ime.active() {
                                                     return;
                                                 }
-                                                send_committed_text(event.value());
+                                                send_committed_text(typed, event.value());
                                             },
                                             onkeydown: move |event: Event<KeyboardData>| {
                                                 event.stop_propagation();
@@ -1637,6 +1643,7 @@ pub fn Page() -> Element {
 
                                         textarea {
                                             id: INPUT_ID,
+                                            value: "{typed}",
                                             onmounted: move |event: Event<MountedData>| {
                                                 viewport.field_mounted(event.data());
                                             },
@@ -1648,13 +1655,13 @@ pub fn Page() -> Element {
                                             oncompositionstart: move |_| ime.start(),
                                             oncompositionend: move |event: Event<CompositionData>| {
                                                 ime.commit();
-                                                send_committed_text(event.data().data());
+                                                send_committed_text(typed, event.data().data());
                                             },
                                             oninput: move |event: Event<FormData>| {
                                                 if ime.active() {
                                                     return;
                                                 }
-                                                send_committed_text(event.value());
+                                                send_committed_text(typed, event.value());
                                             },
                                             onkeydown: move |e: Event<KeyboardData>| {
                                                 e.stop_propagation();
@@ -2071,11 +2078,6 @@ pub fn Page() -> Element {
     }
 }
 
-/// The list of rendered lines.
-///
-/// Every prop is a signal or a value only a resize changes, so moving the caret leaves them all
-/// equal and Dioxus skips this whole subtree. Without the boundary a caret move re-diffs all
-/// hundred rows to discover that none of them moved.
 #[component]
 fn EditorLines(
     lines: Signal<Vec<FileLine>>,
@@ -2124,12 +2126,6 @@ fn EditorLines(
     }
 }
 
-/// A fixed band of line numbers, so a chunk's identity survives scrolling.
-///
-/// The host replaces the whole window each time it sends one, so without this every row's props
-/// are rebuilt and every row is diffed for a one-line move. Cutting on absolute line number keeps
-/// the boundaries still while the window slides over them: the chunks that lost or gained a line
-/// re-render, and the ones in the middle compare equal and are skipped whole.
 struct LineChunk {
     start: u32,
     rows: Vec<(FileLine, FileLineLayout)>,
@@ -2220,12 +2216,6 @@ fn EditorLineChunk(
     }
 }
 
-/// One rendered line of the file.
-///
-/// This is a component rather than inline rsx because scrolling re-sends the whole window: a
-/// one-line move changes one row and leaves the other hundred identical. As a component each row
-/// memoizes on its props, so the unchanged ones are skipped instead of rebuilding their rsx and
-/// re-diffing every span.
 #[component]
 fn EditorLineRow(
     line: FileLine,
@@ -3414,7 +3404,7 @@ fn EditorTab(tab: EditorTabItem) -> Element {
             class,
             title: "{tab.path}",
             onclick: move |_| command.open(),
-            TypeIcon { path: tab.path.clone(), is_dir: false, class: "h-4 w-4 shrink-0 opacity-80" }
+            TypeIcon { path: tab.path.clone(), is_dir: tab.is_dir, class: "h-4 w-4 shrink-0 opacity-80" }
             span { class: "truncate", "{tab.name}" }
             if !tab.context.is_empty() {
                 span { class: "shrink-0 truncate text-[10px] text-muted-foreground/70", "{tab.context}" }
@@ -4901,12 +4891,12 @@ fn center_note_caret(block_index: usize, line: u32) {
     NoteCaretAnchor::of(block_index, line).center();
 }
 
-fn send_committed_text(text: String) {
+fn send_committed_text(mut field: Signal<String>, text: String) {
     if text.is_empty() {
         return;
     }
     let _ = send(&FileTextInput { text });
-    TextCaret::in_field(INPUT_ID).clear();
+    field.set(String::new());
 }
 
 fn forward_file_key(event: &Event<KeyboardData>, mode: vmux_core::editor::EditMode) -> bool {

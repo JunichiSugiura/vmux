@@ -2,53 +2,141 @@ use crate::event::{ChatGoToBranch, ChatSelectWorkspace, ModelOptionEntry, SetAge
 use crate::page::state::Chat;
 use dioxus::prelude::*;
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, focus_prompt_end};
-use vmux_ui::components::composer_bar::{ComposerMenus, EffortMenuData, ProjectMenuData};
+use vmux_ui::components::composer_bar::{
+    BranchMenuData, ComposerMenuKind, ComposerMenus, EffortMenuData, ProjectMenuData,
+};
 use vmux_ui::components::model_menu::ModelMenu;
 use vmux_ui::components::project_picker::ProjectPick;
 use vmux_ui::hooks::send;
 
 #[component]
 pub(super) fn ChatComposerMenus(chat: Chat) -> Element {
-    let context = (chat.slash.composer_context)();
-    let agent_key = (chat.effort.agent_key)();
-    let mut current = chat.effort.current;
-    let effort = EffortMenuData {
-        levels: (chat.effort.levels)(),
-        selected: current(),
-        on_select: EventHandler::new(move |level: String| {
-            current.set(level.clone());
-            let _ = send(&SetAgentEffort {
-                agent_key: agent_key.clone(),
-                level,
-            });
-            focus_prompt_end(PROMPT_INPUT_ID);
-        }),
-    };
-    let project = ProjectMenuData {
-        projects: context.projects.clone(),
-        expanded: (chat.projects.expanded)(),
-        branches: (chat.projects.branches)(),
-        branches_for: (chat.projects.branches_for)(),
-        on_expand: EventHandler::new(move |path: String| chat.projects.expand(&path)),
-        on_pick: EventHandler::new(move |pick: ProjectPick| {
-            let _ = send(&ChatGoToBranch {
-                project: pick.project,
-                branch: pick.branch,
-                checkout: pick.checkout,
-            });
-            focus_prompt_end(PROMPT_INPUT_ID);
-        }),
-        on_choose_another: EventHandler::new(move |()| {
-            let _ = send(&ChatSelectWorkspace);
-            focus_prompt_end(PROMPT_INPUT_ID);
-        }),
-    };
+    let menus = ChatMenuSet::of(chat);
     rsx! {
         ComposerMenus {
             menu: chat.menu,
-            effort: Some(effort),
-            project: Some(project),
+            effort: Some(menus.effort),
+            project: Some(menus.project),
+            branch: Some(menus.branch),
         }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ChatMenuSet {
+    effort: EffortMenuData,
+    project: ProjectMenuData,
+    branch: BranchMenuData,
+}
+
+impl ChatMenuSet {
+    pub(crate) fn of(chat: Chat) -> Self {
+        let context = (chat.slash.composer_context)();
+        let agent_key = (chat.effort.agent_key)();
+        let mut current = chat.effort.current;
+        let effort = EffortMenuData {
+            levels: (chat.effort.levels)(),
+            selected: current(),
+            on_select: EventHandler::new(move |level: String| {
+                current.set(level.clone());
+                let _ = send(&SetAgentEffort {
+                    agent_key: agent_key.clone(),
+                    level,
+                });
+                focus_prompt_end(PROMPT_INPUT_ID);
+            }),
+        };
+        let project = ProjectMenuData {
+            projects: context.projects.clone(),
+            loaded: (chat.projects.loaded)(),
+            on_pick: EventHandler::new(Self::go_to),
+            on_choose_another: EventHandler::new(move |()| {
+                let _ = send(&ChatSelectWorkspace);
+                focus_prompt_end(PROMPT_INPUT_ID);
+            }),
+        };
+        let branch = BranchMenuData {
+            project: context.cwd.clone(),
+            branches: (chat.projects.branches)(),
+            loaded: (chat.projects.branches_for)() == context.cwd,
+            on_pick: EventHandler::new(Self::go_to),
+        };
+
+        Self {
+            effort,
+            project,
+            branch,
+        }
+    }
+
+    pub(crate) fn rows(&self, kind: ComposerMenuKind) -> usize {
+        match kind {
+            ComposerMenuKind::Agent | ComposerMenuKind::Model => 0,
+            ComposerMenuKind::Effort => self.effort.levels.len() + 1,
+            ComposerMenuKind::Project => self.roots().len() + 1,
+            ComposerMenuKind::Branch => self.branch.branches.len(),
+        }
+    }
+
+    pub(crate) fn choose(&self, kind: ComposerMenuKind, index: usize) -> bool {
+        match kind {
+            ComposerMenuKind::Agent | ComposerMenuKind::Model => return false,
+            ComposerMenuKind::Effort => {
+                if index == 0 {
+                    self.effort.on_select.call(String::new());
+                    return true;
+                }
+                let Some(level) = self.effort.levels.get(index - 1) else {
+                    return false;
+                };
+                self.effort.on_select.call(level.clone());
+            }
+            ComposerMenuKind::Project => {
+                let roots = self.roots();
+                if index == roots.len() {
+                    self.project.on_choose_another.call(());
+                    return true;
+                }
+                let Some(project) = roots.get(index) else {
+                    return false;
+                };
+                self.project.on_pick.call(ProjectPick {
+                    project: project.path.clone(),
+                    branch: String::new(),
+                    checkout: String::new(),
+                });
+            }
+            ComposerMenuKind::Branch => {
+                let Some(branch) = self.branch.branches.get(index) else {
+                    return false;
+                };
+                self.branch.on_pick.call(ProjectPick {
+                    project: self.branch.project.clone(),
+                    branch: branch.branch.clone(),
+                    checkout: branch.checkout.clone(),
+                });
+            }
+        }
+        true
+    }
+
+    fn roots(&self) -> Vec<&vmux_wire::space::ProjectRow> {
+        let mut roots = Vec::new();
+        for project in &self.project.projects {
+            if project.depth == 0 {
+                roots.push(project);
+            }
+        }
+        roots
+    }
+
+    fn go_to(pick: ProjectPick) {
+        let _ = send(&ChatGoToBranch {
+            project: pick.project,
+            branch: pick.branch,
+            checkout: pick.checkout,
+        });
+        focus_prompt_end(PROMPT_INPUT_ID);
     }
 }
 

@@ -1,7 +1,5 @@
 use self::menu::{CommandMenu, MediaMenu, ResumeMenu};
 use self::options::{ChatComposerMenus, ChatModelMenu};
-use self::workspace::WorkspaceBadges;
-use super::agent::StatusDot;
 use super::approval::ChoiceList;
 use super::keys::ChatKeys;
 use super::state::Chat;
@@ -44,14 +42,14 @@ pub(super) fn ChatDock(chat: Chat) -> Element {
 fn ChatComposer(chat: Chat) -> Element {
     let accent = agent_accent(&chat.agent());
     let keys = use_context::<ChatKeys>();
+    let drafted = chat.draft();
     rsx! {
         PromptComposer {
-            value: chat.draft(),
+            shared_transition: true,
+            value: drafted,
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),
-            show_examples: chat.show_examples(),
             placeholder: if chat.choice_pending() { translate("agent-choose-option") } else { translate("command-composer-placeholder") },
-            accent_bg: accent.accent_bg.to_string(),
             accent_color: chat.accent().css,
             accent_gradient: accent.grad.to_string(),
             footer: Some(rsx! {
@@ -82,6 +80,7 @@ fn ChatComposer(chat: Chat) -> Element {
 
 #[component]
 fn ComposerFooter(chat: Chat) -> Element {
+    let context = (chat.slash.composer_context)();
     rsx! {
         ComposerBar {
             menu: chat.menu,
@@ -89,69 +88,17 @@ fn ComposerFooter(chat: Chat) -> Element {
             effort: chat.effort_chip(),
             project: chat.project_chip(),
             branch: chat.branch_chip(),
-            badges: Some(rsx! {
-                WorkspaceBadges { chat }
-            }),
-            status: Some(rsx! {
-                ComposerStatus {
-                    status: chat.status(),
-                    active_subagents: (chat.activity_counts)().0,
-                    active_tasks: (chat.activity_counts)().1,
-                    queued_count: chat.queue.queued.read().len(),
-                }
-            }),
-        }
-    }
-}
-
-#[component]
-pub fn ComposerStatus(
-    status: String,
-    active_subagents: usize,
-    active_tasks: usize,
-    #[props(default)] queued_count: usize,
-) -> Element {
-    let run_label = match status.as_str() {
-        "streaming" => "Running",
-        "awaiting" => "Approval",
-        "installing" => "Starting",
-        "errored" => "Error",
-        _ => "Ready",
-    };
-    rsx! {
-        div { class: "flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground",
-            span { class: "flex h-7 items-center gap-1.5 rounded-lg px-2",
-                StatusDot { status, size_class: "h-1.5 w-1.5" }
-                "{run_label}"
-            }
-            if active_subagents > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg bg-violet-500/[0.07] px-2 text-violet-600 dark:text-violet-300", title: "Active subagents",
-                    svg {
-                        class: "h-3.5 w-3.5",
-                        view_box: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        stroke_width: "1.8",
-                        stroke_linecap: "round",
-                        stroke_linejoin: "round",
-                        circle { cx: "9", cy: "8", r: "3" }
-                        path { d: "M3.5 19a5.5 5.5 0 0 1 11 0" }
-                        circle { cx: "17", cy: "9", r: "2.5" }
-                        path { d: "M15.5 14.5A4.5 4.5 0 0 1 21 19" }
-                    }
-                    "{active_subagents}"
-                }
-            }
-            if active_tasks > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg px-2", title: "Open plan tasks", "{active_tasks} tasks" }
-            }
-            if queued_count > 0 {
-                span { class: "flex h-7 items-center gap-1 rounded-lg px-2", title: "Queued prompts", "{queued_count} queued" }
-            }
+            is_git_repo: context.is_git_repo,
+            workspace_known: context.workspace_selected,
+            uncommitted: context.uncommitted,
+            ahead: context.ahead,
+            status: chat.status(),
+            active_subagents: (chat.activity_counts)().0,
+            active_tasks: (chat.activity_counts)().1,
+            queued_count: chat.queue.queued.read().len(),
         }
     }
 }
 
 mod menu;
-mod options;
-mod workspace;
+pub(crate) mod options;

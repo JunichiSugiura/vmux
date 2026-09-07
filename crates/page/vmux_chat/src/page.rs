@@ -8,6 +8,7 @@ use self::state::use_chat;
 use self::transcript::ChatTranscript;
 use crate::transcript::MD_CSS;
 use dioxus::prelude::*;
+use vmux_ui::matrix_rain::MatrixRain;
 #[component]
 pub fn Page() -> Element {
     let chat = use_chat();
@@ -35,8 +36,11 @@ pub fn Page() -> Element {
 
 #[component]
 fn InstallBackdrop(accent_rgb: String, title: String) -> Element {
-    let _ = (accent_rgb, title);
-    rsx! {}
+    rsx! {
+        div { class: "pointer-events-none absolute inset-0 overflow-hidden",
+            MatrixRain { accent_rgb, words: vec![title] }
+        }
+    }
 }
 
 pub mod agent;

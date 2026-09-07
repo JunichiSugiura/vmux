@@ -48,6 +48,9 @@ pub struct PageOpenTask {
 pub struct PageOpenHandled;
 
 #[derive(Component, Clone, Debug)]
+pub struct PageOpenDeferred;
+
+#[derive(Component, Clone, Debug)]
 pub struct PageOpenError {
     pub message: String,
 }

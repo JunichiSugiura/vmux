@@ -115,11 +115,6 @@ fn sync_winit_power_mode(
     }
 }
 
-/// The wake exists so Bevy can service CEF, not so it can match the display.
-///
-/// On macOS CEF is pumped by its own CFRunLoop timer, so this wake only has to be often enough to
-/// upload OSR textures and run the schedule. Following a 120 Hz panel doubled the work for a
-/// surface that is not animating, so the foreground rate is floored at 60 Hz.
 const MIN_FOREGROUND_CEF_WAKE_INTERVAL: Duration = Duration::from_nanos(16_666_666);
 
 fn foreground_cef_wake_interval(refresh_rates: impl IntoIterator<Item = Option<u32>>) -> Duration {

@@ -40,9 +40,6 @@ static LIVE_RESIZE_MONITOR_INSTALLED: AtomicBool = AtomicBool::new(false);
 static HOVER_OVER_PANE: AtomicBool = AtomicBool::new(false);
 static NATIVE_WINDOWED_POINTER_INSIDE: AtomicBool = AtomicBool::new(false);
 
-// The key monitor sees Cmd+Q before AppKit does, but LifecycleEvent belongs to
-// the runtime, so the runtime is what drains the request. Writing it from the
-// monitor made every App that installs the keyboard without the runtime panic.
 fn hide_on_native_quit_request(mut lifecycle: MessageWriter<super::LifecycleEvent>) {
     if crate::native_keyboard::take_quit_request() {
         lifecycle.write(super::LifecycleEvent::HideAllWindows);

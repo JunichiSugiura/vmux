@@ -66,6 +66,7 @@ impl Plugin for EditorPlugin {
             .init_resource::<SharedFileViewMode>()
             .add_message::<vmux_core::event::RecordVisitRequest>()
             .add_message::<vmux_setting::SettingsWriteRequest>()
+            .add_message::<vmux_layout::CloseStackRequest>()
             .add_plugins(crate::contract::EditorContractPlugin)
             .add_plugins(EditorHistoryPlugin)
             .add_plugins(crate::lsp::LspPlugin)
@@ -505,11 +506,20 @@ pub(crate) struct ExplorerState {
     pub root: PathBuf,
     pub open_editors: Vec<PathBuf>,
     pub focus_path: Option<PathBuf>,
+    active_editor: Option<PathBuf>,
+    active_editor_is_dir: bool,
 }
 
 impl ExplorerState {
     fn allows(&self, path: &Path) -> bool {
         path.starts_with(&self.root)
+    }
+
+    fn close_editor(&mut self, path: &Path) -> Option<PathBuf> {
+        let at = self.open_editors.iter().position(|open| open == path)?;
+        self.open_editors.remove(at);
+        let neighbour = at.min(self.open_editors.len().saturating_sub(1));
+        self.open_editors.get(neighbour).cloned()
     }
 }
 
@@ -1601,12 +1611,6 @@ impl EditorWindow {
     }
 }
 
-/// The buffer lines whose selection, search and word highlights the page can actually show.
-///
-/// These were computed over the whole document on every caret move, so holding `j` in a large
-/// file re-scanned every line to find occurrences of the word under the cursor. The page positions
-/// spans by absolute row and only renders the loaded band, so anything outside it was work for
-/// nodes nobody sees.
 struct HighlightedLines;
 
 impl HighlightedLines {
@@ -1706,12 +1710,6 @@ fn emit_cursor(
     ));
 }
 
-/// How far the viewport slid, and whether the page needs a fresh window because of it.
-///
-/// The page holds an overscan band either side of what it shows and reveals the caret by
-/// scrolling itself, so a caret walking down the file does not need the host to resend the window
-/// for every line — the page asks for more through `FileScrollEvent` once its own band runs
-/// short. Only a jump large enough to land outside that band has to be served eagerly.
 struct DriftedWindow {
     rows: u32,
     overscan: u32,
@@ -1735,11 +1733,6 @@ impl DriftedWindow {
     }
 }
 
-/// Drags the caret along when the window scrolls out from under it, the way `CTRL-E` does.
-///
-/// Scrolling is the one motion that moves the window without moving the caret, so the caret is
-/// the thing that has to give once the window has left it behind. Vim keeps the column and only
-/// surrenders the line, so this places the caret on the same column of the edge row.
 struct ScrolledCursor;
 
 impl ScrolledCursor {
@@ -4975,9 +4968,14 @@ fn sync_open_editors(
     mut commands: Commands,
 ) {
     for (entity, fv, mut st) in &mut q {
-        if !fv.path.is_dir() {
-            crate::explorer_model::note_open(&mut st.open_editors, &fv.path);
+        if st.active_editor_is_dir
+            && let Some(previous) = st.active_editor.clone()
+        {
+            st.open_editors.retain(|open| open != &previous);
         }
+        crate::explorer_model::note_open(&mut st.open_editors, &fv.path);
+        st.active_editor = Some(fv.path.clone());
+        st.active_editor_is_dir = fv.path.is_dir();
         commands.entity(entity).insert(OpenEditorsDirty);
     }
 }
@@ -5018,6 +5016,7 @@ fn emit_open_editors(
                 path: path.to_string_lossy().into_owned(),
                 active,
                 dirty,
+                is_dir: path.is_dir(),
             });
         }
         commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -5029,9 +5028,36 @@ fn emit_open_editors(
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct EditorPageClose<'w, 's> {
+    child_of: Query<'w, 's, &'static ChildOf>,
+    stacks: Query<'w, 's, (), With<vmux_layout::stack::Stack>>,
+    closing: MessageWriter<'w, vmux_layout::CloseStackRequest>,
+}
+
+impl EditorPageClose<'_, '_> {
+    fn holding(&mut self, webview: Entity) {
+        let mut current = webview;
+        for _ in 0..8 {
+            if self.stacks.contains(current) {
+                self.closing
+                    .write(vmux_layout::CloseStackRequest::by_user(current));
+                return;
+            }
+            let Ok(parent) = self.child_of.get(current) else {
+                return;
+            };
+            current = parent.parent();
+        }
+    }
+}
+
 fn on_explorer_close_editor(
     trigger: On<BinReceive<ExplorerCloseEditor>>,
     mut q: Query<&mut ExplorerState>,
+    mut views: Query<NavigableFileView>,
+    mut page: EditorPageClose,
+    mut manager: ResMut<crate::lsp::manager::LspManager>,
     mut commands: Commands,
 ) {
     let entity = trigger.event().webview;
@@ -5039,8 +5065,27 @@ fn on_explorer_close_editor(
     let Ok(mut st) = q.get_mut(entity) else {
         return;
     };
-    crate::explorer_model::close(&mut st.open_editors, &path);
+    let next = st.close_editor(&path);
     commands.entity(entity).insert(OpenEditorsDirty);
+    let Some(next) = next else {
+        page.holding(entity);
+        return;
+    };
+    let Ok((mut fv, mut vp, mut meta)) = views.get_mut(entity) else {
+        return;
+    };
+    if fv.path != path {
+        return;
+    }
+    fv.navigate(
+        entity,
+        next,
+        0,
+        &mut vp,
+        &mut meta,
+        &mut manager,
+        &mut commands,
+    );
 }
 
 fn emit_outline_markdown(
@@ -6230,8 +6275,16 @@ mod explorer_tests {
 
     #[test]
     fn open_editors_track_on_navigate_and_close() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("src");
+        std::fs::create_dir(&dir).unwrap();
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
+            .insert_resource(crate::lsp::manager::LspManager::new(
+                crate::lsp::LspOutbox::default(),
+                crate::lsp::server_request::ServerEvents::default().sender(),
+            ))
+            .add_message::<vmux_layout::CloseStackRequest>()
             .add_systems(Update, sync_open_editors)
             .add_observer(on_explorer_close_editor);
         let a = PathBuf::from("/proj/a.rs");
@@ -6252,7 +6305,25 @@ mod explorer_tests {
             },
         });
         let st = app.world().get::<ExplorerState>(e).unwrap();
-        assert_eq!(st.open_editors, vec![b]);
+        assert_eq!(st.open_editors, vec![b.clone()]);
+        app.world_mut().get_mut::<FileView>(e).unwrap().path = dir.clone();
+        app.update();
+        let st = app.world().get::<ExplorerState>(e).unwrap();
+        assert_eq!(
+            st.open_editors,
+            vec![b.clone(), dir],
+            "a directory the reader navigated to needs a tab of its own, or the only way out \
+             of the navigator is to open another file"
+        );
+        let c = PathBuf::from("/proj/c.rs");
+        app.world_mut().get_mut::<FileView>(e).unwrap().path = c.clone();
+        app.update();
+        let st = app.world().get::<ExplorerState>(e).unwrap();
+        assert_eq!(
+            st.open_editors,
+            vec![b, c],
+            "opening a file from the directory navigator replaces that navigator tab"
+        );
     }
 
     #[test]
@@ -7509,6 +7580,44 @@ mod editor_window_tests {
             sync_fold_view(&mut edit);
             assert!(EditorWindow::paired(&EditorWindow::of(&mut edit, &vp)));
         }
+    }
+}
+
+#[cfg(test)]
+mod open_editor_tests {
+    use super::*;
+
+    impl ExplorerState {
+        fn holding(paths: &[&str]) -> Self {
+            Self {
+                open_editors: paths.iter().map(PathBuf::from).collect(),
+                ..Self::default()
+            }
+        }
+    }
+
+    #[test]
+    fn closing_an_editor_hands_back_the_tab_that_takes_its_place() {
+        let mut st = ExplorerState::holding(&["/a", "/b", "/c"]);
+        assert_eq!(
+            st.close_editor(Path::new("/b")),
+            Some(PathBuf::from("/c")),
+            "closing a middle tab moves right, as the tab strip reads"
+        );
+        assert_eq!(
+            st.close_editor(Path::new("/c")),
+            Some(PathBuf::from("/a")),
+            "closing the last tab falls back to the one on its left"
+        );
+        assert_eq!(st.close_editor(Path::new("/a")), None);
+        assert!(st.open_editors.is_empty());
+    }
+
+    #[test]
+    fn closing_an_editor_that_was_never_open_changes_nothing() {
+        let mut st = ExplorerState::holding(&["/a"]);
+        assert_eq!(st.close_editor(Path::new("/zzz")), None);
+        assert_eq!(st.open_editors, vec![PathBuf::from("/a")]);
     }
 }
 

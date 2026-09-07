@@ -167,6 +167,32 @@ mod tests {
     }
 
     #[test]
+    fn a_controlled_field_carries_its_new_value_to_the_document() {
+        #[component]
+        fn Field() -> Element {
+            let mut text = use_signal(String::new);
+            rsx! {
+                button { onclick: move |_| text.set("recalled".to_string()) }
+                textarea { value: "{text}" }
+            }
+        }
+
+        let mut page = PageDom::mount(Field, crate::Instance::default());
+        page.rebuild();
+        page.flushed();
+        page.handle(click_on(ElementId(1)), ());
+        let batch = page
+            .render()
+            .expect("the press changed the field, so something must go out");
+
+        assert!(
+            String::from_utf8_lossy(&batch).contains("recalled"),
+            "a field the reader cannot edit by hand is only ever set by its state, so a batch \
+             that leaves the new text out leaves the field showing the old one for good"
+        );
+    }
+
+    #[test]
     fn a_handler_that_prevents_the_default_is_reported_to_the_page() {
         #[component]
         fn Preventing() -> Element {

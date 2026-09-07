@@ -85,13 +85,29 @@ pub(crate) fn attach_page_agent_to_stack_with_webview(
     ));
     let url = format!("vmux://agent/{provider}");
     if let Some(webview) = webview {
-        commands.entity(webview).despawn();
+        commands
+            .entity(webview)
+            .insert((
+                PageMetadata {
+                    url,
+                    title: format!("{provider}/{model}"),
+                    bg_color: None,
+                    ..default()
+                },
+                crate::host::chat::AgentChatView,
+            ))
+            .remove::<(
+                vmux_start::StartInlineTransitionView,
+                vmux_core::launcher::HostsLauncher,
+                vmux_core::page::PageReady,
+            )>();
+    } else {
+        commands.spawn((
+            vmux_layout::Browser::native_page(&url, &format!("{provider}/{model}")),
+            crate::host::chat::AgentChatView,
+            ChildOf(stack),
+        ));
     }
-    commands.spawn((
-        vmux_layout::Browser::native_page(&url, &format!("{provider}/{model}")),
-        crate::host::chat::AgentChatView,
-        ChildOf(stack),
-    ));
 
     Some(())
 }
@@ -159,23 +175,35 @@ pub(crate) fn attach_acp_agent_to_stack_with_webview(
     {
         commands.entity(stack).insert(imported);
     }
-    if let Some(webview) = webview {
-        commands.entity(webview).despawn();
+    let view = if let Some(webview) = webview {
+        webview
+    } else {
+        commands
+            .spawn((
+                vmux_layout::Browser::native_page(&url, name),
+                crate::host::chat::AgentChatView,
+                ChildOf(stack),
+                anchor,
+            ))
+            .id()
+    };
+    commands.entity(view).insert((
+        PageMetadata {
+            url,
+            title: name.to_string(),
+            bg_color: None,
+            icon: vmux_core::PageIcon::favicon(icon.unwrap_or("")),
+        },
+        anchor,
+        crate::host::chat::AgentChatView,
+    ));
+    if webview.is_some() {
+        commands.entity(view).remove::<(
+            vmux_start::StartInlineTransitionView,
+            vmux_core::launcher::HostsLauncher,
+            vmux_core::page::PageReady,
+        )>();
     }
-    let view = commands
-        .spawn((
-            vmux_layout::Browser::native_page(&url, name),
-            crate::host::chat::AgentChatView,
-            ChildOf(stack),
-            anchor,
-        ))
-        .id();
-    commands.entity(view).insert(PageMetadata {
-        url,
-        title: name.to_string(),
-        bg_color: None,
-        icon: vmux_core::PageIcon::favicon(icon.unwrap_or("")),
-    });
 }
 
 pub(crate) fn acp_registry_agent_for_id<'a>(

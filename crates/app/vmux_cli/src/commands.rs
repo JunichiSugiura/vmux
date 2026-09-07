@@ -30,6 +30,8 @@ pub enum Command {
         acp_terminals: bool,
         #[arg(long, default_value_t = 50)]
         run_timeout_secs: u64,
+        #[arg(long, default_value_t = String::new())]
+        shell: String,
     },
     Notify {
         #[arg(long)]

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# macOS dev environment check for `make dev`.
-# Respects NO_COLOR=1 and skips colors when stdout is not a TTY.
 
 set -euo pipefail
 

@@ -52,12 +52,34 @@ impl super::Clipboard {
 
     pub(super) fn image_file_path() -> Option<String> {
         use objc2_app_kit::{NSPasteboard, NSPasteboardTypeFileURL};
+        use objc2_foundation::NSURL;
         let url_type = unsafe { NSPasteboardTypeFileURL };
-        let url_str = NSPasteboard::generalPasteboard()
-            .stringForType(url_type)?
-            .to_string();
-        let path = url::Url::parse(&url_str).ok()?.to_file_path().ok()?;
-        path_looks_like_image(&path).then(|| path.to_string_lossy().into_owned())
+        let pasteboard = NSPasteboard::generalPasteboard();
+        let mut candidates = Vec::new();
+        if let Some(text) = pasteboard.stringForType(url_type) {
+            candidates.push(text);
+        }
+        if let Some(items) = pasteboard.pasteboardItems() {
+            for index in 0..items.count() {
+                if let Some(text) = items.objectAtIndex(index).stringForType(url_type) {
+                    candidates.push(text);
+                }
+            }
+        }
+        for candidate in candidates {
+            let Some(url) = NSURL::URLWithString(&candidate) else {
+                continue;
+            };
+            let resolved = url.filePathURL().unwrap_or(url);
+            let Some(path) = resolved.path() else {
+                continue;
+            };
+            let path = std::path::PathBuf::from(path.to_string());
+            if path_looks_like_image(&path) {
+                return Some(path.to_string_lossy().into_owned());
+            }
+        }
+        None
     }
 }
 

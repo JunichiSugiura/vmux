@@ -2,8 +2,8 @@ use bevy::{ecs::relationship::Relationship, prelude::*};
 use vmux_wire::error::ErrorPageData;
 
 use vmux_core::{
-    CefPageAttachRequest, PageOpenError, PageOpenHandled, PageOpenId, PageOpenRequest, PageOpenSet,
-    PageOpenTarget, PageOpenTask,
+    CefPageAttachRequest, PageOpenDeferred, PageOpenError, PageOpenHandled, PageOpenId,
+    PageOpenRequest, PageOpenSet, PageOpenTarget, PageOpenTask,
 };
 use vmux_history::LastActivatedAt;
 use vmux_layout::Browser;
@@ -156,7 +156,7 @@ pub(crate) fn handle_unclaimed_page_open_tasks(
             Option<&PageOpenError>,
             Option<&PageOpenFallbackDeferred>,
         ),
-        Without<PageOpenHandled>,
+        (Without<PageOpenHandled>, Without<PageOpenDeferred>),
     >,
     children_q: Query<&Children>,
     mut commands: Commands,

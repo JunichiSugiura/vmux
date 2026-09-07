@@ -86,6 +86,7 @@ struct StartPromptContextParams<'w, 's> {
         ),
     >,
     agent_models: Res<'w, vmux_command::snapshot::CommandBarAgentModels>,
+    warmed_branches_for: Local<'s, String>,
 }
 
 impl StartPromptContextParams<'_, '_> {
@@ -126,22 +127,26 @@ impl StartPromptContextParams<'_, '_> {
         info: Option<&vmux_git::worktree::RepoInfo>,
     ) -> CommandBarPromptContext {
         let Some(tab) = tab else {
-            return default();
+            return CommandBarPromptContext::unrooted();
         };
         let Ok((_, _, worktree)) = self.tabs.get(tab) else {
-            return default();
+            return CommandBarPromptContext::unrooted();
         };
         let cwd = self.cwd(Some(tab));
         if cwd.is_empty() {
-            return default();
+            return CommandBarPromptContext::unrooted();
         }
         let path = std::path::Path::new(&cwd);
-        CommandBarPromptContext {
-            workspace_name: path
+        let named = match info {
+            Some(info) => info.project_name(),
+            None => path
                 .file_name()
                 .map(|name| name.to_string_lossy().into_owned())
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| cwd.clone()),
+        };
+        CommandBarPromptContext {
+            workspace_name: named,
             cwd,
             is_git_repo: info.is_some(),
             is_worktree: info.is_some_and(|info| info.is_worktree),
@@ -153,6 +158,7 @@ impl StartPromptContextParams<'_, '_> {
             uncommitted: info.map(|info| info.uncommitted).unwrap_or(0),
             ahead: info.map(|info| info.ahead).unwrap_or(0),
             projects: Vec::new(),
+            ..CommandBarPromptContext::unrooted()
         }
     }
 }
@@ -261,39 +267,48 @@ struct StartBranchRead {
     task: bevy::tasks::Task<Vec<vmux_wire::space::ProjectBranch>>,
 }
 
+impl StartBranchRead {
+    fn of(webview: Entity, project: &str) -> Option<Self> {
+        let project = project.trim().to_string();
+        if project.is_empty() {
+            return None;
+        }
+        let root = std::path::PathBuf::from(&project);
+        let task = IoTaskPool::get().spawn(async move {
+            let Ok(holders) = vmux_git::worktree::branch_holders(&root) else {
+                return Vec::new();
+            };
+            let mut branches = Vec::with_capacity(holders.len());
+            for holder in holders {
+                let checkout = holder.checkout_path();
+                let label = holder.checkout_label();
+                branches.push(vmux_wire::space::ProjectBranch {
+                    branch: holder.branch,
+                    checkout,
+                    label,
+                    insertions: holder.change.insertions,
+                    deletions: holder.change.deletions,
+                });
+            }
+            branches
+        });
+        Some(Self {
+            webview,
+            project,
+            task,
+        })
+    }
+}
+
 fn on_start_branches_request(
     trigger: On<BinReceive<vmux_wire::command_bar::StartBranchesRequest>>,
     mut commands: Commands,
 ) {
-    let webview = trigger.event().webview;
-    let project = trigger.event().payload.project.trim().to_string();
-    if project.is_empty() {
+    let Some(read) = StartBranchRead::of(trigger.event().webview, &trigger.event().payload.project)
+    else {
         return;
-    }
-    let root = std::path::PathBuf::from(&project);
-    let task = IoTaskPool::get().spawn(async move {
-        let Ok(holders) = vmux_git::worktree::branch_holders(&root) else {
-            return Vec::new();
-        };
-        let mut branches = Vec::with_capacity(holders.len());
-        for holder in holders {
-            let checkout = holder.checkout_path();
-            let label = holder.checkout_label();
-            branches.push(vmux_wire::space::ProjectBranch {
-                branch: holder.branch,
-                checkout,
-                label,
-                insertions: holder.change.insertions,
-                deletions: holder.change.deletions,
-            });
-        }
-        branches
-    });
-    commands.spawn(StartBranchRead {
-        webview,
-        project,
-        task,
-    });
+    };
+    commands.spawn(read);
 }
 
 fn drain_start_branch_reads(
@@ -353,6 +368,9 @@ fn on_start_go_to_branch(
         return;
     };
     ChosenProject { path: root.clone() }.apply(tab, &mut tabs, &mut commands);
+    if evt.branch.trim().is_empty() {
+        return;
+    }
     commands.entity(tab).insert(TabWorktree {
         repo_root: root.to_string_lossy().into_owned(),
         checkout_dir: String::new(),
@@ -394,7 +412,7 @@ impl ChosenProject {
 
 fn sync_live_start_pages(
     tab_gather: TabGatherParams,
-    prompt_context: StartPromptContextParams,
+    mut prompt_context: StartPromptContextParams,
     spaces_snapshot: Res<CommandBarSpacesSnapshot>,
     contributions: Contributions,
     mut contributions_changed: ContributionsChanged,
@@ -480,7 +498,15 @@ fn sync_live_start_pages(
         prompt_context.agent_models.agents.clone(),
         &locale,
     );
+    let project = vmux_ui::launcher::palette::ActiveProject::of(&payload.prompt_context);
+    let warm_branches = !project.is_empty() && *prompt_context.warmed_branches_for != project;
+    if warm_branches {
+        *prompt_context.warmed_branches_for = project.clone();
+    }
     for (e, focus_requested) in targets {
+        if warm_branches && let Some(read) = StartBranchRead::of(e, &project) {
+            commands.spawn(read);
+        }
         commands.trigger(BinHostEmitEvent::from_rkyv(
             e,
             START_COMMAND_BAR_OPEN_EVENT,
@@ -632,9 +658,12 @@ fn mark_start_pages_as_launcher_hosts(
 
 fn begin_requested_inline_transition(
     mut requests: MessageReader<InlineTransitionRequested>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
+    let mut changed = false;
     for request in requests.read() {
+        changed = true;
         commands
             .entity(request.stack)
             .try_insert(crate::StartInlineTransition {
@@ -643,6 +672,9 @@ fn begin_requested_inline_transition(
         commands
             .entity(request.webview)
             .try_insert(crate::StartInlineTransitionView);
+    }
+    if changed && let Some(proxy) = proxy {
+        let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
     }
 }
 

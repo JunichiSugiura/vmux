@@ -276,10 +276,6 @@ pub struct AgentFocusBlurred;
 
 const AGENT_LOADING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// How long a plain shell may take to reach its prompt before the boot screen is worth showing.
-///
-/// A local shell beats this, so opening a terminal shows the terminal — the way tmux does. The
-/// screen is for the shell that does not, and for an agent, which never does.
 const SHELL_BOOT_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -2980,12 +2976,6 @@ fn on_term_ready(
         .send(ClientMessage::RequestSnapshot { process_id: *pid });
 }
 
-/// Ask for the screen again once the page can receive it.
-///
-/// A frame emitted before the page is listening is dropped, and the frames after it are deltas —
-/// so a shell that prints its prompt and then waits leaves a page that never hears anything. The
-/// service connection races page readiness too, and loses often enough to matter. Either way the
-/// terminal is owed a whole screen, and this is where that debt is paid.
 fn resend_the_screen_a_page_missed(
     owed: Query<(Entity, &ProcessId), (With<Terminal>, With<OwedSnapshot>)>,
     browsers: NonSend<Browsers>,

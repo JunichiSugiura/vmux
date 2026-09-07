@@ -620,7 +620,6 @@ fn build_open_command(target: Option<OpenTarget>, url: String) -> OpenCommand {
     }
 }
 
-/// Resolves what someone typed into a path, and the `~` inside a `file://` they picked.
 struct Home;
 
 impl Home {
@@ -641,10 +640,6 @@ impl Home {
         }
     }
 
-    /// A `file://~/…` names nothing: the shell expands `~`, and no one else does.
-    ///
-    /// The launcher builds its editor row from what was typed, so a tilde survives into the URL it
-    /// sends. The editor then answers for a path that does not exist.
     fn expanded_file_url(value: &str) -> String {
         let Some(path) = value.strip_prefix("file://") else {
             return value.to_string();
@@ -701,6 +696,7 @@ fn on_command_bar_action(
     mut picked: MessageWriter<crate::host::FileStatusPicked>,
     mut issued: MessageWriter<crate::CommandIssued>,
     user_q: Query<Entity, With<vmux_core::team::User>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
     let webview = trigger.event().webview;
@@ -742,6 +738,9 @@ fn on_command_bar_action(
                         && vmux_wire::agent::supports_inline_agent_transition(&url)
                     {
                         inline_transition.write(InlineTransitionRequested { stack, webview });
+                        if let Some(proxy) = proxy.as_deref() {
+                            let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
+                        }
                     }
                     commands
                         .entity(stack)
@@ -798,6 +797,9 @@ fn on_command_bar_action(
                     && let Some(stack) = inline_transition_stack
                 {
                     inline_transition.write(InlineTransitionRequested { stack, webview });
+                    if let Some(proxy) = proxy.as_deref() {
+                        let _ = (**proxy).send_event(bevy::winit::WinitUserEvent::WakeUp);
+                    }
                     true
                 } else {
                     false
@@ -965,10 +967,6 @@ fn on_command_bar_action(
     }
 }
 
-/// Close the launcher over a surface that has just taken the focus out from under it.
-///
-/// Both surfaces it can be drawn on have to be told: the overlay window it owns, and the panel the
-/// layout page draws inline. Closing only the overlay leaves the panel up on the page that opened.
 fn deferred_dismiss_modal(
     mut pending_launch: ResMut<PendingLaunch>,
     mut modal_q: Query<
@@ -1209,7 +1207,6 @@ fn answer_settled_project_index(
     }
 }
 
-/// Decides whether a query is asking to walk the filesystem or to search the open project.
 struct ProjectQuery;
 
 impl ProjectQuery {

@@ -1,9 +1,4 @@
 #!/usr/bin/env bash
-# Embed packaging/macos/ai.vmux.service.plist inside Vmux.app, substituting
-# the build profile (and per-SHA label for local builds).
-#
-# Required env: VMUX_APP_BUNDLE, VMUX_BUILD_PROFILE
-# Optional env: VMUX_GIT_HASH (required when VMUX_BUILD_PROFILE=local)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

@@ -59,7 +59,7 @@ const MEDIA_THUMBNAIL_SOURCE_LIMIT: u64 = 25 * 1024 * 1024;
 
 const MEDIA_THUMBNAIL_TOTAL_LIMIT: u64 = 64 * 1024 * 1024;
 
-const MEDIA_THUMBNAIL_MAX_EDGE: u32 = 96;
+const MEDIA_THUMBNAIL_MAX_EDGE: u32 = 512;
 
 fn attachment_mime(path: &std::path::Path) -> String {
     let path_str = path.to_string_lossy();
@@ -150,12 +150,14 @@ fn spawn_chat_attachment_task(
     event: &'static str,
     paths: Vec<std::path::PathBuf>,
     previews: bool,
+    wake: vmux_core::host::wake::Wake,
     commands: &mut Commands,
 ) {
     if paths.is_empty() {
         return;
     }
     let task = IoTaskPool::get().spawn(async move {
+        let _wake = wake;
         ChatAttachments {
             attachments: paths
                 .into_iter()
@@ -177,6 +179,7 @@ fn spawn_chat_attachment_task(
 fn spawn_selected_attachment_tasks(
     webview: Entity,
     paths: Vec<std::path::PathBuf>,
+    wake: vmux_core::host::wake::Wake,
     commands: &mut Commands,
 ) {
     spawn_chat_attachment_task(
@@ -184,6 +187,7 @@ fn spawn_selected_attachment_tasks(
         CHAT_ATTACHMENTS_EVENT,
         paths.clone(),
         false,
+        wake,
         commands,
     );
 }
@@ -366,7 +370,11 @@ fn on_chat_media_list_request(
     });
 }
 
-fn on_chat_attach_paths(trigger: On<BinReceive<ChatAttachPaths>>, mut commands: Commands) {
+fn on_chat_attach_paths(
+    trigger: On<BinReceive<ChatAttachPaths>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut commands: Commands,
+) {
     let paths = trigger
         .event()
         .payload
@@ -375,11 +383,17 @@ fn on_chat_attach_paths(trigger: On<BinReceive<ChatAttachPaths>>, mut commands: 
         .filter(|path| !path.is_empty())
         .map(std::path::PathBuf::from)
         .collect();
-    spawn_selected_attachment_tasks(trigger.event().webview, paths, &mut commands);
+    spawn_selected_attachment_tasks(
+        trigger.event().webview,
+        paths,
+        vmux_core::host::wake::Wake::of(proxy),
+        &mut commands,
+    );
 }
 
 fn on_chat_attachment_preview_request(
     trigger: On<BinReceive<ChatAttachmentPreviewRequest>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
     let paths = trigger
@@ -395,11 +409,16 @@ fn on_chat_attachment_preview_request(
         CHAT_ATTACHMENT_PREVIEWS_EVENT,
         paths,
         true,
+        vmux_core::host::wake::Wake::of(proxy),
         &mut commands,
     );
 }
 
-fn on_chat_pick_files(trigger: On<BinReceive<ChatPickFiles>>, mut commands: Commands) {
+fn on_chat_pick_files(
+    trigger: On<BinReceive<ChatPickFiles>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut commands: Commands,
+) {
     let mut dialog = rfd::FileDialog::new();
     if let Some(home) = std::env::var_os("HOME") {
         dialog = dialog.set_directory(std::path::PathBuf::from(home));
@@ -407,7 +426,12 @@ fn on_chat_pick_files(trigger: On<BinReceive<ChatPickFiles>>, mut commands: Comm
     let Some(paths) = dialog.pick_files() else {
         return;
     };
-    spawn_selected_attachment_tasks(trigger.event().webview, paths, &mut commands);
+    spawn_selected_attachment_tasks(
+        trigger.event().webview,
+        paths,
+        vmux_core::host::wake::Wake::of(proxy),
+        &mut commands,
+    );
 }
 
 fn tiff_to_png(bytes: &[u8]) -> Option<Vec<u8>> {
@@ -430,15 +454,25 @@ fn clipboard_image_path() -> Option<std::path::PathBuf> {
     Some(path)
 }
 
-fn on_chat_paste_media(trigger: On<BinReceive<ChatPasteMedia>>, mut commands: Commands) {
+fn on_chat_paste_media(
+    trigger: On<BinReceive<ChatPasteMedia>>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
+    mut commands: Commands,
+) {
     let Some(path) = clipboard_image_path() else {
         return;
     };
-    spawn_selected_attachment_tasks(trigger.event().webview, vec![path], &mut commands);
+    spawn_selected_attachment_tasks(
+        trigger.event().webview,
+        vec![path],
+        vmux_core::host::wake::Wake::of(proxy),
+        &mut commands,
+    );
 }
 
 fn drain_chat_attachment_tasks(
     mut tasks: Query<(Entity, &mut ChatAttachmentTask)>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
     for (entity, mut pending) in &mut tasks {
@@ -463,6 +497,7 @@ fn drain_chat_attachment_tasks(
                 CHAT_ATTACHMENT_PREVIEWS_EVENT,
                 paths,
                 true,
+                vmux_core::host::wake::Wake::beside(proxy.as_deref()),
                 &mut commands,
             );
         }
@@ -472,6 +507,7 @@ fn drain_chat_attachment_tasks(
 
 fn drain_chat_media_list_tasks(
     mut tasks: Query<(Entity, &mut ChatMediaListTask)>,
+    proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
     mut commands: Commands,
 ) {
     for (entity, mut pending) in &mut tasks {
@@ -488,7 +524,11 @@ fn drain_chat_media_list_tasks(
             .iter()
             .any(|entry| !entry.is_dir && entry.mime_type.starts_with("image/"))
         {
-            let task = IoTaskPool::get().spawn(async move { chat_media_previews(entries) });
+            let wake = vmux_core::host::wake::Wake::beside(proxy.as_deref());
+            let task = IoTaskPool::get().spawn(async move {
+                let _wake = wake;
+                chat_media_previews(entries)
+            });
             commands.spawn(ChatMediaPreviewTask {
                 webview: pending.webview,
                 task,
@@ -531,7 +571,7 @@ mod tests {
     fn media_thumbnail_is_small_png_data_url() {
         let path =
             std::env::temp_dir().join(format!("vmux-media-thumbnail-{}.png", uuid::Uuid::new_v4()));
-        let image = image::RgbaImage::from_pixel(240, 120, image::Rgba([20, 40, 60, 255]));
+        let image = image::RgbaImage::from_pixel(2048, 1024, image::Rgba([20, 40, 60, 255]));
         image.save(&path).unwrap();
         let source_size = std::fs::metadata(&path).unwrap().len();
 
@@ -543,7 +583,11 @@ mod tests {
             .decode(encoded)
             .unwrap();
         let thumbnail = image::load_from_memory(&bytes).unwrap();
-        assert_eq!(thumbnail.width().max(thumbnail.height()), 96);
+        assert_eq!(
+            thumbnail.width().max(thumbnail.height()),
+            MEDIA_THUMBNAIL_MAX_EDGE,
+            "a preview is bounded by the edge the composer and the transcript draw it at"
+        );
     }
 
     #[test]

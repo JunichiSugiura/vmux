@@ -307,18 +307,22 @@ impl<'a> FilePath<'a> {
         extension.to_ascii_uppercase()
     }
 
+    pub fn is_image(self) -> bool {
+        matches!(
+            self.extension().as_str(),
+            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico"
+        )
+    }
+
     pub fn icon(self, is_dir: bool) -> FileIcon {
         if is_dir {
             return FileIcon::Folder;
         }
-        let name = self.name();
-        let ext = self.extension();
-        if matches!(
-            ext.as_str(),
-            "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico"
-        ) {
+        if self.is_image() {
             return FileIcon::Image;
         }
+        let name = self.name();
+        let ext = self.extension();
         let key = match name {
             "Dockerfile" => "dockerfile",
             "CMakeLists.txt" => "cmake",

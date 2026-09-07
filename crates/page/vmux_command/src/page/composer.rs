@@ -10,6 +10,8 @@ use vmux_ui::components::project_picker::ProjectPick;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::translate;
 use vmux_ui::launcher::palette::ComposerState;
+use vmux_ui::prompt_recall::{PromptHistoryDirection, move_prompt_history};
+use vmux_wire::chat::PromptHistoryRequest;
 use vmux_wire::room::ModelOptionEntry;
 use vmux_wire::space::ProjectBranch;
 
@@ -21,11 +23,7 @@ pub struct ComposerChips {
 }
 
 impl ComposerChips {
-    pub fn of(
-        composer: &ComposerState,
-        menu: ComposerMenu,
-        mut model_menu_sel: Signal<usize>,
-    ) -> Self {
+    pub fn of(composer: &ComposerState, menu: ComposerMenu, mut picking: ProjectPicking) -> Self {
         if composer.loading {
             return Self {
                 agent: ComposerChip::loading(),
@@ -48,7 +46,6 @@ impl ComposerChips {
             false => Some(
                 ComposerChip::ready(composer.model_name.clone(), translate("agent-change-model"))
                     .opens(EventHandler::new(move |()| {
-                        model_menu_sel.set(0);
                         menu.toggle(ComposerMenuKind::Model);
                     })),
             ),
@@ -70,10 +67,8 @@ impl ComposerChips {
                         composer.branch_title.clone(),
                     )
                     .opens(EventHandler::new(move |()| {
-                        if menu.toggle(ComposerMenuKind::Branch) && !owner.is_empty() {
-                            let _ = send(&StartBranchesRequest {
-                                project: owner.clone(),
-                            });
+                        if menu.toggle(ComposerMenuKind::Branch) {
+                            picking.read_ahead(&owner);
                         }
                     })),
                 )
@@ -90,17 +85,84 @@ impl ComposerChips {
 }
 
 #[derive(Clone, Copy)]
+pub struct PromptRecall {
+    history: Signal<Vec<String>>,
+    cursor: Signal<Option<usize>>,
+    scratch: Signal<String>,
+    handed: Signal<String>,
+    asked_for: Signal<String>,
+}
+
+pub fn use_prompt_recall() -> PromptRecall {
+    PromptRecall {
+        history: use_signal(Vec::<String>::new),
+        cursor: use_signal(|| None),
+        scratch: use_signal(String::new),
+        handed: use_signal(String::new),
+        asked_for: use_signal(String::new),
+    }
+}
+
+impl PromptRecall {
+    pub fn remember(&mut self, prompts: Vec<String>) {
+        self.history.set(prompts);
+    }
+
+    pub fn read_ahead(&mut self, agent: &str, cwd: &str) {
+        if agent.is_empty() || cwd.is_empty() {
+            return;
+        }
+        let asked = format!("{agent}\u{0}{cwd}");
+        if *self.asked_for.peek() == asked {
+            return;
+        }
+        self.asked_for.set(asked);
+        let _ = send(&PromptHistoryRequest {
+            agent: agent.to_string(),
+            cwd: cwd.to_string(),
+        });
+    }
+
+    pub fn recalling(&self, current: &str) -> bool {
+        self.place_in(current).is_some()
+    }
+
+    fn place_in(&self, current: &str) -> Option<usize> {
+        let cursor = (*self.cursor.peek())?;
+        (self.handed.peek().as_str() == current).then_some(cursor)
+    }
+
+    pub fn walk(&mut self, direction: PromptHistoryDirection, current: &str) -> Option<String> {
+        let history = self.history.peek().clone();
+        if history.is_empty() {
+            return None;
+        }
+        let (value, next, scratch) = move_prompt_history(
+            &history,
+            self.place_in(current),
+            &self.scratch.peek().clone(),
+            current,
+            direction,
+        );
+        self.cursor.set(next);
+        self.scratch.set(scratch);
+        self.handed.set(value.clone());
+        Some(value)
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct ProjectPicking {
-    pub expanded: Signal<String>,
     pub branches: Signal<Vec<ProjectBranch>>,
     pub branches_for: Signal<String>,
+    asked_for: Signal<String>,
 }
 
 pub fn use_project_picking() -> ProjectPicking {
     ProjectPicking {
-        expanded: use_signal(String::new),
         branches: use_signal(Vec::<ProjectBranch>::new),
         branches_for: use_signal(String::new),
+        asked_for: use_signal(String::new),
     }
 }
 
@@ -110,16 +172,14 @@ impl ProjectPicking {
         self.branches_for.set(project);
     }
 
-    fn expand(&mut self, path: String) {
-        if *self.expanded.peek() == path {
-            self.expanded.set(String::new());
+    pub fn read_ahead(&mut self, project: &str) {
+        if project.is_empty() || *self.asked_for.peek() == project {
             return;
         }
-        self.expanded.set(path.clone());
-        if *self.branches_for.peek() != path {
-            self.branches.set(Vec::new());
-        }
-        let _ = send(&StartBranchesRequest { project: path });
+        self.asked_for.set(project.to_string());
+        let _ = send(&StartBranchesRequest {
+            project: project.to_string(),
+        });
     }
 
     fn go_to(pick: ProjectPick) {
@@ -132,6 +192,7 @@ impl ProjectPicking {
     }
 }
 
+#[derive(Clone)]
 pub struct ComposerMenuSet {
     pub agent: AgentMenuData,
     pub model: ModelMenuData,
@@ -143,7 +204,6 @@ impl ComposerMenuSet {
     pub fn of(
         composer: &ComposerState,
         mut signals: PaletteSignals,
-        mut model_menu_sel: Signal<usize>,
         picking: ProjectPicking,
     ) -> Self {
         let agent = AgentMenuData {
@@ -158,8 +218,6 @@ impl ComposerMenuSet {
         let model = ModelMenuData {
             models: composer.model_options.clone(),
             current_model_id: composer.model_current_id.clone(),
-            selected: model_menu_sel(),
-            on_hover: EventHandler::new(move |index| model_menu_sel.set(index)),
             on_select: EventHandler::new(move |model: ModelOptionEntry| {
                 let _ = send(&StartSelectModel {
                     agent_key: agent_key.clone(),
@@ -169,13 +227,9 @@ impl ComposerMenuSet {
             }),
         };
         let cwd = composer.cwd.clone();
-        let mut expanding = picking;
         let project = ProjectMenuData {
             projects: composer.projects.clone(),
-            expanded: (picking.expanded)(),
-            branches: (picking.branches)(),
-            branches_for: (picking.branches_for)(),
-            on_expand: EventHandler::new(move |path: String| expanding.expand(path)),
+            loaded: !composer.projects.is_empty(),
             on_pick: EventHandler::new(ProjectPicking::go_to),
             on_choose_another: EventHandler::new(move |()| {
                 let _ = send(&StartSelectWorkspace {
@@ -197,5 +251,69 @@ impl ComposerMenuSet {
             project,
             branch,
         }
+    }
+
+    pub fn rows(&self, kind: ComposerMenuKind) -> usize {
+        match kind {
+            ComposerMenuKind::Agent => self.agent.options.len(),
+            ComposerMenuKind::Model => self.model.models.len(),
+            ComposerMenuKind::Effort => 0,
+            ComposerMenuKind::Project => self.roots().len() + 1,
+            ComposerMenuKind::Branch => self.branch.branches.len(),
+        }
+    }
+
+    pub fn choose(&self, kind: ComposerMenuKind, index: usize) -> bool {
+        match kind {
+            ComposerMenuKind::Agent => {
+                let Some(option) = self.agent.options.get(index) else {
+                    return false;
+                };
+                self.agent.on_select.call(option.url.clone());
+            }
+            ComposerMenuKind::Model => {
+                let Some(model) = self.model.models.get(index) else {
+                    return false;
+                };
+                self.model.on_select.call(model.clone());
+            }
+            ComposerMenuKind::Effort => return false,
+            ComposerMenuKind::Project => {
+                let roots = self.roots();
+                if index == roots.len() {
+                    self.project.on_choose_another.call(());
+                    return true;
+                }
+                let Some(project) = roots.get(index) else {
+                    return false;
+                };
+                self.project.on_pick.call(ProjectPick {
+                    project: project.path.clone(),
+                    branch: String::new(),
+                    checkout: String::new(),
+                });
+            }
+            ComposerMenuKind::Branch => {
+                let Some(branch) = self.branch.branches.get(index) else {
+                    return false;
+                };
+                self.branch.on_pick.call(ProjectPick {
+                    project: self.branch.project.clone(),
+                    branch: branch.branch.clone(),
+                    checkout: branch.checkout.clone(),
+                });
+            }
+        }
+        true
+    }
+
+    fn roots(&self) -> Vec<&vmux_wire::space::ProjectRow> {
+        let mut roots = Vec::new();
+        for project in &self.project.projects {
+            if project.depth == 0 {
+                roots.push(project);
+            }
+        }
+        roots
     }
 }

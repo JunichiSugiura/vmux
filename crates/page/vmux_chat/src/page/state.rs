@@ -127,17 +127,21 @@ impl Chat {
         let _models = use_listener::<ModelState, _>(MODEL_STATE_EVENT, move |state| {
             let mut models = chat.models.models;
             let mut current_model_id = chat.models.current_model_id;
+            let mut default_model_id = chat.models.default_model_id;
             let mut current_model = chat.models.current_model;
             let mut loaded = chat.models.loaded;
             let mut levels = chat.effort.levels;
             let mut current = chat.effort.current;
+            let mut default_level = chat.effort.default_level;
             let mut agent_key = chat.effort.agent_key;
             let mut menu_sel = chat.slash.menu_sel;
             models.set(state.models.clone());
             current_model_id.set(state.current_model_id.clone());
+            default_model_id.set(state.default_model_id.clone());
             current_model.set(state.current_model_name.clone());
             levels.set(state.effort_levels.clone());
             current.set(state.effort_current.clone());
+            default_level.set(state.effort_default.clone());
             agent_key.set(state.agent_key.clone());
             menu_sel.set(0);
             loaded.set(true);
@@ -150,13 +154,8 @@ impl Chat {
         });
         let _branches =
             use_listener::<ChatProjectBranches, _>(CHAT_PROJECT_BRANCHES_EVENT, move |incoming| {
-                if !chat.projects.awaits(&incoming.project) {
-                    return;
-                }
-                let mut branches = chat.projects.branches;
-                let mut branches_for = chat.projects.branches_for;
-                branches.set(incoming.branches.clone());
-                branches_for.set(incoming.project.clone());
+                chat.projects
+                    .remember(incoming.project.clone(), incoming.branches.clone());
             });
         let _sessions =
             use_listener::<ResumableSessions, _>(RESUMABLE_SESSIONS_EVENT, move |incoming| {
@@ -207,7 +206,7 @@ impl Chat {
         if messages_changed
             && let Ok(parsed) = serde_json::from_str::<Vec<ChatItem>>(&snapshot.messages_json)
         {
-            self.request_attachment_previews(&parsed);
+            self.request_transcript_previews(&parsed);
             let mut items = transcript.items;
             let mut recent_json = transcript.recent_messages_json;
             let mut recent_start = transcript.recent_messages_start;
@@ -227,6 +226,7 @@ impl Chat {
         set_if_changed(transcript.messages_total, snapshot.messages_total);
         set_if_changed(self.run.status, snapshot.status.clone());
         set_if_changed(self.run.error, snapshot.error.clone());
+        self.request_queue_previews(&snapshot.queued);
         set_if_changed(self.queue.queued, snapshot.queued.clone());
         set_if_changed(self.composer.transition_preview, String::new());
         set_if_changed(self.composer.transition_attachments, Vec::new());
@@ -273,7 +273,7 @@ impl Chat {
         let Ok(older) = serde_json::from_str::<Vec<ChatItem>>(&page.items_json) else {
             return;
         };
-        self.request_attachment_previews(&older);
+        self.request_transcript_previews(&older);
         let metrics = scroll::metrics(transcript.scroll_container);
         let mut items = transcript.items;
         let mut loaded_start = transcript.loaded_start;
@@ -286,25 +286,40 @@ impl Chat {
         }
     }
 
-    fn request_attachment_previews(&self, items: &[ChatItem]) {
-        let previews = self.composer.attachment_previews;
-        let mut requests = self.composer.attachment_preview_requests;
-        let known = previews.peek().keys().cloned().collect::<HashSet<_>>();
-        let mut requested = requests.peek().clone();
+    fn request_transcript_previews(&self, items: &[ChatItem]) {
         let mut paths = Vec::new();
         for item in items {
             let ChatItem::User { attachments, .. } = item else {
                 continue;
             };
             for attachment in attachments {
-                if !attachment.mime_type.starts_with("image/")
-                    || known.contains(&attachment.path)
-                    || !requested.insert(attachment.path.clone())
-                {
-                    continue;
+                if attachment.mime_type.starts_with("image/") {
+                    paths.push(attachment.path.clone());
                 }
-                paths.push(attachment.path.clone());
             }
+        }
+        self.request_attachment_previews(paths);
+    }
+
+    fn request_queue_previews(&self, queued: &[QueuedPromptSnapshot]) {
+        let mut paths = Vec::new();
+        for prompt in queued {
+            paths.extend(prompt.image_paths());
+        }
+        self.request_attachment_previews(paths);
+    }
+
+    fn request_attachment_previews(&self, wanted: Vec<String>) {
+        let previews = self.composer.attachment_previews;
+        let mut requests = self.composer.attachment_preview_requests;
+        let known = previews.peek().keys().cloned().collect::<HashSet<_>>();
+        let mut requested = requests.peek().clone();
+        let mut paths = Vec::new();
+        for path in wanted {
+            if known.contains(&path) || !requested.insert(path.clone()) {
+                continue;
+            }
+            paths.push(path);
         }
         if !paths.is_empty() && send(&ChatAttachmentPreviewRequest { paths }).is_ok() {
             requests.set(requested);
@@ -318,7 +333,7 @@ impl Chat {
             should_fetch_resume(&(self.composer.draft)(), &self.slash.commands.read());
         if should_fetch && !requested() {
             loading.set(true);
-            if send(&ResumeListRequest).is_err() {
+            if send(&ResumeListRequest { offset: 0 }).is_err() {
                 loading.set(false);
             }
             requested.set(true);
@@ -420,13 +435,6 @@ impl Chat {
         }
     }
 
-    pub fn show_examples(&self) -> bool {
-        self.transcript.items.read().is_empty()
-            && self.queue.queued.read().is_empty()
-            && self.composer.attachments.read().is_empty()
-            && self.composer.transition_attachments.read().is_empty()
-    }
-
     pub fn draft(&self) -> String {
         (self.composer.draft)()
     }
@@ -514,34 +522,14 @@ impl Chat {
 
     pub fn composer_attachments(&self) -> Vec<PromptComposerAttachment> {
         let previews = self.composer.attachment_previews.read();
-        let preview_of = |attachment: &ChatAttachment| {
-            let loaded = previews
-                .get(&attachment.path)
-                .filter(|preview| !preview.preview_data_url.is_empty());
-            match loaded {
-                Some(preview) => preview.preview_data_url.clone(),
-                None => attachment.preview_data_url.clone(),
-            }
-        };
-        let mut pills = Vec::new();
-        for attachment in self.composer.transition_attachments.read().iter() {
-            pills.push(PromptComposerAttachment {
-                key: format!("transition-attachment-{}", attachment.path),
-                name: attachment.name.clone(),
-                label: FilePath(&attachment.name).extension_label(),
-                preview_data_url: preview_of(attachment),
-                remove_index: None,
-            });
-        }
-        for (index, attachment) in self.composer.attachments.read().iter().enumerate() {
-            pills.push(PromptComposerAttachment {
-                key: format!("attachment-pill-{}", attachment.path),
-                name: attachment.name.clone(),
-                label: FilePath(&attachment.name).extension_label(),
-                preview_data_url: preview_of(attachment),
-                remove_index: Some(index),
-            });
-        }
+        let mut pills = PromptComposerAttachment::pinned(
+            &self.composer.transition_attachments.read(),
+            &previews,
+        );
+        pills.extend(PromptComposerAttachment::removable(
+            &self.composer.attachments.read(),
+            &previews,
+        ));
         pills
     }
 
@@ -588,6 +576,13 @@ impl Chat {
         if name.is_empty() {
             return None;
         }
+        let label = match (self.models.current_model_id)() == (self.models.default_model_id)() {
+            true => translate_with(
+                "agent-option-default",
+                &[("value", TranslationValue::String(&name))],
+            ),
+            false => name,
+        };
         let chat = *self;
         let open = EventHandler::new(move |()| {
             let mut draft = chat.composer.draft;
@@ -597,7 +592,7 @@ impl Chat {
             menu_sel.set(0);
             focus_prompt_end(PROMPT_INPUT_ID);
         });
-        Some(ComposerChip::ready(name, translate("agent-change-model")).opens(open))
+        Some(ComposerChip::ready(label, translate("agent-change-model")).opens(open))
     }
 
     pub fn effort_chip(&self) -> Option<ComposerChip> {
@@ -608,10 +603,15 @@ impl Chat {
             return None;
         }
         let selected = (self.effort.current)();
-        let label = if selected.is_empty() {
-            translate("agent-effort")
-        } else {
-            selected
+        let label = match selected.is_empty() {
+            false => selected,
+            true => translate_with(
+                "agent-option-default",
+                &[(
+                    "value",
+                    TranslationValue::String(&(self.effort.default_level)()),
+                )],
+            ),
         };
         let chat = *self;
         let open = EventHandler::new(move |()| {
@@ -655,17 +655,30 @@ impl Chat {
         if !context.is_git_repo {
             return None;
         }
+        let chat = *self;
+        let owner = context.cwd.clone();
+        let open = EventHandler::new(move |()| {
+            chat.open_menu(ComposerMenuKind::Branch);
+            if chat.menu.is(ComposerMenuKind::Branch) && !owner.is_empty() {
+                let _ = send(&ChatBranchesRequest {
+                    project: owner.clone(),
+                });
+            }
+        });
         if context.branch.is_empty() {
-            return Some(ComposerChip::ready(
-                translate("composer-git"),
-                translate("composer-git-repository"),
-            ));
+            return Some(
+                ComposerChip::ready(
+                    translate("composer-git"),
+                    translate("composer-git-repository"),
+                )
+                .opens(open),
+            );
         }
         let title = translate_with(
             "composer-branch-name",
             &[("branch", TranslationValue::String(&context.branch))],
         );
-        Some(ComposerChip::ready(context.branch, title))
+        Some(ComposerChip::ready(context.branch, title).opens(open))
     }
 }
 
@@ -832,6 +845,11 @@ impl Chat {
     }
 
     pub fn dismiss_selector(&self) {
+        if self.menu.opened().is_some() {
+            self.menu.close();
+            focus_prompt_end(PROMPT_INPUT_ID);
+            return;
+        }
         let mut draft = self.composer.draft;
         let mut menu_sel = self.slash.menu_sel;
         let value = draft.peek().clone();
@@ -1005,6 +1023,7 @@ pub fn use_media_picker() -> MediaPicker {
 pub struct ModelPicker {
     pub models: Signal<Vec<ModelOptionEntry>>,
     pub current_model_id: Signal<String>,
+    pub default_model_id: Signal<String>,
     pub current_model: Signal<String>,
     pub loaded: Signal<bool>,
 }
@@ -1013,6 +1032,7 @@ pub fn use_model_picker() -> ModelPicker {
     ModelPicker {
         models: use_signal(Vec::new),
         current_model_id: use_signal(String::new),
+        default_model_id: use_signal(String::new),
         current_model: use_signal(String::new),
         loaded: use_signal(|| false),
     }
@@ -1021,7 +1041,6 @@ pub fn use_model_picker() -> ModelPicker {
 #[derive(Clone, Copy, PartialEq)]
 pub struct ProjectPicker {
     pub loaded: Signal<bool>,
-    pub expanded: Signal<String>,
     pub branches: Signal<Vec<ChatBranch>>,
     pub branches_for: Signal<String>,
 }
@@ -1029,31 +1048,17 @@ pub struct ProjectPicker {
 pub fn use_project_picker() -> ProjectPicker {
     ProjectPicker {
         loaded: use_signal(|| false),
-        expanded: use_signal(String::new),
         branches: use_signal(Vec::new),
         branches_for: use_signal(String::new),
     }
 }
 
 impl ProjectPicker {
-    pub fn awaits(&self, project: &str) -> bool {
-        self.expanded.peek().as_str() == project
-    }
-
-    pub fn expand(&self, project: &str) {
-        let mut expanded = self.expanded;
-        if expanded.peek().as_str() == project {
-            expanded.set(String::new());
-            return;
-        }
-        expanded.set(project.to_string());
-        if self.branches_for.peek().as_str() != project {
-            let mut branches = self.branches;
-            branches.set(Vec::new());
-        }
-        let _ = send(&ChatBranchesRequest {
-            project: project.to_string(),
-        });
+    pub fn remember(&self, project: String, branches: Vec<ChatBranch>) {
+        let mut held = self.branches;
+        let mut held_for = self.branches_for;
+        held.set(branches);
+        held_for.set(project);
     }
 }
 
@@ -1061,6 +1066,7 @@ impl ProjectPicker {
 pub struct EffortPicker {
     pub levels: Signal<Vec<String>>,
     pub current: Signal<String>,
+    pub default_level: Signal<String>,
     pub agent_key: Signal<String>,
 }
 
@@ -1068,6 +1074,7 @@ pub fn use_effort_picker() -> EffortPicker {
     EffortPicker {
         levels: use_signal(Vec::new),
         current: use_signal(String::new),
+        default_level: use_signal(String::new),
         agent_key: use_signal(String::new),
     }
 }

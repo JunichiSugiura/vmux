@@ -109,6 +109,7 @@ fn acp_prompt_context(
 pub struct AcpModelState {
     pub config_id: String,
     pub current_model_id: String,
+    pub default_model_id: String,
     pub(crate) pending: Option<PendingAcpModelSelection>,
     pub models: Vec<vmux_service::protocol::AcpModelOption>,
 }
@@ -356,9 +357,14 @@ pub(crate) fn apply_acp_model_info(
             }
             if let Some(mut current) = current {
                 let pending = current.pending.take();
+                let default_model_id = match current.default_model_id.is_empty() {
+                    true => event.current_model_id.clone(),
+                    false => current.default_model_id.clone(),
+                };
                 *current = AcpModelState {
                     config_id: event.config_id.clone(),
                     current_model_id: event.current_model_id.clone(),
+                    default_model_id,
                     pending,
                     models: event.models.clone(),
                 };
@@ -366,6 +372,7 @@ pub(crate) fn apply_acp_model_info(
                 commands.entity(entity).insert(AcpModelState {
                     config_id: event.config_id.clone(),
                     current_model_id: event.current_model_id.clone(),
+                    default_model_id: event.current_model_id.clone(),
                     pending: None,
                     models: event.models.clone(),
                 });
@@ -1543,6 +1550,7 @@ mod tests {
                 AcpModelState {
                     config_id: "model".into(),
                     current_model_id: "default".into(),
+                    default_model_id: "default".into(),
                     pending: Some(PendingAcpModelSelection {
                         request_id: 2,
                         model_id: "fable".into(),

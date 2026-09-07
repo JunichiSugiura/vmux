@@ -6,6 +6,7 @@ pub async fn run(
     acp_session: bool,
     acp_terminals: bool,
     run_timeout_secs: u64,
+    shell: String,
 ) -> io::Result<()> {
     if let Some(p) = profile
         .map(|p| p.trim().to_string())
@@ -19,6 +20,7 @@ pub async fn run(
         acp_session,
         acp_terminals,
         std::time::Duration::from_secs(run_timeout_secs),
+        shell,
     )
     .await
 }

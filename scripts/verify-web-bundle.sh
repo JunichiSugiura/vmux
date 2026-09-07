@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Checks that a stylesheet bundle is complete and unmodified, against the manifest its build
-# script wrote. Run on the source directory and again on the copy inside the .app, so a partial
-# or corrupted copy fails packaging rather than shipping.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

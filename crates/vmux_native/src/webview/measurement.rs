@@ -21,6 +21,10 @@ enum Slot {
 }
 
 impl PendingReads {
+    pub(crate) fn clear(&self) {
+        self.slots.borrow_mut().clear();
+    }
+
     pub(crate) fn ask(&self) -> Measurement {
         let token = self.last_token.get().wrapping_add(1);
         self.last_token.set(token);

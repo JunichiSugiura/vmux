@@ -26,8 +26,6 @@ serde = { workspace = true }
 unic-langid = { workspace = true }
 vmux_wire = { path = "../vmux_wire" }
 
-# Native, iOS included: deliberately not a host block, which would drop these from the phone.
-
 [build-dependencies]
 sha2 = { version = "0.10" }
 

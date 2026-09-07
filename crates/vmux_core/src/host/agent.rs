@@ -14,6 +14,13 @@ pub fn effort_levels(agent_key: &str) -> &'static [&'static str] {
     }
 }
 
+pub fn default_effort(agent_key: &str) -> &'static str {
+    match agent_key {
+        "claude" | "cli:claude" | "cli:codex" => "medium",
+        _ => "",
+    }
+}
+
 impl From<AgentKind> for TerminalKind {
     fn from(kind: AgentKind) -> Self {
         match kind {

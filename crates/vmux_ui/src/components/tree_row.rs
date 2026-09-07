@@ -106,6 +106,8 @@ pub fn SidebarTreeRow(
     #[props(default)] depth: u32,
     #[props(default)] emphasis: bool,
     #[props(default)] title: Option<String>,
+    #[props(default)] leading: Option<Element>,
+    #[props(default = rsx! {})] label_suffix: Element,
     #[props(default = rsx! {})] trailing: Element,
     on_activate: EventHandler<()>,
 ) -> Element {
@@ -123,17 +125,23 @@ pub fn SidebarTreeRow(
                     class: if expanded { SIDEBAR_TREE_CHEVRON_OPEN } else { SIDEBAR_TREE_CHEVRON_CLOSED },
                     path { d: "m9 18 6-6-6-6" }
                 }
+            } else if let Some(leading) = leading {
+                span { class: "w-3 shrink-0" }
+                {leading}
             } else {
                 span { class: "w-3 shrink-0" }
                 TypeIcon { path: path.clone(), is_dir: false, class: "h-3.5 w-3.5 shrink-0" }
             }
-            span {
-                class: if emphasis {
-                    "min-w-0 flex-1 truncate text-ui font-medium"
-                } else {
-                    "min-w-0 flex-1 truncate text-ui"
-                },
-                "{label}"
+            span { class: "flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden",
+                span {
+                    class: if emphasis {
+                        "min-w-0 truncate text-ui font-medium"
+                    } else {
+                        "min-w-0 truncate text-ui"
+                    },
+                    "{label}"
+                }
+                {label_suffix}
             }
             {trailing}
         }

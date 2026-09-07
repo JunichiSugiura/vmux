@@ -23,7 +23,7 @@ pub fn StartHero(
     children: Element,
 ) -> Element {
     let reveal = if revealed {
-        "opacity-100 blur-0 translate-y-0"
+        "opacity-100"
     } else {
         "opacity-0 blur-sm translate-y-4"
     };

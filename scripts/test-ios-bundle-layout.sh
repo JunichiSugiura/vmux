@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Asserts the iOS .app bundle has the expected layout. Exits non-zero on failure.
-#
-# Everything checked here is injected after `dx build` rather than produced by it, so a silent
-# regression in inject-ios-resources.sh would otherwise only surface as an App Store rejection.
-#
-# Pass --signed to additionally require the signing artifacts.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -53,8 +47,6 @@ for path in "${REQUIRED[@]}"; do
     fi
 done
 
-# UIDeviceFamily is iPhone-only, so an iPad icon in the bundle means actool was run without
-# --target-device iphone.
 FORBIDDEN=(
     "AppIcon76x76@2x~ipad.png"
 )
@@ -80,9 +72,6 @@ if [[ "$(plist_value 'CFBundleIcons:CFBundlePrimaryIcon:CFBundleIconName')" != "
     exit 1
 fi
 
-# Everything Xcode would have written and dx does not. Checking only the nested icon name above
-# passed while the upload would still have been refused for the top-level one, so each key App
-# Store Connect validates is asserted by the name it validates.
 for key in CFBundleIconName MinimumOSVersion DTPlatformName DTPlatformVersion DTPlatformBuild \
     DTSDKName DTSDKBuild DTXcode DTXcodeBuild BuildMachineOSBuild; do
     if [[ -z "$(plist_value "$key")" ]]; then
@@ -101,8 +90,6 @@ if [[ "$(plist_value ITSAppUsesNonExemptEncryption)" != "false" ]]; then
     exit 1
 fi
 
-# The version keys are stamped onto the built copy, so a mismatch means the injection step did
-# not run and the checked-in placeholders shipped instead.
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
 if [[ "$(plist_value CFBundleShortVersionString)" != "$VERSION" ]]; then
     echo "Info.plist CFBundleShortVersionString does not match Cargo.toml ($VERSION)" >&2

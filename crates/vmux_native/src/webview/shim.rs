@@ -3,11 +3,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
   const report = (kind, text) => {
     try { window.ipc.postMessage('log:' + kind + ':' + text); } catch (e) {}
   };
-  // What is selected travels on the event's own request. A handler settles preventDefault before
-  // it returns, so it cannot wait to be told, and anything posted separately can reach the host
-  // after the decision it was meant to inform. dioxus sends that request from a module-local
-  // function, so there is no method to override and the headers go on the XHR itself — which is
-  // also what makes them the event's own, since `send` runs inside the dispatch.
   const encoder = new TextEncoder();
   const nativeOpen = XMLHttpRequest.prototype.open;
   const nativeSend = XMLHttpRequest.prototype.send;
@@ -16,21 +11,18 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     return nativeOpen.call(this, method, url, ...rest);
   };
   XMLHttpRequest.prototype.send = function (body) {
-    if (this.__vmuxEvent) {
-      // A field's own selection and the document's are separate facts, and a page asks both: one
-      // decides whether Up moves the caret or recalls, the other whether Ctrl+C copies.
-      const selected = !(document.getSelection() || { isCollapsed: true }).isCollapsed;
-      this.setRequestHeader('x-vmux-selected', selected ? '1' : '0');
-      const el = document.activeElement;
-      // An id outside this set would not survive a header, and a field the host cannot name is one
-      // it cannot answer about anyway. Offsets in UTF-8 bytes, the unit Rust counts in.
-      if (el && typeof el.selectionStart === 'number' && /^[\w:.-]+$/.test(el.id)) {
-        const bytes = (upto) => encoder.encode(el.value.slice(0, upto)).length;
-        this.setRequestHeader(
-          'x-vmux-caret',
-          el.id + ':' + bytes(el.selectionStart) + ':' + bytes(el.selectionEnd),
-        );
-      }
+    if (!this.__vmuxEvent) {
+      return nativeSend.call(this, body);
+    }
+    const selected = !(document.getSelection() || { isCollapsed: true }).isCollapsed;
+    this.setRequestHeader('x-vmux-selected', selected ? '1' : '0');
+    const el = document.activeElement;
+    if (el && typeof el.selectionStart === 'number' && /^[\w:.-]+$/.test(el.id)) {
+      const bytes = (upto) => encoder.encode(el.value.slice(0, upto)).length;
+      this.setRequestHeader(
+        'x-vmux-caret',
+        el.id + ':' + bytes(el.selectionStart) + ':' + bytes(el.selectionEnd),
+      );
     }
     return nativeSend.call(this, body);
   };
@@ -64,11 +56,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     return bytes.buffer;
   }
-  // Everything the host may ask to be done to an element, and nothing else. The host queues these
-  // as data and the page collects them here once a batch has landed, so no statement composed on
-  // the Rust side is ever evaluated.
-  // Four numbers, or none at all. The interpreter's own getters, so the node ids agree with the
-  // ones the host queued and nothing here has to find an element for itself.
   const measureNode = (node, what) => {
     const i = window.interpreter;
     if (what === 'rect') {
@@ -82,12 +69,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
 
     return pair.some((n) => n === undefined) ? [] : [pair[0], pair[1], 0, 0];
   };
-  // Bring a field's caret back into view after it has been moved from code.
-  //
-  // The engine scrolls a field to the caret only for the keys it handled itself, so a selection
-  // set through `setSelectionRange` leaves the view where it was — the caret ends up somewhere off
-  // the left or right of a field longer than its box. Measured rather than stepped, because the
-  // caret can land anywhere in the value and the field's font is not monospace.
   let caretRuler = null;
   const scrollCaretIntoView = (el, index) => {
     if (el.scrollWidth <= el.clientWidth) return;
@@ -98,14 +79,10 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     const caret = pen.measureText(el.value.slice(0, index)).width;
     const view =
       el.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
-    // A quarter of the box of lead, so the caret does not sit against the edge it came in over.
     const margin = view / 4;
     if (caret < el.scrollLeft) el.scrollLeft = Math.max(0, caret - margin);
     else if (caret > el.scrollLeft + view) el.scrollLeft = caret - view + margin;
   };
-  // Which character of an element's text a point falls on. Counted in code points, the unit Rust
-  // counts in, and scoped to the element the host named — the engine reports the caret against
-  // whichever descendant text node holds it, and what the page asked for is the offset in the run.
   const textOffsetAtPoint = (element, x, y) => {
     const el = document.getElementById(element);
     if (!el) return [];
@@ -124,18 +101,27 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
       range.setEnd(node, offset);
       return [[...range.cloneContents().textContent].length, 0, 0, 0];
     }
-    // The point missed the text: past the end of a short line, or over the padding beside it. How
-    // far along the box it sits is the best answer left, and for proportional text only an estimate.
     const rect = el.getBoundingClientRect();
     if (rect.width <= 0) return [0, 0, 0, 0];
     const length = [...(el.textContent || '')].length;
     const ratio = Math.min(Math.max((x - rect.left) / rect.width, 0), 1);
     return [Math.round(ratio * length), 0, 0, 0];
   };
+  const prepareRemount = () => {
+    const previous = window.interpreter;
+    const root = previous.root.cloneNode(false);
+    const interpreter = new NativeInterpreter(previous.baseUri, false);
+    interpreter.initialize(root);
+    return { previousRoot: previous.root, root, interpreter };
+  };
+  const commitRemount = (remount) => {
+    remount.previousRoot.replaceWith(remount.root);
+    window.interpreter = remount.interpreter;
+  };
   const applyDomRequest = (request) => {
-    // A request naming a node rather than an id came from a component holding a MountedData, and
-    // what it wants is a method the interpreter already has for the node it assigned.
     switch (request.kind) {
+      case 'remount':
+        return;
       case 'focusNode':
         window.interpreter.setFocus(request.node, request.focus);
         return;
@@ -149,14 +135,11 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
           inline: request.inline,
         });
         return;
-      // The only request that answers. An empty list says the node was gone by the time we looked,
-      // which the host turns back into a refusal rather than into a measurement of zero.
       case 'measureNode':
         window.ipc.postMessage(
           'measured:' + request.token + ':' + measureNode(request.node, request.what).join(','),
         );
         return;
-      // Named candidates rather than one element, so the lookup cannot be the shared one below.
       case 'revealElement':
         for (const id of request.elements) {
           const target = document.getElementById(id);
@@ -166,7 +149,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
           }
         }
         return;
-      // Answers the same way as a measurement, and an empty list means the same thing.
       case 'textOffsetAtPoint':
         window.ipc.postMessage(
           'measured:' +
@@ -179,21 +161,13 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     const el = document.getElementById(request.element);
     if (!el) return;
     switch (request.kind) {
-      // Never scrolling: a page that wants the element revealed asks for that separately, and a
-      // focus that scrolls on its own fights whatever the page had already decided to show.
       case 'focus':
         el.focus({ preventScroll: true });
         break;
-      // A `popover` element is display:none until it is shown, and showing it is what puts it in
-      // the top layer — the only way out of the `overflow-hidden`, `backdrop-filter` card a menu
-      // is anchored inside. Guarded because a second show on an open popover throws.
       case 'showPopover':
         if (el.isConnected && !el.matches(':popover-open')) {
           try { el.showPopover(); } catch (e) {}
         }
-        break;
-      case 'clearText':
-        el.value = '';
         break;
       case 'toggleMedia':
         if (el.paused) { el.play(); } else { el.pause(); }
@@ -207,7 +181,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
       case 'selectAll':
         el.setSelectionRange(0, el.value.length);
         break;
-      // A frame later than the rest, because focusing a field may move the selection itself.
       case 'offerText':
         requestAnimationFrame(() => {
           el.focus();
@@ -215,9 +188,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
           el.scrollLeft = 0;
         });
         break;
-      // The offset is in UTF-8 bytes and `setSelectionRange` counts UTF-16 units, so the value is
-      // re-encoded and cut where the host cut it. The cut is on a character boundary already —
-      // `TextCaret::place` floors it — so the decode cannot land mid-character.
       case 'placeCaret': {
         const bytes = new TextEncoder().encode(el.value).slice(0, request.byte);
         const index = new TextDecoder().decode(bytes).length;
@@ -225,10 +195,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
         scrollCaretIntoView(el, index);
         break;
       }
-      // A frame later, like `offerText` and for the same reason: the request rides the batch that
-      // wrote the value, and a caret placed before that lands past the end of the old text.
-      // Both scrolls, because the field may be a one-line input or the composer's textarea, and
-      // the one that does not apply is a no-op rather than a wrong position.
       case 'caretToEnd':
         requestAnimationFrame(() => {
           const end = el.value.length;
@@ -239,73 +205,20 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
         break;
     }
   };
-  // A field bound to a signal is echoed back on every keystroke, and the echo is a round trip
-  // behind: the event reaches the host synchronously, the batch it produces returns over
-  // `/__edits` only after the previous one was acknowledged. Type faster than that gap and the
-  // batch carries a string the field has already moved past. The interpreter compares it against
-  // the live value, finds a genuine difference, and assigns — and assigning `.value` collapses the
-  // selection to the end, so the rest of the sentence lands there.
-  //
-  // Restoring the selection around the batch does not fix it; the offset saved before the batch is
-  // stale for the same reason the value is, and typing during the round trip transposes characters.
-  // The write itself has to be refused, which means telling an echo from a real change. An echo is
-  // always a string this field held a moment ago. A real change — a completion accepted, a query
-  // normalised, text cleared — is a string it has never held. So the field remembers what it has
-  // been while it is focused, and a write matching that history is dropped; the host converges on
-  // the newer value in the next batch either way.
-  const HELD = 16;
-  const shadowValue = (el) => {
-    if (el.__vmuxHeld) return;
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement : HTMLInputElement;
-    const own = Object.getOwnPropertyDescriptor(proto.prototype, 'value');
-    if (!own || !own.set || !own.get) return;
-    const held = [own.get.call(el)];
-    el.__vmuxHeld = held;
-    const remember = (text) => {
-      if (held[held.length - 1] === text) return;
-      held.push(text);
-      if (held.length > HELD) held.shift();
-    };
-    el.addEventListener('input', () => remember(own.get.call(el)));
-    Object.defineProperty(el, 'value', {
-      configurable: true,
-      get() {
-        return own.get.call(this);
-      },
-      set(text) {
-        const live = own.get.call(this);
-        // An echo of something already superseded. Dropping it keeps the caret and the characters
-        // typed since; the equality case is what the interpreter would have skipped anyway.
-        if (text !== live && held.includes(text)) return;
-        own.set.call(this, text);
-        remember(text);
-      },
-    });
-  };
-  const unshadowValue = (el) => {
-    if (!el || !el.__vmuxHeld) return;
-    delete el.value;
-    delete el.__vmuxHeld;
-  };
-  document.addEventListener('focusin', (event) => {
+  document.addEventListener('paste', (event) => {
     const el = event.target;
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) shadowValue(el);
+    if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+    const data = event.clipboardData;
+    if (!data) return;
+    const items = Array.from(data.items || []);
+    const carriesImage = items.some((item) => item.type.startsWith('image/'))
+      || (data.files && data.files.length > 0);
+    if (carriesImage) event.preventDefault();
   }, true);
-  document.addEventListener('focusout', (event) => unshadowValue(event.target), true);
-  // The page asks for its own frames rather than having them evaluated into it. The host holds the
-  // request until a render produces one, so this loop costs one idle connection and no polling.
-  //
-  // A frame is [u32 le: requests length][requests json][edits], so the prefix is what says where
-  // the edits begin. The requests are applied after the batch, so an element a component asked to
-  // focus exists to be found, and before the acknowledgement, which is what releases the render
-  // that would replace it. A frame with no edits still arrives: a request for the caret gives the
-  // page nothing to draw.
   const pumpEdits = async () => {
     let applied = false;
     for (;;) {
       try {
-        // Asking for the next frame is how the last one is acknowledged: the two always happened
-        // together, and sending them apart left the host waking itself to notice the ack.
         const response = await fetch('/__edits', {
           headers: { 'x-vmux-applied': applied ? '1' : '0' },
         });
@@ -315,10 +228,35 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
         if (frame.byteLength < 4) continue;
         const length = new DataView(frame).getUint32(0, true);
         const edits = frame.slice(4 + length);
-        if (edits.byteLength) window.interpreter.run_from_bytes(edits);
+        let requests = [];
+        let remount = null;
         if (length) {
           const json = new TextDecoder().decode(new Uint8Array(frame, 4, length));
-          for (const queued of JSON.parse(json)) applyDomRequest(queued);
+          requests = JSON.parse(json);
+          for (const queued of requests) {
+            if (queued.kind === 'remount') remount = prepareRemount();
+          }
+        }
+        if (remount) {
+          if (edits.byteLength) remount.interpreter.run_from_bytes(edits);
+          const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          const sharedComposer = remount.previousRoot.querySelector('.vmux-agent-composer-shared')
+            && remount.root.querySelector('.vmux-agent-composer-shared');
+          if (typeof document.startViewTransition === 'function' && !reducedMotion && sharedComposer) {
+            document.documentElement.classList.add('vmux-page-transition');
+            const transition = document.startViewTransition(() => commitRemount(remount));
+            transition.finished.finally(() => {
+              document.documentElement.classList.remove('vmux-page-transition');
+            });
+            await transition.updateCallbackDone;
+          } else {
+            commitRemount(remount);
+          }
+        } else if (edits.byteLength) {
+          window.interpreter.run_from_bytes(edits);
+        }
+        for (const queued of requests) {
+          if (queued.kind !== 'remount') applyDomRequest(queued);
         }
         applied = edits.byteLength > 0;
       } catch (e) {
@@ -326,17 +264,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
       }
     }
   };
-  // Whether this href names a place inside the document the VirtualDom is mounted against.
-  //
-  // Both halves of that matter. A url carrying no fragment is a navigation even when it resolves
-  // right back here — `href=""` resolves to this document and reloads it, which ends the page as
-  // surely as leaving would. And a fragment is the engine's to scroll only once it still lands
-  // here: `<base href="/"/>` is in every page's head, so a bare `#section` resolves against the
-  // base rather than the document, and on a page whose url carries a path — `file:///x`,
-  // `vmux://agent/<id>` — that names somewhere else entirely.
-  //
-  // Asked of the resolved url rather than of the attribute, so `#agent` and `vmux://settings/#agent`
-  // reach the same answer on `vmux://settings/`.
   const sameDocumentFragment = (href) => {
     const upToFragment = (url) => url.split('#')[0];
     try {
@@ -346,25 +273,12 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
       return false;
     }
   };
-  // Which links the document is allowed to follow.
-  //
-  // dioxus's desktop interpreter follows none of them: it prevents the default action for every
-  // click inside an `<a>` and posts the href to the host instead, on the grounds that a document
-  // navigating away would take the VirtualDom's mounting with it. That holds for anything leaving
-  // the page. A fragment does not leave it — so refusing one turns a scroll the engine does
-  // natively, and instantly, into a link that does nothing at all.
-  //
-  // The refusal moves here, where the two can be told apart. Bubble phase on the document, which
-  // is after the interpreter's own delegated handler, so a page that claimed the click for itself
-  // has already said so and this leaves it alone.
   const holdLinks = () => {
     window.interpreter.intercept_link_redirects = false;
     document.addEventListener('click', (event) => {
       if (event.defaultPrevented) return;
       const anchor = event.target instanceof Element ? event.target.closest('a') : null;
       if (!anchor) return;
-      // An `<a>` carrying no href is a placeholder rather than a link, and the engine does nothing
-      // with it either. An empty one is a link: `[text]()` in a note renders `href=""`.
       const href = anchor.getAttribute('href');
       if (href === null) return;
       if (sameDocumentFragment(href)) return;
@@ -373,8 +287,6 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
     });
   };
   window.vmuxWry = {
-    // Asking for a frame is what tells the host the page can take one, so the shell calls this
-    // once the interpreter holds a root and never before.
     start() { holdLinks(); pumpEdits(); },
     binEmit(buffer) { window.ipc.postMessage(toBase64(buffer)); },
     binListen(id, callback) {

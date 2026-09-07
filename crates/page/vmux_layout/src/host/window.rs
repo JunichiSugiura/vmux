@@ -514,10 +514,6 @@ fn sync_window_layout_to_settings(
     }
 }
 
-/// Hold split panes off the header by the gap they hold each other by.
-///
-/// A single pane runs flush under the header and takes its width, so meeting it is right. Several
-/// panes are already spaced from each other, and the header is one more edge among them.
 fn sync_main_column_gap_to_pane_count(
     focus: Res<crate::stack::FocusedStack>,
     all_children: Query<&Children>,

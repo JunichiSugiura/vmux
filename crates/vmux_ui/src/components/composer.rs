@@ -1,7 +1,12 @@
+use std::collections::HashMap;
+
 use dioxus::prelude::*;
+use vmux_wire::prompt_media::ChatAttachment;
 
 use crate::components::prompt_box::PromptBox;
+use crate::file_icon::FilePath;
 use crate::i18n::translate;
+use crate::ime::use_ime_guard;
 
 pub const PROMPT_INPUT_ID: &str = "vmux-prompt-input";
 
@@ -12,6 +17,53 @@ pub struct PromptComposerAttachment {
     pub label: String,
     pub preview_data_url: String,
     pub remove_index: Option<usize>,
+}
+
+impl PromptComposerAttachment {
+    pub fn of(
+        attachment: &ChatAttachment,
+        previews: &HashMap<String, ChatAttachment>,
+        remove_index: Option<usize>,
+    ) -> Self {
+        let loaded = previews
+            .get(&attachment.path)
+            .map(|preview| preview.preview_data_url.as_str())
+            .filter(|url| !url.is_empty())
+            .unwrap_or(attachment.preview_data_url.as_str());
+        let held = match remove_index {
+            Some(_) => "attachment",
+            None => "pinned-attachment",
+        };
+        Self {
+            key: format!("{held}-{}", attachment.path),
+            name: attachment.name.clone(),
+            label: FilePath(&attachment.name).extension_label(),
+            preview_data_url: loaded.to_string(),
+            remove_index,
+        }
+    }
+
+    pub fn removable(
+        attachments: &[ChatAttachment],
+        previews: &HashMap<String, ChatAttachment>,
+    ) -> Vec<Self> {
+        let mut listed = Vec::with_capacity(attachments.len());
+        for (index, attachment) in attachments.iter().enumerate() {
+            listed.push(Self::of(attachment, previews, Some(index)));
+        }
+        listed
+    }
+
+    pub fn pinned(
+        attachments: &[ChatAttachment],
+        previews: &HashMap<String, ChatAttachment>,
+    ) -> Vec<Self> {
+        let mut listed = Vec::with_capacity(attachments.len());
+        for attachment in attachments {
+            listed.push(Self::of(attachment, previews, None));
+        }
+        listed
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -29,15 +81,11 @@ pub fn PromptComposer(
     #[props(default)] completion: String,
     #[props(default)] attachments: Vec<PromptComposerAttachment>,
     #[props(default)] ghost: Option<Element>,
-    #[props(default)] show_examples: bool,
     placeholder: String,
-    #[props(default)] accent_bg: String,
     accent_color: String,
     accent_gradient: String,
-    #[props(default = true)] autofocus: bool,
-    #[props(default = true)] show_attach: bool,
-    #[props(default)] disabled: bool,
     #[props(default)] footer: Option<Element>,
+    #[props(default)] shared_transition: bool,
     #[props(default = PROMPT_INPUT_ID.to_string())] input_id: String,
     #[props(default = translate("composer-attach-files"))] attach_title: String,
     #[props(default = translate("composer-remove-attachment"))] remove_attachment_title: String,
@@ -51,15 +99,12 @@ pub fn PromptComposer(
     on_remove_attachment: EventHandler<usize>,
     on_action: EventHandler<()>,
 ) -> Element {
-    let ghost = {
-        let _ = (show_examples, accent_bg);
-        ghost
-    };
     let footer = footer.or_else(|| {
         Some(rsx! {
             div { class: "truncate text-[10px] text-muted-foreground/55", {translate("command-send")} }
         })
     });
+    let ime = use_ime_guard();
     let has_ghost = ghost.is_some();
     let overlaid = !overlay.is_empty();
     let typed_text_class = if overlaid { "text-transparent" } else { "" };
@@ -73,71 +118,81 @@ pub fn PromptComposer(
     } else {
         "relative z-10 mr-0.5 flex h-11 w-11 shrink-0 cursor-default self-center items-center justify-center rounded-xl bg-white/[0.055] text-muted-foreground/35 shadow-sm ring-1 ring-inset ring-white/[0.08] sm:h-8 sm:w-8 sm:rounded-lg sm:bg-white/25 sm:ring-black/[0.06] dark:sm:bg-white/[0.055] dark:sm:ring-white/[0.08]".to_string()
     };
+    let shared_transition_class = if shared_transition {
+        "vmux-agent-composer-shared"
+    } else {
+        ""
+    };
 
     rsx! {
         PromptBox {
-            class: "vmux-prompt-composer flex-wrap",
+            class: "vmux-prompt-composer {shared_transition_class} flex-wrap",
             style: "--vmux-prompt-accent:{accent_color};",
-            if show_attach {
-                button {
-                    class: "relative z-10 ml-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl text-foreground/45 transition active:bg-foreground/10 active:text-foreground hover:bg-foreground/10 hover:text-foreground sm:h-8 sm:w-8 sm:rounded-lg",
-                    r#type: "button",
-                    disabled,
-                    title: "{attach_title}",
-                    onmousedown: move |event| event.prevent_default(),
-                    onclick: move |_| on_attach.call(()),
-                    svg {
-                        class: "h-4 w-4",
-                        view_box: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        stroke_width: "2",
-                        stroke_linecap: "round",
-                        stroke_linejoin: "round",
-                        path { d: "M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" }
-                    }
+            button {
+                class: "relative z-10 ml-0.5 flex h-11 w-11 shrink-0 self-center items-center justify-center rounded-xl text-foreground/45 transition active:bg-foreground/10 active:text-foreground hover:bg-foreground/10 hover:text-foreground sm:h-8 sm:w-8 sm:rounded-lg",
+                r#type: "button",
+                title: "{attach_title}",
+                onmousedown: move |event| event.prevent_default(),
+                onclick: move |_| on_attach.call(()),
+                svg {
+                    class: "h-4 w-4",
+                    view_box: "0 0 24 24",
+                    fill: "none",
+                    stroke: "currentColor",
+                    stroke_width: "2",
+                    stroke_linecap: "round",
+                    stroke_linejoin: "round",
+                    path { d: "M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" }
                 }
             }
-            div { class: "relative z-10 flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1 sm:px-2",
-                for attachment in attachments.iter().cloned() {
-                    div {
-                        key: "{attachment.key}",
-                        class: if attachment.remove_index.is_some() { "group flex h-7 max-w-56 shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.08] pl-1 pr-1.5 text-xs text-foreground/80 ring-1 ring-inset ring-foreground/10" } else { "flex h-7 max-w-56 shrink-0 items-center gap-1.5 rounded-full bg-foreground/[0.08] pl-1 pr-2 text-xs text-foreground/80 ring-1 ring-inset ring-foreground/10" },
-                        if attachment.preview_data_url.is_empty() {
-                            span { class: "flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground/[0.08] px-1 font-mono text-[8px] font-semibold text-muted-foreground",
-                                "{attachment.label}"
+
+            if !attachments.is_empty() {
+                div { class: "relative z-10 order-first flex w-full flex-wrap items-start gap-1.5 px-1.5 pt-1.5",
+                    for attachment in attachments.iter().cloned() {
+                        div {
+                            key: "{attachment.key}",
+                            class: "group relative shrink-0",
+                            title: "{attachment.name}",
+                            if attachment.preview_data_url.is_empty() {
+                                div { class: "flex h-7 max-w-56 items-center gap-1.5 rounded-full bg-foreground/[0.08] pl-1 pr-2 text-xs text-foreground/80 ring-1 ring-inset ring-foreground/10",
+                                    span { class: "flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground/[0.08] px-1 font-mono text-[8px] font-semibold text-muted-foreground",
+                                        "{attachment.label}"
+                                    }
+                                    span { class: "min-w-0 max-w-40 truncate", "{attachment.name}" }
+                                }
+                            } else {
+                                img {
+                                    src: "{attachment.preview_data_url}",
+                                    alt: "{attachment.name}",
+                                    class: "h-24 w-auto max-w-72 rounded-xl object-cover",
+                                }
                             }
-                        } else {
-                            img {
-                                src: "{attachment.preview_data_url}",
-                                alt: "{attachment.name}",
-                                class: "h-5 w-5 rounded-full object-cover",
-                            }
-                        }
-                        span { class: "min-w-0 max-w-40 truncate", "{attachment.name}" }
-                        if let Some(remove_index) = attachment.remove_index {
-                            button {
-                                class: "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-foreground/45 transition active:bg-foreground/10 active:text-foreground hover:bg-foreground/10 hover:text-foreground",
-                                r#type: "button",
-                                title: "{remove_attachment_title}",
-                                onmousedown: move |event| event.prevent_default(),
-                                onclick: move |_| {
-                                    on_remove_attachment.call(remove_index);
-                                    focus_prompt_end(PROMPT_INPUT_ID);
-                                },
-                                svg {
-                                    class: "h-3 w-3",
-                                    view_box: "0 0 24 24",
-                                    fill: "none",
-                                    stroke: "currentColor",
-                                    stroke_width: "2.5",
-                                    stroke_linecap: "round",
-                                    path { d: "M6 6l12 12M18 6L6 18" }
+                            if let Some(remove_index) = attachment.remove_index {
+                                button {
+                                    class: "absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-background/90 text-foreground/60 opacity-0 shadow-sm ring-1 ring-inset ring-foreground/15 transition group-hover:opacity-100 active:bg-foreground/10 active:text-foreground hover:text-foreground",
+                                    r#type: "button",
+                                    title: "{remove_attachment_title}",
+                                    onmousedown: move |event| event.prevent_default(),
+                                    onclick: move |_| {
+                                        on_remove_attachment.call(remove_index);
+                                        focus_prompt_end(PROMPT_INPUT_ID);
+                                    },
+                                    svg {
+                                        class: "h-3 w-3",
+                                        view_box: "0 0 24 24",
+                                        fill: "none",
+                                        stroke: "currentColor",
+                                        stroke_width: "2.5",
+                                        stroke_linecap: "round",
+                                        path { d: "M6 6l12 12M18 6L6 18" }
+                                    }
                                 }
                             }
                         }
                     }
                 }
+            }
+            div { class: "relative z-10 flex min-w-0 flex-1 flex-wrap items-center gap-1 px-1 sm:px-2",
                 div { class: "relative min-w-32 flex-1 overflow-hidden",
                     if value.is_empty() {
                         if !preview.is_empty() {
@@ -162,8 +217,7 @@ pub fn PromptComposer(
                     textarea {
                         id: "{input_id}",
                         class: "relative z-10 max-h-40 min-h-11 w-full [field-sizing:content] resize-none overflow-y-auto bg-transparent px-1.5 py-2.5 text-base leading-6 {typed_text_class} caret-[var(--vmux-prompt-accent)] outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted-foreground/50 sm:min-h-10 sm:py-2 sm:text-[15px]",
-                        autofocus,
-                        disabled,
+                        autofocus: true,
                         rows: "1",
                         spellcheck: "false",
                         autocapitalize: "off",
@@ -173,7 +227,14 @@ pub fn PromptComposer(
                         value: "{value}",
                         oninput: move |event| on_input.call(event.value()),
                         onpaste: move |_| on_paste.call(()),
-                        onkeydown: move |event| on_keydown.call(event),
+                        oncompositionstart: move |_| ime.start(),
+                        oncompositionend: move |_| ime.commit(),
+                        onkeydown: move |event| {
+                            if ime.swallows(&event) {
+                                return;
+                            }
+                            on_keydown.call(event);
+                        },
                     }
                 }
             }

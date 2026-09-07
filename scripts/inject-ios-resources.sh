@@ -1,20 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build and copy hand-authored resources into a built iOS .app, and stamp its version keys.
-#
-# dx never calls copy_resources() for the iOS bundle, so `[ios] resources` in Dioxus.toml is a
-# no-op, and dx has no iOS icon pipeline at all — no actool, no Assets.car, no launch screen.
-# Everything the bundle needs beyond the executable is produced here, after `dx build` and
-# before signing.
-#
-# packaging/ios/Info.plist replaces dx's template wholesale, which means the version keys are no
-# longer derived from Cargo.toml. They are stamped onto the built copy here so the checked-in
-# file cannot drift from the workspace version.
-#
-# Usage: scripts/inject-ios-resources.sh [path/to/App.app]
-#        VMUX_IOS_PROFILE=release VMUX_IOS_BUILD_NUMBER=42 scripts/inject-ios-resources.sh
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/cargo-target-paths.sh"
 
@@ -54,8 +40,6 @@ STAGE="$(mktemp -d -t vmux-ios-assets)"
 cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 
-# --target-device iphone keeps this in step with UIDeviceFamily = [1] in Info.plist. The
-# universal default also emits an ~ipad icon and doubles the size of Assets.car.
 xcrun actool "$PACKAGING/Assets.xcassets" \
     --compile "$STAGE" \
     --platform iphoneos \
@@ -72,8 +56,6 @@ xcrun ibtool "$PACKAGING/LaunchScreen.storyboard" \
     --output-format human-readable-text >/dev/null
 
 cp -f "$STAGE/Assets.car" "$APP_BUNDLE/Assets.car"
-# Fallback files behind CFBundleIconFiles. actool emits an ~ipad variant regardless of
-# --target-device; it is dropped, since UIDeviceFamily is iPhone only.
 for icon in "$STAGE"/AppIcon*.png; do
     case "$icon" in
         *'~ipad.png') continue ;;
@@ -83,8 +65,6 @@ done
 
 cp -f "$PACKAGING/PrivacyInfo.xcprivacy" "$APP_BUNDLE/PrivacyInfo.xcprivacy"
 
-# App Store Connect rejects a re-upload that reuses a CFBundleVersion, so CI passes the run
-# number. Locally any constant is fine; nothing local is ever uploaded.
 VERSION="$(grep -m1 '^version' "$ROOT/Cargo.toml" | sed 's/.*"\(.*\)".*/\1/')"
 BUILD_NUMBER="${VMUX_IOS_BUILD_NUMBER:-1}"
 
@@ -96,16 +76,6 @@ fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$PLIST"
 
-# Keys Xcode writes into a built app and dx does not. App Store Connect validates them on upload,
-# so without these the .ipa is rejected before review ever sees it.
-#
-# CFBundleIconName is the one that looks redundant and is not: the copy inside CFBundleIcons says
-# which icon to draw, and this top-level one is what the upload check reads. Only the nested copy
-# existed, so the bundle looked complete and would still have been refused.
-#
-# The DT* keys and BuildMachineOSBuild record which toolchain produced the bundle, so they are
-# asked of the toolchain rather than written down. DTXcode is Xcode's version without the dots,
-# padded — 26.6 is 2660.
 set_plist() {
     /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" >/dev/null 2>&1 || true
     /usr/libexec/PlistBuddy -c "Add :$1 string $2" "$PLIST"
@@ -113,9 +83,6 @@ set_plist() {
 
 SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
 SDK_BUILD="$(xcrun --sdk iphoneos --show-sdk-build-version)"
-# Read once, and without `head`: it closes the pipe after the first line, xcodebuild takes
-# SIGPIPE for the second, and `set -o pipefail` surfaces that as exit 141. It only loses the
-# race when xcodebuild is still writing, so it fails intermittently under load.
 XCODE_INFO="$(xcodebuild -version)"
 XCODE_VERSION="$(awk 'NR == 1 { print $2 }' <<<"$XCODE_INFO")"
 XCODE_BUILD="$(awk 'END { print $3 }' <<<"$XCODE_INFO")"

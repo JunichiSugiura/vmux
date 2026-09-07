@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use std::collections::HashMap;
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposerAttachment, focus_prompt_end};
 use vmux_ui::components::prompt_media_options::PromptMediaOption;
+use vmux_ui::file_icon::FilePath;
 use vmux_ui::hooks::send;
 use vmux_ui::launcher::palette::PaletteSurface;
 
@@ -146,7 +147,7 @@ impl PromptMedia {
                 name: entry.name.clone(),
                 display_path: entry.display_path(),
                 preview_data_url: entry.preview_data_url.clone(),
-                label: FileLabel::of(&entry.name),
+                label: FilePath(&entry.name).extension_label(),
                 is_dir: entry.is_dir,
             });
         }
@@ -154,22 +155,7 @@ impl PromptMedia {
     }
 
     pub fn composer_attachments(&self) -> Vec<PromptComposerAttachment> {
-        let previews = self.previews.read();
-        let mut listed = Vec::new();
-        for (index, attachment) in self.attachments.read().iter().enumerate() {
-            let preview_data_url = match previews.get(&attachment.path) {
-                Some(preview) => preview.preview_data_url.clone(),
-                None => attachment.preview_data_url.clone(),
-            };
-            listed.push(PromptComposerAttachment {
-                key: format!("start-attachment-{}", attachment.path),
-                name: attachment.name.clone(),
-                label: FileLabel::of(&attachment.name),
-                preview_data_url,
-                remove_index: Some(index),
-            });
-        }
-        listed
+        PromptComposerAttachment::removable(&self.attachments.read(), &self.previews.read())
     }
 
     pub fn handle_key(
@@ -241,37 +227,5 @@ impl PromptMedia {
         ));
         self.selected.set(0);
         focus_prompt_end(PROMPT_INPUT_ID);
-    }
-}
-
-pub struct FileLabel;
-
-impl FileLabel {
-    pub fn of(name: &str) -> String {
-        let Some(extension) = std::path::Path::new(name).extension() else {
-            return "FILE".to_string();
-        };
-        let Some(extension) = extension.to_str() else {
-            return "FILE".to_string();
-        };
-        let extension = extension.to_ascii_uppercase();
-        if extension.is_empty() {
-            return "FILE".to_string();
-        }
-        extension
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_attachment_is_labelled_by_its_extension() {
-        assert_eq!(FileLabel::of("shot.PNG"), "PNG");
-        assert_eq!(FileLabel::of("notes.md"), "MD");
-        assert_eq!(FileLabel::of("Makefile"), "FILE");
-        assert_eq!(FileLabel::of(".gitignore"), "FILE");
-        assert_eq!(FileLabel::of("archive.tar.gz"), "GZ");
     }
 }

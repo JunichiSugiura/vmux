@@ -1,10 +1,135 @@
 use crate::i18n::translate;
 use vmux_wire::PageIcon;
+use vmux_wire::chat::ResumableSessionEntry;
 use vmux_wire::command_bar::{
     CommandBarCommandEntry, CommandBarPage, CommandBarPick, CommandBarPickRow, CommandBarPicker,
     CommandBarRecentFile, CommandBarSpace, CommandBarTab, CommandBarWorkDir, HistoryEntry,
     SearchEngine,
 };
+
+pub struct SlashRows;
+
+impl SlashRows {
+    const PENDING_ROWS: usize = 7;
+
+    pub fn of(
+        query: &str,
+        commands: &[vmux_wire::chat::SlashCommandEntry],
+        sessions: &[ResumableSessionEntry],
+        pending: bool,
+    ) -> Vec<CommandBarResultItem> {
+        let held = vmux_wire::command_bar::CommandBarQuery(query);
+        let Some((name, rest)) = held.slash_token() else {
+            return Vec::new();
+        };
+        let lowered = name.to_lowercase();
+        let mut matching = Vec::new();
+        for command in commands {
+            if command.name.starts_with(&lowered) {
+                matching.push(command);
+            }
+        }
+        let settled = match matching.as_slice() {
+            [only] => Some(*only),
+            _ => commands.iter().find(|command| command.name == lowered),
+        };
+        if let Some(command) = settled
+            && command.name == "resume"
+        {
+            if sessions.is_empty() && pending {
+                return Self::pending();
+            }
+            return ResumeRows::filtered(rest, sessions);
+        }
+        let mut rows = Vec::new();
+        for command in matching {
+            rows.push(CommandBarResultItem::Slash {
+                name: command.name.clone(),
+                hint: command.description.clone(),
+            });
+        }
+        rows
+    }
+
+    fn pending() -> Vec<CommandBarResultItem> {
+        let mut rows = Vec::new();
+        for row in 0..Self::PENDING_ROWS {
+            rows.push(CommandBarResultItem::ResumePending { row });
+        }
+        rows
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumeSection {
+    pub agent: String,
+    pub project: String,
+    pub branch: String,
+    pub count: usize,
+}
+
+impl ResumeSection {
+    fn of(entry: &ResumableSessionEntry) -> Self {
+        let agent = match entry.agent_name.is_empty() {
+            true => entry.kind.clone(),
+            false => entry.agent_name.clone(),
+        };
+        let project = match entry.project.is_empty() {
+            true => entry.subtitle.clone(),
+            false => entry.project.clone(),
+        };
+        Self {
+            agent,
+            project,
+            branch: entry.branch.clone(),
+            count: 0,
+        }
+    }
+}
+
+pub struct ResumeRows;
+
+impl ResumeRows {
+    pub fn of(sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
+        Self::filtered("", sessions)
+    }
+
+    pub fn filtered(query: &str, sessions: &[ResumableSessionEntry]) -> Vec<CommandBarResultItem> {
+        let needle = query.trim().to_lowercase();
+        let mut groups: Vec<(ResumeSection, Vec<ResumableSessionEntry>)> = Vec::new();
+        for entry in sessions {
+            if !needle.is_empty()
+                && !entry.title.to_lowercase().contains(&needle)
+                && !entry.latest.to_lowercase().contains(&needle)
+                && !entry.subtitle.to_lowercase().contains(&needle)
+                && !entry.agent_name.to_lowercase().contains(&needle)
+                && !entry.project.to_lowercase().contains(&needle)
+                && !entry.branch.to_lowercase().contains(&needle)
+            {
+                continue;
+            }
+            let section = ResumeSection::of(entry);
+            if let Some((_, entries)) = groups.iter_mut().find(|(held, _)| *held == section) {
+                entries.push(entry.clone());
+            } else {
+                groups.push((section, vec![entry.clone()]));
+            }
+        }
+        let mut rows = Vec::new();
+        for (mut section, entries) in groups {
+            section.count = entries.len();
+            let mut first = true;
+            for entry in entries {
+                rows.push(CommandBarResultItem::Resume {
+                    entry: Box::new(entry),
+                    section: first.then(|| section.clone()),
+                });
+                first = false;
+            }
+        }
+        rows
+    }
+}
 
 pub struct PickerRows;
 
@@ -101,6 +226,17 @@ pub enum CommandBarResultItem {
     RecentFile {
         url: String,
         title: String,
+    },
+    Slash {
+        name: String,
+        hint: String,
+    },
+    Resume {
+        entry: Box<ResumableSessionEntry>,
+        section: Option<ResumeSection>,
+    },
+    ResumePending {
+        row: usize,
     },
     PartialIndex,
     MoreMatches {
@@ -261,10 +397,26 @@ pub fn prepend_prompt_targets(
         .iter()
         .take_while(|item| matches!(item, CommandBarResultItem::Terminal { .. }))
         .count();
-    results.splice(at..at, suggestions);
+    let mut leading = Vec::new();
+    let mut rest = Vec::new();
+    for target in suggestions {
+        match leading.is_empty() {
+            true => leading.push(target),
+            false => rest.push(target),
+        }
+    }
+    let mut after = at + leading.len();
+    results.splice(at..at, leading);
+    for (index, item) in results.iter().enumerate() {
+        if matches!(item, CommandBarResultItem::File { .. }) {
+            after = index + 1;
+        }
+    }
+    let tail = results.split_off(after);
+    results.extend(rest);
+    results.extend(tail);
 }
 
-/// The stacks worth switching to, which is every one except the stack already showing.
 pub fn open_session_results(
     tabs: &[CommandBarTab],
     pages: &[CommandBarPage],
@@ -582,6 +734,71 @@ pub fn filter_results(
 mod tests {
     use super::*;
     use vmux_wire::command_bar::{CommandBarCommandEntry, CommandBarTab};
+
+    fn resume(title: &str, agent: &str, project: &str, branch: &str) -> ResumableSessionEntry {
+        ResumableSessionEntry {
+            title: title.into(),
+            agent_name: agent.into(),
+            project: project.into(),
+            branch: branch.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn resume_rows_group_sessions_under_shared_context() {
+        let rows = ResumeRows::of(&[
+            resume("first", "Codex", "vmux", "main"),
+            resume("second", "Claude", "vmux", "main"),
+            resume("third", "Codex", "vmux", "main"),
+        ]);
+
+        let CommandBarResultItem::Resume {
+            entry: first,
+            section: first_section,
+        } = &rows[0]
+        else {
+            panic!("first resume row");
+        };
+        let CommandBarResultItem::Resume {
+            entry: second,
+            section: second_section,
+        } = &rows[1]
+        else {
+            panic!("second resume row");
+        };
+        let CommandBarResultItem::Resume {
+            entry: third,
+            section: third_section,
+        } = &rows[2]
+        else {
+            panic!("third resume row");
+        };
+
+        assert_eq!(first.title, "first");
+        assert_eq!(second.title, "third");
+        assert_eq!(third.title, "second");
+        assert_eq!(first_section.as_ref().unwrap().agent, "Codex");
+        assert!(second_section.is_none());
+        assert_eq!(third_section.as_ref().unwrap().agent, "Claude");
+    }
+
+    #[test]
+    fn resume_search_matches_section_context() {
+        let rows = ResumeRows::filtered(
+            "feature-x",
+            &[
+                resume("one", "Codex", "vmux", "feature-x"),
+                resume("two", "Claude", "dashboard", "main"),
+            ],
+        );
+
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            &rows[0],
+            CommandBarResultItem::Resume { entry, .. } if entry.title == "one"
+        ));
+    }
 
     fn space(id: &str, name: &str, active: bool) -> CommandBarSpace {
         CommandBarSpace {

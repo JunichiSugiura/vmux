@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build Vmux for macOS. Imports the signing certificate from the
-# APPLE_CERTIFICATE / APPLE_CERTIFICATE_PASSWORD env vars (or `.env`)
-# into a temporary keychain so signing works the same way locally and
-# in CI. Without those env vars, falls back to the user's login keychain.
-#
-# Usage:
-#   ./scripts/build-mac.sh           # release (default)
-#   ./scripts/build-mac.sh release
-#   ./scripts/build-mac.sh local
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROFILE="${1:-release}"
 
@@ -65,8 +55,6 @@ if [[ -n "${APPLE_CERTIFICATE:-}" || -n "${APPLE_CERTIFICATE_PASSWORD:-}" ]]; th
     : "${APPLE_SIGNING_IDENTITY:?missing APPLE_SIGNING_IDENTITY}"
 
     echo "==> Setting up ephemeral signing keychain"
-    # Use a temp directory; BSD mktemp on macOS doesn't substitute X's that
-    # aren't at the end of the template, which causes literal-name clashes.
     TMP_DIR="$(mktemp -d -t vmux-build)"
     CERT_FILE="$TMP_DIR/cert.p12"
     KEYCHAIN="$TMP_DIR/signing.keychain-db"

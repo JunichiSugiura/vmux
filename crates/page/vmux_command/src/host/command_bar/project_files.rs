@@ -127,8 +127,6 @@ impl ProjectIndex {
         self.asked.retain(|ask| ask.webview != webview);
     }
 
-    // The index now outlives the ask that built it, so the roots the caller
-    // asked about are what bound the answer rather than everything held.
     fn rank(&self, roots: &[PathBuf], query: &str, bias: &RankBias) -> Option<ProjectCompletions> {
         let mut ready = Vec::new();
         let mut partial = false;
@@ -153,9 +151,6 @@ impl ProjectIndex {
         })
     }
 
-    // Every root some surface is still waiting on, not just this caller's. One
-    // command bar asking about its project must not evict the half-built index
-    // another is waiting for.
     fn wanted(&self, roots: &[PathBuf]) -> Vec<PathBuf> {
         let mut wanted = roots.to_vec();
         for ask in &self.asked {

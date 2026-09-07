@@ -8,7 +8,6 @@ pub mod event;
 pub mod render_model;
 
 #[cfg(ui)]
-pub mod matrix_rain;
 #[cfg(ui)]
 pub mod page;
 

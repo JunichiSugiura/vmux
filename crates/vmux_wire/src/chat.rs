@@ -327,3 +327,195 @@ mod activity_counts_tests {
         assert_eq!(activity_counts(&[]), (0, 0));
     }
 }
+
+pub const RESUMABLE_SESSIONS_EVENT: &str = "resumable_sessions";
+pub const PROMPT_HISTORY_EVENT: &str = "prompt_history";
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct PromptHistoryRequest {
+    pub agent: String,
+    pub cwd: String,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct PromptHistory {
+    pub prompts: Vec<String>,
+}
+
+pub const SLASH_COMMANDS_EVENT: &str = "slash_commands";
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ResumableSessionEntry {
+    pub kind: String,
+    pub sid: String,
+    pub cwd: String,
+    pub url: String,
+    pub title: String,
+    pub latest: String,
+    pub subtitle: String,
+    pub age_seconds: u64,
+    #[serde(default)]
+    pub updated_at: String,
+    pub agent_name: String,
+    pub project: String,
+    pub branch: String,
+    pub cross_runtime: bool,
+}
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ResumableSessions {
+    pub sessions: Vec<ResumableSessionEntry>,
+    pub offset: u32,
+    pub total: u32,
+}
+
+impl ResumableSessions {
+    pub const PAGE: u32 = 50;
+
+    pub fn reaches(&self) -> u32 {
+        self.offset + self.sessions.len() as u32
+    }
+
+    pub fn has_more(&self) -> bool {
+        self.reaches() < self.total
+    }
+}
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct SlashCommandEntry {
+    pub name: String,
+    pub description: String,
+}
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct SlashCommands {
+    pub commands: Vec<SlashCommandEntry>,
+}
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ResumeListRequest {
+    pub offset: u32,
+}
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ResumeSession {
+    pub kind: String,
+    pub sid: String,
+    pub cwd: String,
+}
+impl SlashCommands {
+    pub fn for_start() -> Self {
+        Self {
+            commands: vec![
+                SlashCommandEntry {
+                    name: "upload".into(),
+                    description: "Attach files".into(),
+                },
+                SlashCommandEntry {
+                    name: "resume".into(),
+                    description: "Resume a past session".into(),
+                },
+            ],
+        }
+    }
+
+    pub fn for_agent(cross_runtime: bool, has_models: bool) -> Self {
+        let mut commands = vec![
+            SlashCommandEntry {
+                name: "upload".into(),
+                description: "Attach files".into(),
+            },
+            SlashCommandEntry {
+                name: "resume".into(),
+                description: "Resume a past session".into(),
+            },
+        ];
+        if has_models {
+            commands.push(SlashCommandEntry {
+                name: "model".into(),
+                description: "Select model".into(),
+            });
+        }
+        if cross_runtime {
+            commands.push(SlashCommandEntry {
+                name: "cli".into(),
+                description: "Continue this session in the CLI".into(),
+            });
+        }
+        Self { commands }
+    }
+}

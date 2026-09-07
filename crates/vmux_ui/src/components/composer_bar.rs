@@ -7,8 +7,11 @@ use crate::components::effort_menu::EffortMenu;
 use crate::components::model_menu::ModelMenu;
 use crate::components::project_picker::{BranchPicker, ProjectPick, ProjectPicker};
 use crate::components::prompt_box::PromptPopupPlacement;
+use crate::i18n::{TranslationValue, translate, translate_with};
+use crate::list_nav::MenuDirection;
 
-const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[11px] text-muted-foreground";
+const COMPOSER_CHIP: &str = "flex h-7 max-w-44 shrink-0 items-center gap-1 rounded-lg px-1.5 text-[11px] text-muted-foreground";
+const COMPOSER_CHIP_LABEL_TIGHT: &str = "@max-[34rem]:hidden";
 const COMPOSER_CHIP_INTERACTIVE: &str =
     "transition hover:bg-foreground/[0.08] hover:text-foreground";
 const COMPOSER_CHIP_OPEN: &str = "transition bg-foreground/[0.12] text-foreground";
@@ -28,9 +31,126 @@ pub struct ComposerBarProps {
     #[props(default)]
     pub branch: Option<ComposerChip>,
     #[props(default)]
-    pub badges: Option<Element>,
+    pub is_git_repo: bool,
     #[props(default)]
-    pub status: Option<Element>,
+    pub workspace_known: bool,
+    #[props(default)]
+    pub uncommitted: u32,
+    #[props(default)]
+    pub ahead: u32,
+    #[props(default)]
+    pub status: String,
+    #[props(default)]
+    pub active_subagents: usize,
+    #[props(default)]
+    pub active_tasks: usize,
+    #[props(default)]
+    pub queued_count: usize,
+}
+
+#[component]
+pub fn StatusDot(status: String, size_class: String) -> Element {
+    let tone = match status.as_str() {
+        "streaming" | "interrupted" => "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.65)]",
+        "installing" => "bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.65)]",
+        "awaiting" => "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.65)]",
+        "errored" => "bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.65)]",
+        _ => "bg-success shadow-[0_0_8px_rgba(16,185,129,0.65)]",
+    };
+    rsx! {
+        span { class: "{size_class} rounded-full {tone}" }
+    }
+}
+
+#[component]
+pub fn ComposerStatus(
+    #[props(default)] status: String,
+    #[props(default)] active_subagents: usize,
+    #[props(default)] active_tasks: usize,
+    #[props(default)] queued_count: usize,
+) -> Element {
+    let run_label = match status.as_str() {
+        "streaming" => translate("composer-status-running"),
+        "awaiting" => translate("composer-status-approval"),
+        "installing" => translate("composer-status-starting"),
+        "errored" => translate("composer-status-error"),
+        _ => String::new(),
+    };
+    rsx! {
+        div { class: "flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground",
+            if !run_label.is_empty() {
+                span { class: "flex h-7 items-center gap-1.5 rounded-lg px-2",
+                    StatusDot { status, size_class: "h-1.5 w-1.5" }
+                    "{run_label}"
+                }
+            }
+            if active_subagents > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg bg-violet-500/[0.07] px-2 text-violet-600 dark:text-violet-300",
+                    title: translate("composer-status-subagents"),
+                    svg {
+                        class: "h-3.5 w-3.5",
+                        view_box: "0 0 24 24",
+                        fill: "none",
+                        stroke: "currentColor",
+                        stroke_width: "1.8",
+                        stroke_linecap: "round",
+                        stroke_linejoin: "round",
+                        circle { cx: "9", cy: "8", r: "3" }
+                        path { d: "M3.5 19a5.5 5.5 0 0 1 11 0" }
+                        circle { cx: "17", cy: "9", r: "2.5" }
+                        path { d: "M15.5 14.5A4.5 4.5 0 0 1 21 19" }
+                    }
+                    "{active_subagents}"
+                }
+            }
+            if active_tasks > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg px-2",
+                    title: translate("composer-status-tasks-title"),
+                    {translate_with("composer-status-tasks", &[("count", TranslationValue::Number(active_tasks as i64))])}
+                }
+            }
+            if queued_count > 0 {
+                span {
+                    class: "flex h-7 items-center gap-1 rounded-lg px-2",
+                    title: translate("composer-status-queued-title"),
+                    {translate_with("composer-status-queued", &[("count", TranslationValue::Number(queued_count as i64))])}
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn WorkspaceBadges(
+    is_git_repo: bool,
+    workspace_known: bool,
+    uncommitted: u32,
+    ahead: u32,
+) -> Element {
+    rsx! {
+        if is_git_repo {
+            if uncommitted > 0 {
+                span {
+                    class: "shrink-0 font-mono text-[10px] text-amber-500",
+                    title: translate("composer-uncommitted-changes"),
+                    "\u{25cf} {uncommitted}"
+                }
+            }
+            if ahead > 0 {
+                span {
+                    class: "shrink-0 font-mono text-[10px] text-sky-500",
+                    title: translate("composer-commits-ahead"),
+                    "\u{2191}{ahead}"
+                }
+            }
+        } else if workspace_known {
+            span { class: "h-7 shrink-0 content-center rounded-lg px-2 text-[10px] text-muted-foreground/70",
+                {translate("composer-no-git")}
+            }
+        }
+    }
 }
 
 #[component]
@@ -42,11 +162,17 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
         effort,
         project,
         branch,
-        badges,
+        is_git_repo,
+        workspace_known,
+        uncommitted,
+        ahead,
         status,
+        active_subagents,
+        active_tasks,
+        queued_count,
     } = props;
     rsx! {
-        div { class: "flex min-w-0 items-center justify-between gap-1",
+        div { class: "@container flex min-w-0 items-center justify-between gap-1",
             div { class: "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto",
                 if let Some(chip) = agent {
                     ComposerChipSlot {
@@ -83,13 +209,14 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                         open: menu.is(ComposerMenuKind::Branch),
                     }
                 }
-                if let Some(badges) = badges {
-                    {badges}
+                WorkspaceBadges {
+                    is_git_repo,
+                    workspace_known,
+                    uncommitted,
+                    ahead,
                 }
             }
-            if let Some(status) = status {
-                {status}
-            }
+            ComposerStatus { status, active_subagents, active_tasks, queued_count }
         }
     }
 }
@@ -122,6 +249,7 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
         project,
         branch,
     } = props;
+    let cursor = menu.cursor();
     rsx! {
         if menu.is(ComposerMenuKind::Agent) {
             if let Some(data) = agent {
@@ -129,6 +257,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     options: data.options,
                     selected_url: data.selected_url,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |url: String| {
                         menu.close();
                         data.on_select.call(url);
@@ -143,8 +273,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     models: data.models,
                     current_model_id: data.current_model_id,
-                    selected: data.selected,
-                    on_hover: data.on_hover,
+                    selected: cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |entry: ModelOptionEntry| {
                         menu.close();
                         data.on_select.call(entry);
@@ -159,6 +289,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     placement,
                     levels: data.levels,
                     selected: data.selected,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_select: move |level: String| {
                         menu.close();
                         data.on_select.call(level);
@@ -172,10 +304,9 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                 ProjectPicker {
                     placement,
                     projects: data.projects,
-                    expanded: data.expanded,
-                    branches: data.branches,
-                    branches_for: data.branches_for,
-                    on_expand: data.on_expand,
+                    loaded: data.loaded,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_pick: move |pick: ProjectPick| {
                         menu.close();
                         data.on_pick.call(pick);
@@ -195,6 +326,8 @@ pub fn ComposerMenus(props: ComposerMenusProps) -> Element {
                     project: data.project,
                     branches: data.branches,
                     loaded: data.loaded,
+                    cursor,
+                    on_hover: move |index| menu.point_at(index),
                     on_pick: move |pick: ProjectPick| {
                         menu.close();
                         data.on_pick.call(pick);
@@ -219,7 +352,7 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
         return rsx! {
             span { class: COMPOSER_CHIP, title: "{chip.title}",
                 ComposerChipIcon { kind }
-                span { class: label_class, "{chip.label}" }
+                span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
             }
         };
     };
@@ -234,7 +367,7 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
             onmousedown: move |event| event.prevent_default(),
             onclick: move |_| on_open.call(()),
             ComposerChipIcon { kind }
-            span { class: label_class, "{chip.label}" }
+            span { class: "{label_class} {COMPOSER_CHIP_LABEL_TIGHT}", "{chip.label}" }
             svg {
                 class: if open { "h-3 w-3 shrink-0 rotate-180 opacity-70 transition-transform duration-200 ease-out" } else { "h-3 w-3 shrink-0 opacity-50 transition-transform duration-200 ease-out" },
                 view_box: "0 0 24 24",
@@ -248,10 +381,32 @@ fn ComposerChipSlot(kind: ComposerMenuKind, chip: ComposerChip, open: bool) -> E
 }
 
 #[component]
-fn ComposerChipIcon(kind: ComposerMenuKind) -> Element {
+pub fn ComposerChipIcon(kind: ComposerMenuKind) -> Element {
     let class = "h-3.5 w-3.5 shrink-0";
     match kind {
-        ComposerMenuKind::Agent | ComposerMenuKind::Model => rsx! {
+        ComposerMenuKind::Agent => rsx! {
+            svg {
+                class,
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "1.8",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                rect {
+                    x: "4",
+                    y: "8",
+                    width: "16",
+                    height: "11",
+                    rx: "3",
+                }
+                path { d: "M12 4.5v3.5" }
+                circle { cx: "12", cy: "3.5", r: "1.2" }
+                path { d: "M9 13v1.5" }
+                path { d: "M15 13v1.5" }
+            }
+        },
+        ComposerMenuKind::Model => rsx! {
             svg {
                 class,
                 view_box: "0 0 24 24",
@@ -352,8 +507,6 @@ pub struct AgentMenuData {
 pub struct ModelMenuData {
     pub models: Vec<ModelOptionEntry>,
     pub current_model_id: String,
-    pub selected: usize,
-    pub on_hover: EventHandler<usize>,
     pub on_select: EventHandler<ModelOptionEntry>,
 }
 
@@ -367,10 +520,7 @@ pub struct EffortMenuData {
 #[derive(Clone, PartialEq)]
 pub struct ProjectMenuData {
     pub projects: Vec<ProjectRow>,
-    pub expanded: String,
-    pub branches: Vec<ProjectBranch>,
-    pub branches_for: String,
-    pub on_expand: EventHandler<String>,
+    pub loaded: bool,
     pub on_pick: EventHandler<ProjectPick>,
     pub on_choose_another: EventHandler<()>,
 }
@@ -386,11 +536,13 @@ pub struct BranchMenuData {
 #[derive(Clone, Copy, PartialEq)]
 pub struct ComposerMenu {
     open: Signal<Option<ComposerMenuKind>>,
+    cursor: Signal<usize>,
 }
 
 pub fn use_composer_menu() -> ComposerMenu {
     ComposerMenu {
         open: use_signal(|| None),
+        cursor: use_signal(|| 0),
     }
 }
 
@@ -403,8 +555,34 @@ impl ComposerMenu {
         self.opened() == Some(kind)
     }
 
+    pub fn cursor(&self) -> usize {
+        (self.cursor)()
+    }
+
+    pub fn point_at(&self, index: usize) {
+        let mut cursor = self.cursor;
+        if *cursor.peek() != index {
+            cursor.set(index);
+        }
+    }
+
+    pub fn step(&self, direction: MenuDirection, rows: usize) {
+        if rows == 0 {
+            return;
+        }
+        let mut cursor = self.cursor;
+        let at = (*cursor.peek()).min(rows - 1);
+        let next = match direction {
+            MenuDirection::Next => (at + 1).min(rows - 1),
+            MenuDirection::Previous => at.saturating_sub(1),
+        };
+        cursor.set(next);
+    }
+
     pub fn toggle(&self, kind: ComposerMenuKind) -> bool {
         let mut open = self.open;
+        let mut cursor = self.cursor;
+        cursor.set(0);
         if *open.peek() == Some(kind) {
             open.set(None);
             return false;
@@ -415,6 +593,8 @@ impl ComposerMenu {
 
     pub fn close(&self) {
         let mut open = self.open;
+        let mut cursor = self.cursor;
+        cursor.set(0);
         if open.peek().is_some() {
             open.set(None);
         }

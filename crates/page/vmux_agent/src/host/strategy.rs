@@ -31,12 +31,32 @@ impl AgentStrategies {
         self.cli.values().map(Arc::as_ref)
     }
 
-    pub fn list_all_sessions(&self) -> Vec<ResumableSession> {
-        let all = self
-            .cli_strategies()
-            .flat_map(|s| s.list_sessions())
-            .collect();
+    pub async fn list_all_sessions(&self) -> Vec<ResumableSession> {
+        let pool = bevy::tasks::IoTaskPool::get();
+        let mut scanning = Vec::new();
+        for strategy in self.cli.values() {
+            let strategy = strategy.clone();
+            scanning.push(pool.spawn(async move { strategy.list_sessions() }));
+        }
+        let mut all = Vec::new();
+        for scan in scanning {
+            all.extend(scan.await);
+        }
         sort_sessions(all)
+    }
+
+    pub fn prompt_history(&self, kind: AgentKind, cwd: &std::path::Path) -> Vec<String> {
+        let Some(strategy) = self.get_cli(kind) else {
+            return Vec::new();
+        };
+        strategy.prompt_history(cwd)
+    }
+
+    pub fn latest_message(&self, kind: AgentKind, transcript: &std::path::Path) -> String {
+        let Some(strategy) = self.get_cli(kind) else {
+            return String::new();
+        };
+        strategy.latest_message(transcript)
     }
 
     pub fn load_transcript(&self, kind: AgentKind, sid: &str) -> Result<Vec<Message>, String> {
@@ -121,6 +141,7 @@ mod tests {
             kind: AgentKind::Claude,
             sid: sid.into(),
             cwd: PathBuf::from("/w"),
+            transcript: PathBuf::from("/w/none.jsonl"),
             mtime: SystemTime::UNIX_EPOCH + Duration::from_secs(secs),
             title: sid.into(),
             cross_runtime: true,

@@ -1,5 +1,6 @@
 use crate::event::{ModelOptionEntry, ResumableSessionEntry, SlashCommandEntry};
 use unicode_segmentation::UnicodeSegmentation;
+#[cfg(ui)]
 pub(crate) use vmux_ui::prompt_recall::{
     PromptHistoryDirection, move_prompt_history, prompt_history_direction,
 };

@@ -59,7 +59,12 @@ impl Route {
         if Self::belongs_to(request, page.document_url()) {
             return true;
         }
-        matches!(self, Self::Asset) && Self::belongs_to(request, page.url)
+        matches!(self, Self::Asset)
+            && (Self::belongs_to(request, page.url) || Self::is_vmux_favicon(request))
+    }
+
+    fn is_vmux_favicon(url: &str) -> bool {
+        url.starts_with("vmux://") && Self::path_of(url).starts_with("assets/favicons/")
     }
 
     fn belongs_to(request: &str, document: &str) -> bool {
@@ -137,6 +142,16 @@ mod tests {
             .served_from("vmux://files/");
 
         assert!(Route::Asset.is_served_by("vmux://projects/assets/favicons/projects.svg", &page));
+        assert!(!Route::Events.is_served_by("vmux://projects/__events", &page));
+    }
+
+    #[test]
+    fn the_layout_can_load_bookmark_favicons_from_other_vmux_hosts() {
+        let page = NativePage::pane("vmux://layout/", || unreachable!());
+
+        assert!(Route::Asset.is_served_by("vmux://projects/assets/favicons/projects.svg", &page));
+        assert!(Route::Asset.is_served_by("vmux://settings/assets/favicons/settings.svg", &page));
+        assert!(!Route::Asset.is_served_by("vmux://projects/assets/index.css", &page));
         assert!(!Route::Events.is_served_by("vmux://projects/__events", &page));
     }
 

@@ -22,7 +22,12 @@ impl Plugin for CommandBarPlugin {
     }
 }
 
-const DEFAULT_AGENT_URLS: [&str; 2] = ["vmux://sessions/", "vmux://sessions"];
+const DEFAULT_AGENT_URLS: [&str; 4] = [
+    "vmux://sessions/",
+    "vmux://sessions",
+    "vmux://agent/",
+    "vmux://agent",
+];
 
 #[derive(Component)]
 struct AgentContribution;
@@ -253,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_bare_agent_url_is_claimed() {
+    fn only_bare_agent_urls_are_claimed() {
         let mut world = World::new();
         for url in DEFAULT_AGENT_URLS {
             world.spawn(ClaimedUrl(url.to_string()));
@@ -264,12 +269,19 @@ mod tests {
                 [
                     contributions.claims_url("vmux://sessions/"),
                     contributions.claims_url("vmux://sessions"),
+                    contributions.claims_url("vmux://agent/"),
+                    contributions.claims_url("vmux://agent"),
                     contributions.claims_url("vmux://sessions/codex"),
                     contributions.claims_url("vmux://sessions/codex/cli"),
+                    contributions.claims_url("vmux://agent/codex"),
+                    contributions.claims_url("vmux://agent/codex/cli"),
                 ]
             })
             .expect("claims_url system runs");
 
-        assert_eq!(claimed, [true, true, false, false]);
+        assert_eq!(
+            claimed,
+            [true, true, true, true, false, false, false, false]
+        );
     }
 }

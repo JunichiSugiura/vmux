@@ -12,7 +12,6 @@ path = "src/lib.rs"
 [dependencies]
 bevy_app = { workspace = true }
 bevy_ecs = { workspace = true }
-chrono = { workspace = true }
 dioxus = { version = "=0.7.9", default-features = false, features = [
     "minimal",
     "document",

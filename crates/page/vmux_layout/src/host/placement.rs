@@ -77,12 +77,19 @@ fn file_reuse_key(url: &str) -> &str {
     url.split('#').next().unwrap_or(url)
 }
 
+fn agent_reuse_key(url: &str) -> &str {
+    url.strip_prefix("vmux://sessions/")
+        .or_else(|| url.strip_prefix("vmux://agent/"))
+        .unwrap_or(url)
+}
+
 pub fn reusable_page_match(request_url: &str, existing_url: &str) -> bool {
     let kind = page_kind_for_url(request_url);
     if page_kind_for_url(existing_url) != kind {
         return false;
     }
     match kind {
+        PageKind::Agent => agent_reuse_key(request_url) == agent_reuse_key(existing_url),
         PageKind::File => file_reuse_key(request_url) == file_reuse_key(existing_url),
         _ => request_url == existing_url,
     }
@@ -211,6 +218,22 @@ mod tests {
                 stack: e(2)
             }
         );
+    }
+
+    #[test]
+    fn canonical_and_legacy_agent_urls_reuse_the_same_session() {
+        assert!(reusable_page_match(
+            "vmux://sessions/codex/session-1",
+            "vmux://agent/codex/session-1"
+        ));
+        assert!(reusable_page_match(
+            "vmux://agent/codex/session-1",
+            "vmux://sessions/codex/session-1"
+        ));
+        assert!(!reusable_page_match(
+            "vmux://sessions/codex/session-1",
+            "vmux://agent/codex/session-2"
+        ));
     }
 
     #[test]

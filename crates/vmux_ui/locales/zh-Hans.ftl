@@ -172,6 +172,7 @@ team-agents = { $count ->
 }
 team-empty = 暂无成员
 team-you = 你
+agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agent
 
 services-title = 后台服务

@@ -163,6 +163,7 @@ team-just-you = このスペースにはあなたのみ参加中です
 team-agents = あなたと { $count } エージェント
 team-empty = まだ誰もいません
 team-you = あなた
+agent-chat-subtitle = { team-you }・{ $agent }
 team-agent = エージェント
 
 services-title = バックグラウンドサービス

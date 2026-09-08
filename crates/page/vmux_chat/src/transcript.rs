@@ -72,7 +72,6 @@ pub fn AssistantTurn(
 
 #[component]
 fn MessageMeta(text: String, #[props(default)] right: bool) -> Element {
-    let timestamp = use_hook(|| chrono::Local::now().format("%-I:%M%P").to_string());
     let alignment = if right {
         "justify-end"
     } else {
@@ -83,7 +82,6 @@ fn MessageMeta(text: String, #[props(default)] right: bool) -> Element {
             if !text.is_empty() {
                 MessageCopyButton { text }
             }
-            time { class: "tabular-nums", "{timestamp}" }
         }
     }
 }

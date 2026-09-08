@@ -165,7 +165,7 @@ impl RestoredAgentWorktree {
 fn agent_url_uses_local_workspace(url: &str) -> bool {
     if AgentKind::all()
         .into_iter()
-        .any(|kind| url == kind.setup_url())
+        .any(|kind| kind.is_setup_url(url))
     {
         return false;
     }
@@ -708,7 +708,7 @@ fn handle_agent_page_open_task(
 ) -> Result<(), String> {
     if let Some(kind) = AgentKind::all()
         .into_iter()
-        .find(|k| task.url == k.setup_url())
+        .find(|kind| kind.is_setup_url(&task.url))
     {
         attach_cli_setup_to_stack(kind, task.stack, children_q, commands);
         return Ok(());
@@ -1301,31 +1301,33 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn explicit_setup_url_attaches_setup_page() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .add_message::<SpawnAgentInStackRequest>()
-            .insert_resource(AgentStrategies::default())
-            .insert_resource(test_settings())
-            .add_systems(Update, handle_agent_page_open);
+    pub(crate) fn canonical_and_legacy_setup_urls_attach_setup_page() {
+        for url in ["vmux://sessions/codex/setup", "vmux://agent/codex/setup"] {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<SpawnAgentInStackRequest>()
+                .insert_resource(AgentStrategies::default())
+                .insert_resource(test_settings())
+                .add_systems(Update, handle_agent_page_open);
 
-        let stack = app
-            .world_mut()
-            .spawn(vmux_layout::stack::stack_bundle())
-            .id();
-        app.world_mut().spawn(PageOpenTask {
-            id: vmux_core::PageOpenId::new(),
-            stack,
-            url: "vmux://sessions/codex/setup".to_string(),
-            request_id: None,
-        });
+            let stack = app
+                .world_mut()
+                .spawn(vmux_layout::stack::stack_bundle())
+                .id();
+            app.world_mut().spawn(PageOpenTask {
+                id: vmux_core::PageOpenId::new(),
+                stack,
+                url: url.to_string(),
+                request_id: None,
+            });
 
-        app.update();
-        app.update();
+            app.update();
+            app.update();
 
-        let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
-        assert_eq!(stack_meta.url, "vmux://sessions/codex/setup");
-        assert_eq!(stack_meta.title, "Set up Codex CLI");
+            let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
+            assert_eq!(stack_meta.url, "vmux://sessions/codex/setup", "{url}");
+            assert_eq!(stack_meta.title, "Set up Codex CLI", "{url}");
+        }
     }
 
     #[test]

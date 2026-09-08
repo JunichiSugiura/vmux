@@ -238,26 +238,29 @@ mod apply_cef_state_tests {
 
     #[test]
     fn vmux_agent_url_accepts_dynamic_title_only() {
-        let mut meta = PageMetadata {
-            url: "vmux://sessions/codex".into(),
-            title: "Codex".into(),
-            icon: vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
-            bg_color: None,
-        };
-        apply_cef_state_to_meta(
-            &mut meta,
-            ev(
-                Some("● Codex"),
-                Some("https://example.com/favicon.ico"),
-                None,
-            ),
-        );
-        assert_eq!(meta.title, "● Codex");
-        assert_eq!(meta.url, "vmux://sessions/codex");
-        assert_eq!(
-            meta.icon,
-            vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles)
-        );
+        for url in ["vmux://sessions/codex", "vmux://agent/codex"] {
+            let mut meta = PageMetadata {
+                url: url.into(),
+                title: "Codex".into(),
+                icon: vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
+                bg_color: None,
+            };
+            apply_cef_state_to_meta(
+                &mut meta,
+                ev(
+                    Some("● Codex"),
+                    Some("https://example.com/favicon.ico"),
+                    None,
+                ),
+            );
+            assert_eq!(meta.title, "● Codex", "{url}");
+            assert_eq!(meta.url, url);
+            assert_eq!(
+                meta.icon,
+                vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
+                "{url}"
+            );
+        }
     }
 
     #[test]

@@ -4,13 +4,16 @@ use vmux_ui::back::BackButton;
 use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::composer_bar::StatusDot;
 use vmux_ui::favicon::favicon_src_for_url;
-use vmux_ui::i18n::translate;
+use vmux_ui::i18n::{TranslationValue, translate_with};
 
 #[component]
 pub(super) fn ChatHeader(chat: Chat) -> Element {
     let name = chat.header_name();
     let title = chat.title();
-    let you = translate("team-you");
+    let subtitle = translate_with(
+        "agent-chat-subtitle",
+        &[("agent", TranslationValue::String(&name))],
+    );
     let user_name = (chat.user.name)();
     let user_initials = (chat.user.initials)();
     let user_color = (chat.user.color)();
@@ -36,7 +39,7 @@ pub(super) fn ChatHeader(chat: Chat) -> Element {
                 }
                 div { class: "flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground",
                     StatusDot { status: chat.status(), size_class: "h-2 w-2" }
-                    span { class: "truncate", {format!("{you} · {name}")} }
+                    span { class: "truncate", "{subtitle}" }
                 }
             }
         }

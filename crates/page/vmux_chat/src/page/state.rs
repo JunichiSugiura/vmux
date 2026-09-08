@@ -968,9 +968,15 @@ pub struct UserIdentity {
 }
 
 pub fn use_user_identity() -> UserIdentity {
+    let name = translate("team-you");
+    let initials = name
+        .chars()
+        .next()
+        .map(|character| character.to_uppercase().collect())
+        .unwrap_or_default();
     UserIdentity {
-        name: use_signal(|| "You".to_string()),
-        initials: use_signal(|| "Y".to_string()),
+        name: use_signal(move || name),
+        initials: use_signal(move || initials),
         color: use_signal(|| "#3b82f6".to_string()),
     }
 }

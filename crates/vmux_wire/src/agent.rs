@@ -51,6 +51,10 @@ impl AgentKind {
         format!("vmux://sessions/{}/setup", self.as_url_segment())
     }
 
+    pub fn is_setup_url(self, url: &str) -> bool {
+        url == self.setup_url() || url == format!("vmux://agent/{}/setup", self.as_url_segment())
+    }
+
     pub fn all() -> [AgentKind; 3] {
         [AgentKind::Vibe, AgentKind::Claude, AgentKind::Codex]
     }
@@ -109,6 +113,18 @@ mod tests {
             AgentKind::Claude.cli_url_prefix(),
             "vmux://sessions/claude/"
         );
+    }
+
+    #[test]
+    fn setup_urls_accept_canonical_and_legacy_forms() {
+        for kind in AgentKind::all() {
+            assert!(kind.is_setup_url(&kind.setup_url()));
+            assert!(kind.is_setup_url(&format!("vmux://agent/{}/setup", kind.as_url_segment())));
+            assert!(!kind.is_setup_url(&format!(
+                "vmux://sessions/{}/session-1",
+                kind.as_url_segment()
+            )));
+        }
     }
 
     #[test]

@@ -930,7 +930,7 @@ fn apply_acp_session_created(
             {
                 bevy::log::warn!("acp: failed to persist handoff metadata: {err}");
             }
-            let url = format!("vmux://agent/{}/{}", session.agent_id, ev.acp_session_id);
+            let url = format!("vmux://sessions/{}/{}", session.agent_id, ev.acp_session_id);
             if stack_meta.url != url {
                 stack_meta.url = url.clone();
             }
@@ -1659,7 +1659,7 @@ mod tests {
         app.world_mut()
             .entity_mut(agent)
             .insert(vmux_core::PageMetadata {
-                url: "vmux://agent/claude".into(),
+                url: "vmux://sessions/claude".into(),
                 ..default()
             });
         app.world_mut().write_message(PageAgentAcpTerminalCreated {

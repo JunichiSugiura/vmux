@@ -150,7 +150,7 @@ impl AgentPromptTarget {
     pub fn url(&self) -> String {
         match self {
             Self::Cli(kind) => format!("{}cli", kind.cli_url_prefix()),
-            Self::Acp { id } => format!("vmux://agent/{id}"),
+            Self::Acp { id } => format!("vmux://sessions/{id}"),
         }
     }
 }
@@ -289,13 +289,13 @@ mod tests {
     #[test]
     fn prompt_goes_to_the_lowest_ranked_page() {
         let pages = vec![
-            ContributedPage::ranked("vmux://agent/claude", 1),
-            ContributedPage::ranked("vmux://agent/codex/cli", 0),
+            ContributedPage::ranked("vmux://sessions/claude", 1),
+            ContributedPage::ranked("vmux://sessions/codex/cli", 0),
         ];
 
         assert_eq!(
             ContributedPage::prompt_url_among(pages, None).as_deref(),
-            Some("vmux://agent/codex/cli")
+            Some("vmux://sessions/codex/cli")
         );
     }
 
@@ -303,18 +303,19 @@ mod tests {
     fn prompt_honours_a_listed_request_and_ignores_a_stale_one() {
         let pages = || {
             vec![
-                ContributedPage::ranked("vmux://agent/codex/cli", 0),
-                ContributedPage::ranked("vmux://agent/claude", 1),
+                ContributedPage::ranked("vmux://sessions/codex/cli", 0),
+                ContributedPage::ranked("vmux://sessions/claude", 1),
             ]
         };
 
         assert_eq!(
-            ContributedPage::prompt_url_among(pages(), Some("vmux://agent/claude")).as_deref(),
-            Some("vmux://agent/claude")
+            ContributedPage::prompt_url_among(pages(), Some("vmux://sessions/claude")).as_deref(),
+            Some("vmux://sessions/claude")
         );
         assert_eq!(
-            ContributedPage::prompt_url_among(pages(), Some("vmux://agent/uninstalled")).as_deref(),
-            Some("vmux://agent/codex/cli")
+            ContributedPage::prompt_url_among(pages(), Some("vmux://sessions/uninstalled"))
+                .as_deref(),
+            Some("vmux://sessions/codex/cli")
         );
     }
 

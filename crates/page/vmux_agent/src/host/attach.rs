@@ -83,7 +83,7 @@ pub(crate) fn attach_page_agent_to_stack_with_webview(
             kind: Some(kind),
         },
     ));
-    let url = format!("vmux://agent/{provider}");
+    let url = format!("vmux://sessions/{provider}");
     if let Some(webview) = webview {
         commands
             .entity(webview)
@@ -142,8 +142,8 @@ pub(crate) fn attach_acp_agent_to_stack_with_webview(
 ) {
     let agent_id = crate::acp_install::agent_url_id(agent_id);
     let url = match resume {
-        Some(acp_sid) => format!("vmux://agent/{agent_id}/{acp_sid}"),
-        None => format!("vmux://agent/{agent_id}"),
+        Some(acp_sid) => format!("vmux://sessions/{agent_id}/{acp_sid}"),
+        None => format!("vmux://sessions/{agent_id}"),
     };
     commands.entity(stack).insert(PageMetadata {
         url: url.clone(),
@@ -532,7 +532,7 @@ mod tests {
             .collect();
         assert_eq!(swaps.len(), 1);
         assert_eq!(swaps[0].stack, stack);
-        assert_eq!(swaps[0].target_url, "vmux://agent/claude/session-7");
+        assert_eq!(swaps[0].target_url, "vmux://sessions/claude/session-7");
         assert_eq!(swaps[0].cwd, PathBuf::from("/workspace/project"));
         assert!(swaps[0].handoff.is_none());
     }

@@ -15,7 +15,7 @@ pub(super) fn ChatErrorCard(message: String) -> Element {
     let copy_label = translate("common-copy");
     let copy_text = message.clone();
     rsx! {
-        div { class: "flex flex-col gap-2 rounded-xl bg-red-500/[0.07] px-4 py-3 ring-1 ring-inset ring-red-500/20",
+        div { class: "flex flex-col gap-2 border-l-2 border-red-500/40 px-4 py-2",
             div { class: "flex items-center gap-2",
                 svg {
                     class: "h-4 w-4 shrink-0 text-red-500",
@@ -48,12 +48,12 @@ pub(super) fn ChatErrorCard(message: String) -> Element {
                     }
                 }
             }
-            div { class: "max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-red-500/[0.06] px-3 py-2 font-mono text-[11px] leading-relaxed text-red-700/90 dark:text-red-200/80",
+            div { class: "max-h-40 overflow-auto whitespace-pre-wrap break-words border-l border-red-500/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-red-700/90 dark:text-red-200/80",
                 "{message}"
             }
         }
         if is_version_error(&message) {
-            div { class: "flex items-start gap-3 rounded-xl bg-foreground/[0.04] px-4 py-3 ring-1 ring-inset ring-foreground/10",
+            div { class: "flex items-start gap-3 border-t border-foreground/10 px-4 py-3",
                 div { class: "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500",
                     svg {
                         class: "h-4 w-4",

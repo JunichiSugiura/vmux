@@ -12,7 +12,7 @@ use vmux_chat::event::{
     CHAT_SNAPSHOT_EVENT, ChatHistoryPage, ChatHistoryRequest, ChatSnapshot, QueuedPromptSnapshot,
 };
 use vmux_core::PageMetadata;
-use vmux_core::team::Profile;
+use vmux_core::team::{Profile, User};
 use vmux_service::chat::{group_turns_before, group_turns_tail, grouped_item_count};
 use vmux_session::AcpSession;
 use vmux_session::{AgentConversationTitle, AgentMessages, PromptQueue};
@@ -22,7 +22,7 @@ pub(super) struct ChatTranscriptPlugin;
 impl Plugin for ChatTranscriptPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(BinEventEmitterPlugin::<(ChatHistoryRequest,)>::for_hosts(
-            &["agent", "start"],
+            super::CHAT_EVENT_HOSTS,
         ))
         .add_observer(on_chat_history_request)
         .add_observer(reset_chat_synced_on_page_ready)
@@ -73,18 +73,24 @@ fn push_chat_to_page(
     children: Query<&Children>,
     chat_views: Query<(), With<AgentChatView>>,
     choices: Query<&crate::host::PendingAgentChoice>,
+    user_profiles: Query<Ref<Profile>, With<User>>,
     browsers: NonSend<Browsers>,
     mut last_push: Local<std::collections::HashMap<Entity, std::time::Instant>>,
     mut owed: Local<std::collections::HashSet<Entity>>,
     mut removed_messages: RemovedComponents<AgentMessages>,
     mut commands: Commands,
 ) {
+    let user_profile = user_profiles.single().ok();
+    let user_moved = user_profile
+        .as_ref()
+        .is_some_and(|profile| profile.is_changed());
     for stack in removed_messages.read() {
         last_push.remove(&stack);
         owed.remove(&stack);
     }
     for (stack, messages, state, turn_meta, profile, meta, queue, imported, title) in &sessions {
-        let moved = state.is_changed()
+        let moved = user_moved
+            || state.is_changed()
             || turn_meta.as_ref().is_some_and(|meta| meta.is_changed())
             || profile.as_ref().is_some_and(|profile| profile.is_changed())
             || queue.is_changed()
@@ -126,6 +132,7 @@ fn push_chat_to_page(
             &state,
             turn_meta.as_deref(),
             profile.as_deref(),
+            user_profile.as_deref(),
             meta,
             &queue,
             imported.as_deref(),
@@ -161,6 +168,7 @@ fn snapshot_of(
     state: &AgentRunState,
     turn_meta: Option<&AgentTurnMeta>,
     profile: Option<&Profile>,
+    user_profile: Option<&Profile>,
     meta: Option<&PageMetadata>,
     queue: &PromptQueue,
     imported: Option<&ImportedConversation>,
@@ -200,6 +208,18 @@ fn snapshot_of(
     let (agent_name, accent_color) = profile
         .map(|p| (p.name.clone(), p.avatar.color.clone()))
         .unwrap_or_default();
+    let (user_name, user_initials, user_color) = user_profile
+        .map(|profile| {
+            (
+                profile.name.clone(),
+                profile.avatar.initials.clone(),
+                profile.avatar.color.clone(),
+            )
+        })
+        .unwrap_or_else(|| {
+            let profile = Profile::user();
+            (profile.name, profile.avatar.initials, profile.avatar.color)
+        });
     let agent_icon = meta
         .map(|m| m.icon.favicon_url().to_string())
         .unwrap_or_default();
@@ -218,6 +238,9 @@ fn snapshot_of(
             .unwrap_or_default(),
         agent_icon,
         accent_color,
+        user_name,
+        user_initials,
+        user_color,
         handoff_source: imported
             .map(|imported| imported.source_agent.clone())
             .unwrap_or_default(),
@@ -277,10 +300,12 @@ fn sync_chat_to_ready_views(
     )>,
     acp_sessions: Query<(&AcpSession, Option<&AcpModelState>)>,
     choices: Query<&crate::host::PendingAgentChoice>,
+    user_profiles: Query<&Profile, With<User>>,
     settings: Option<Res<vmux_setting::AppSettings>>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,
 ) {
+    let user_profile = user_profiles.single().ok();
     for webview in &pending {
         let Ok(parent) = child_of.get(webview) else {
             continue;
@@ -302,6 +327,7 @@ fn sync_chat_to_ready_views(
                 state,
                 turn_meta,
                 profile,
+                user_profile,
                 meta,
                 queue,
                 imported,
@@ -461,6 +487,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &PromptQueue::default(),
             Some(&imported),
             None,
@@ -479,6 +506,7 @@ mod tests {
                 name: "vmux.run".into(),
                 args: serde_json::json!({"command": "echo hi", "focus": true}),
             },
+            None,
             None,
             None,
             None,
@@ -504,6 +532,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             &PromptQueue::default(),
             None,
             Some(&title),
@@ -514,6 +543,27 @@ mod tests {
             snapshot.conversation_title,
             "Refine generated chat summaries"
         );
+    }
+
+    #[test]
+    fn snapshot_uses_the_active_user_profile_avatar() {
+        let profile = Profile::user_named("Personal".into());
+        let snapshot = snapshot_of(
+            &AgentMessages::default(),
+            &AgentRunState::Idle,
+            None,
+            None,
+            Some(&profile),
+            None,
+            &PromptQueue::default(),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(snapshot.user_name, "Personal");
+        assert_eq!(snapshot.user_initials, "P");
+        assert_eq!(snapshot.user_color, "#3b82f6");
     }
 
     #[test]

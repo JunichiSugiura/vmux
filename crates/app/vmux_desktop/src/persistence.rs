@@ -359,16 +359,21 @@ fn space_is_stale(body: &str) -> bool {
 }
 
 fn space_contains_stale_agent_url(body: &str) -> bool {
-    body.split("vmux://agent/").skip(1).any(|tail| {
-        let suffix = tail.split('"').next().unwrap_or_default();
-        let url = format!("vmux://agent/{suffix}");
-        is_stale_agent_url(&url)
-    })
+    for prefix in ["vmux://sessions/", "vmux://agent/"] {
+        if body.split(prefix).skip(1).any(|tail| {
+            let suffix = tail.split('"').next().unwrap_or_default();
+            let url = format!("{prefix}{suffix}");
+            is_stale_agent_url(&url)
+        }) {
+            return true;
+        }
+    }
+    false
 }
 
 fn is_stale_agent_url(url: &str) -> bool {
     let normalized = url.trim_end_matches('/');
-    if normalized == "vmux://agent" {
+    if matches!(normalized, "vmux://sessions" | "vmux://agent") {
         return false;
     }
     if is_bare_agent_kind_url(normalized) {
@@ -1561,31 +1566,38 @@ mod tests {
     #[test]
     fn current_page_agent_url_does_not_mark_space_stale() {
         assert!(!space_contains_stale_agent_url(
-            r#"url: "vmux://agent/echo/echo/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
+            r#"url: "vmux://sessions/echo/echo/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
+        ));
+    }
+
+    #[test]
+    fn legacy_agent_url_does_not_mark_space_stale() {
+        assert!(!space_contains_stale_agent_url(
+            r#"url: "vmux://agent/claude/session-id""#
         ));
     }
 
     #[test]
     fn known_cli_agent_url_does_not_mark_space_stale() {
         assert!(!space_contains_stale_agent_url(
-            r#"url: "vmux://agent/codex/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
+            r#"url: "vmux://sessions/codex/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
         ));
     }
 
     #[test]
     fn bare_cli_agent_url_does_not_mark_space_stale() {
         assert!(!space_contains_stale_agent_url(
-            r#"url: "vmux://agent/vibe/""#
+            r#"url: "vmux://sessions/vibe/""#
         ));
     }
 
     #[test]
     fn malformed_agent_url_marks_space_stale() {
         assert!(!space_contains_stale_agent_url(
-            r#"url: "vmux://agent/bogus/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
+            r#"url: "vmux://sessions/bogus/edb5335d-20cf-4c3d-9433-8619c405a0f2""#
         ));
         assert!(space_contains_stale_agent_url(
-            r#"url: "vmux://agent/a/b/c/d/e""#
+            r#"url: "vmux://sessions/a/b/c/d/e""#
         ));
     }
 
@@ -1597,7 +1609,7 @@ mod tests {
         let path = space_dir.join("space.ron");
         std::fs::write(
             &path,
-            r#"url: "vmux://agent/echo/echo/edb5335d-20cf-4c3d-9433-8619c405a0f2""#,
+            r#"url: "vmux://sessions/echo/echo/edb5335d-20cf-4c3d-9433-8619c405a0f2""#,
         )
         .expect("write space");
 

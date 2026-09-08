@@ -15,8 +15,8 @@ use vmux_ui::i18n::translate;
 #[component]
 pub(super) fn ChatDock(chat: Chat) -> Element {
     rsx! {
-        div { class: "relative z-10 bg-gradient-to-t from-background via-background/95 to-transparent px-4 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-8",
-            div { class: "agent-chat-prompt-shell relative mx-auto flex max-w-3xl animate-agent-prompt-dock flex-col gap-2 motion-reduce:animate-none",
+        div { class: "relative z-20 px-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2",
+            div { class: "session-chat-prompt-shell relative mx-auto flex max-w-3xl flex-col gap-2 drop-shadow-[0_20px_32px_rgba(0,0,0,0.28)]",
                 if chat.media_menu_open() {
                     MediaMenu { chat }
                 }
@@ -46,6 +46,7 @@ fn ChatComposer(chat: Chat) -> Element {
     rsx! {
         PromptComposer {
             shared_transition: true,
+            show_send_button: false,
             value: drafted,
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),

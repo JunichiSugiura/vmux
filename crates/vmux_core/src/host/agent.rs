@@ -116,7 +116,9 @@ pub struct RestartAgentPty {
 }
 
 pub fn parse_page_agent_url(url: &str) -> Option<(String, String, Option<String>)> {
-    let body = url.strip_prefix("vmux://agent/")?;
+    let body = url
+        .strip_prefix("vmux://sessions/")
+        .or_else(|| url.strip_prefix("vmux://agent/"))?;
     let segs: Vec<&str> = body.split('/').filter(|s| !s.is_empty()).collect();
     match segs.as_slice() {
         [provider, model] => Some(((*provider).to_string(), (*model).to_string(), None)),
@@ -130,7 +132,9 @@ pub fn parse_page_agent_url(url: &str) -> Option<(String, String, Option<String>
 }
 
 pub fn parse_acp_agent_url(url: &str) -> Option<String> {
-    let body = url.strip_prefix("vmux://agent/")?;
+    let body = url
+        .strip_prefix("vmux://sessions/")
+        .or_else(|| url.strip_prefix("vmux://agent/"))?;
     let segs: Vec<&str> = body.split('/').filter(|s| !s.is_empty()).collect();
     match segs.as_slice() {
         [id] => Some((*id).to_string()),
@@ -151,7 +155,8 @@ mod tests {
 
     #[test]
     fn parse_page_agent_url_provider_model_only() {
-        let (provider, model, sid) = parse_page_agent_url("vmux://agent/openai/gpt-5.5").unwrap();
+        let (provider, model, sid) =
+            parse_page_agent_url("vmux://sessions/openai/gpt-5.5").unwrap();
         assert_eq!(provider, "openai");
         assert_eq!(model, "gpt-5.5");
         assert!(sid.is_none());
@@ -160,7 +165,7 @@ mod tests {
     #[test]
     fn parse_page_agent_url_with_sid() {
         let (provider, model, sid) =
-            parse_page_agent_url("vmux://agent/anthropic/claude-opus-4.7/xHigh").unwrap();
+            parse_page_agent_url("vmux://sessions/anthropic/claude-opus-4.7/xHigh").unwrap();
         assert_eq!(provider, "anthropic");
         assert_eq!(model, "claude-opus-4.7");
         assert_eq!(sid.as_deref(), Some("xHigh"));
@@ -168,27 +173,39 @@ mod tests {
 
     #[test]
     fn parse_page_agent_url_rejects_single_segment() {
-        assert!(parse_page_agent_url("vmux://agent/vibe").is_none());
+        assert!(parse_page_agent_url("vmux://sessions/vibe").is_none());
     }
 
     #[test]
     fn parse_acp_agent_url_single_segment() {
         assert_eq!(
-            parse_acp_agent_url("vmux://agent/vibe-acp"),
+            parse_acp_agent_url("vmux://sessions/vibe-acp"),
             Some("vibe-acp".to_string())
         );
-        assert!(parse_acp_agent_url("vmux://agent/openai/gpt-5.5").is_none());
+        assert!(parse_acp_agent_url("vmux://sessions/openai/gpt-5.5").is_none());
         assert!(parse_acp_agent_url("https://google.com").is_none());
     }
 
     #[test]
     fn parse_page_agent_url_rejects_too_many_segments() {
-        assert!(parse_page_agent_url("vmux://agent/openai/gpt/sid/extra").is_none());
+        assert!(parse_page_agent_url("vmux://sessions/openai/gpt/sid/extra").is_none());
     }
 
     #[test]
     fn parse_page_agent_url_rejects_non_agent_host() {
         assert!(parse_page_agent_url("https://google.com").is_none());
+    }
+
+    #[test]
+    fn legacy_agent_urls_still_parse() {
+        assert_eq!(
+            parse_acp_agent_url("vmux://agent/claude"),
+            Some("claude".to_string())
+        );
+        assert_eq!(
+            parse_page_agent_url("vmux://agent/openai/gpt-5.5"),
+            Some(("openai".to_string(), "gpt-5.5".to_string(), None))
+        );
     }
 
     #[test]

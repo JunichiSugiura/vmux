@@ -11,7 +11,7 @@ pub enum PageKind {
 }
 
 pub fn page_kind_for_url(url: &str) -> PageKind {
-    if url.starts_with("vmux://agent/") {
+    if url.starts_with("vmux://sessions/") || url.starts_with("vmux://agent/") {
         PageKind::Agent
     } else if url.starts_with("vmux://terminal/") {
         PageKind::Terminal
@@ -77,12 +77,19 @@ fn file_reuse_key(url: &str) -> &str {
     url.split('#').next().unwrap_or(url)
 }
 
+fn agent_reuse_key(url: &str) -> &str {
+    url.strip_prefix("vmux://sessions/")
+        .or_else(|| url.strip_prefix("vmux://agent/"))
+        .unwrap_or(url)
+}
+
 pub fn reusable_page_match(request_url: &str, existing_url: &str) -> bool {
     let kind = page_kind_for_url(request_url);
     if page_kind_for_url(existing_url) != kind {
         return false;
     }
     match kind {
+        PageKind::Agent => agent_reuse_key(request_url) == agent_reuse_key(existing_url),
         PageKind::File => file_reuse_key(request_url) == file_reuse_key(existing_url),
         _ => request_url == existing_url,
     }
@@ -168,7 +175,10 @@ mod tests {
 
     #[test]
     fn classifies_core_four_kinds() {
-        assert_eq!(page_kind_for_url("vmux://agent/vibe/abc"), PageKind::Agent);
+        assert_eq!(
+            page_kind_for_url("vmux://sessions/vibe/abc"),
+            PageKind::Agent
+        );
         assert_eq!(page_kind_for_url("vmux://terminal/123"), PageKind::Terminal);
         assert_eq!(page_kind_for_url("file:///x.rs"), PageKind::File);
         assert_eq!(page_kind_for_url("https://example.com"), PageKind::Browser);
@@ -208,6 +218,22 @@ mod tests {
                 stack: e(2)
             }
         );
+    }
+
+    #[test]
+    fn canonical_and_legacy_agent_urls_reuse_the_same_session() {
+        assert!(reusable_page_match(
+            "vmux://sessions/codex/session-1",
+            "vmux://agent/codex/session-1"
+        ));
+        assert!(reusable_page_match(
+            "vmux://agent/codex/session-1",
+            "vmux://sessions/codex/session-1"
+        ));
+        assert!(!reusable_page_match(
+            "vmux://sessions/codex/session-1",
+            "vmux://agent/codex/session-2"
+        ));
     }
 
     #[test]
@@ -365,7 +391,7 @@ mod tests {
             leaf(1, &[PageKind::Agent], 1, (800.0, 900.0)),
             leaf(2, &[PageKind::Browser], 9, (900.0, 400.0)),
         ];
-        let got = resolve_placement("vmux://agent/vibe/x", None, &leaves, e(2));
+        let got = resolve_placement("vmux://sessions/vibe/x", None, &leaves, e(2));
         assert_eq!(got, Placement::AddTab { pane: e(1) });
     }
 
@@ -385,7 +411,7 @@ mod tests {
     #[test]
     fn agent_page_bootstraps_by_splitting_newest_nonagent_when_no_agent_pane() {
         let leaves = [leaf(2, &[PageKind::Browser], 9, (400.0, 900.0))];
-        let got = resolve_placement("vmux://agent/vibe/x", None, &leaves, e(2));
+        let got = resolve_placement("vmux://sessions/vibe/x", None, &leaves, e(2));
         assert_eq!(
             got,
             Placement::Spiral {

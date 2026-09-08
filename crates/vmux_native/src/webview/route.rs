@@ -157,7 +157,13 @@ mod tests {
 
     #[test]
     fn navigation_rejects_requests_from_the_previous_document() {
-        assert!(Route::belongs_to("vmux://agent/__edits", "vmux://agent/"));
-        assert!(!Route::belongs_to("vmux://start/__edits", "vmux://agent/"));
+        assert!(Route::belongs_to(
+            "vmux://sessions/__edits",
+            "vmux://sessions/"
+        ));
+        assert!(!Route::belongs_to(
+            "vmux://start/__edits",
+            "vmux://sessions/"
+        ));
     }
 }

@@ -141,6 +141,7 @@ fn TeamAvatar(member: TeamMemberRow) -> Element {
                 background: member.color.clone(),
                 alt: member.name.clone(),
                 class: "size-8 text-sm",
+                seed: member.is_user.then(|| member.name.clone()),
             }
             if member.is_running {
                 span { class: "absolute -bottom-0.5 -right-0.5 size-3 rounded-full bg-success ring-2 ring-background animate-pulse" }

@@ -25,9 +25,9 @@ impl Plugin for ChatModelPlugin {
             .add_message::<ModelSelectRequest>()
             .add_message::<EffortSetRequest>()
             .add_plugins(
-                BinEventEmitterPlugin::<(SelectModel, SetAgentEffort)>::for_hosts(&[
-                    "agent", "start",
-                ]),
+                BinEventEmitterPlugin::<(SelectModel, SetAgentEffort)>::for_hosts(
+                    super::CHAT_EVENT_HOSTS,
+                ),
             )
             .add_plugins(BinEventEmitterPlugin::<(StartSelectModel,)>::for_hosts(&[
                 "start",

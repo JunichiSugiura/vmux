@@ -81,21 +81,21 @@ impl AgentChatTarget {
             crate::AgentUrl::Page {
                 provider, model, ..
             } => Some(Self {
-                url: format!("vmux://agent/{provider}"),
+                url: format!("vmux://sessions/{provider}"),
                 title: format!("{provider}/{model}"),
             }),
             crate::AgentUrl::PageDefault => {
                 let provider = crate::providers::resolve_default_app_provider()?;
                 Some(Self {
-                    url: format!("vmux://agent/{}", provider.provider),
+                    url: format!("vmux://sessions/{}", provider.provider),
                     title: format!("{}/{}", provider.provider, provider.default_model),
                 })
             }
             crate::AgentUrl::Acp { id, sid } => {
                 let id = crate::acp_install::agent_url_id(&id);
                 let url = match sid {
-                    Some(sid) => format!("vmux://agent/{id}/{sid}"),
-                    None => format!("vmux://agent/{id}"),
+                    Some(sid) => format!("vmux://sessions/{id}/{sid}"),
+                    None => format!("vmux://sessions/{id}"),
                 };
                 Some(Self {
                     url,
@@ -165,7 +165,7 @@ impl RestoredAgentWorktree {
 fn agent_url_uses_local_workspace(url: &str) -> bool {
     if AgentKind::all()
         .into_iter()
-        .any(|kind| url == kind.setup_url())
+        .any(|kind| kind.is_setup_url(url))
     {
         return false;
     }
@@ -499,7 +499,7 @@ fn handle_agent_page_open(
         .map(|(entity, task)| (entity, task.clone()))
         .collect();
     for (entity, task) in tasks {
-        if !task.url.starts_with("vmux://agent/") {
+        if !task.url.starts_with("vmux://sessions/") && !task.url.starts_with("vmux://agent/") {
             continue;
         }
         let tab = ancestor_agent_tab(task.stack, &child_of_q, &workspace.tabs);
@@ -708,7 +708,7 @@ fn handle_agent_page_open_task(
 ) -> Result<(), String> {
     if let Some(kind) = AgentKind::all()
         .into_iter()
-        .find(|k| task.url == k.setup_url())
+        .find(|kind| kind.is_setup_url(&task.url))
     {
         attach_cli_setup_to_stack(kind, task.stack, children_q, commands);
         return Ok(());
@@ -1056,7 +1056,7 @@ mod tests {
             .resource_mut::<Messages<vmux_core::agent::SwapStackSession>>()
             .write(vmux_core::agent::SwapStackSession {
                 stack,
-                target_url: "vmux://agent/not-configured/sid-1".to_string(),
+                target_url: "vmux://sessions/not-configured/sid-1".to_string(),
                 cwd: std::path::PathBuf::from("/work"),
                 handoff: None,
             });
@@ -1075,7 +1075,7 @@ mod tests {
             .resource_mut::<Messages<vmux_core::agent::SwapStackSession>>()
             .write(vmux_core::agent::SwapStackSession {
                 stack,
-                target_url: "vmux://agent/claude".to_string(),
+                target_url: "vmux://sessions/claude".to_string(),
                 cwd: std::path::PathBuf::from("/source/work"),
                 handoff: Some(vmux_core::agent::StackSessionHandoff {
                     source_agent: "Codex".into(),
@@ -1118,7 +1118,7 @@ mod tests {
             .resource_mut::<Messages<vmux_core::agent::SwapStackSession>>()
             .write(vmux_core::agent::SwapStackSession {
                 stack,
-                target_url: "vmux://agent/codex/session-2".to_string(),
+                target_url: "vmux://sessions/codex/session-2".to_string(),
                 cwd: std::path::PathBuf::from("/work"),
                 handoff: None,
             });
@@ -1187,7 +1187,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/vibe/".to_string(),
+            url: "vmux://sessions/vibe/".to_string(),
             request_id: None,
         });
 
@@ -1196,7 +1196,7 @@ mod tests {
 
         assert!(app.world().get_entity(child).is_err());
         let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
-        assert_eq!(stack_meta.url, "vmux://agent/vibe/setup");
+        assert_eq!(stack_meta.url, "vmux://sessions/vibe/setup");
         assert_eq!(stack_meta.title, "Set up Vibe CLI");
         let mut browsers = app
             .world_mut()
@@ -1208,7 +1208,7 @@ mod tests {
             .collect();
         assert_eq!(metas.len(), 1);
         assert_eq!(metas[0].title, "Set up Vibe CLI");
-        assert_eq!(metas[0].url, "vmux://agent/vibe/setup");
+        assert_eq!(metas[0].url, "vmux://sessions/vibe/setup");
     }
 
     #[test]
@@ -1236,7 +1236,7 @@ mod tests {
             app.world_mut().spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: format!("vmux://agent/{segment}/"),
+                url: format!("vmux://sessions/{segment}/"),
                 request_id: None,
             });
 
@@ -1244,7 +1244,7 @@ mod tests {
             app.update();
 
             let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
-            assert_eq!(stack_meta.url, format!("vmux://agent/{segment}/setup"));
+            assert_eq!(stack_meta.url, format!("vmux://sessions/{segment}/setup"));
             assert_eq!(
                 stack_meta.title,
                 format!("Set up {} CLI", kind.display_name())
@@ -1253,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    pub(crate) fn registry_acp_opens_without_settings_entry() {
+    pub(crate) fn legacy_registry_acp_url_opens_as_session() {
         use crate::acp_registry::{Distribution, RegistryAgent};
 
         let mut settings = test_settings();
@@ -1295,37 +1295,39 @@ mod tests {
         let session = app.world().get::<vmux_session::AcpSession>(stack).unwrap();
         assert_eq!(session.agent_id, "custom");
         let meta = app.world().get::<PageMetadata>(stack).unwrap();
-        assert_eq!(meta.url, "vmux://agent/custom");
+        assert_eq!(meta.url, "vmux://sessions/custom");
         assert_eq!(meta.title, "Custom ACP");
         assert_eq!(meta.icon.favicon_url(), "https://cdn.example/custom.svg");
     }
 
     #[test]
-    pub(crate) fn explicit_setup_url_attaches_setup_page() {
-        let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
-            .add_message::<SpawnAgentInStackRequest>()
-            .insert_resource(AgentStrategies::default())
-            .insert_resource(test_settings())
-            .add_systems(Update, handle_agent_page_open);
+    pub(crate) fn canonical_and_legacy_setup_urls_attach_setup_page() {
+        for url in ["vmux://sessions/codex/setup", "vmux://agent/codex/setup"] {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<SpawnAgentInStackRequest>()
+                .insert_resource(AgentStrategies::default())
+                .insert_resource(test_settings())
+                .add_systems(Update, handle_agent_page_open);
 
-        let stack = app
-            .world_mut()
-            .spawn(vmux_layout::stack::stack_bundle())
-            .id();
-        app.world_mut().spawn(PageOpenTask {
-            id: vmux_core::PageOpenId::new(),
-            stack,
-            url: "vmux://agent/codex/setup".to_string(),
-            request_id: None,
-        });
+            let stack = app
+                .world_mut()
+                .spawn(vmux_layout::stack::stack_bundle())
+                .id();
+            app.world_mut().spawn(PageOpenTask {
+                id: vmux_core::PageOpenId::new(),
+                stack,
+                url: url.to_string(),
+                request_id: None,
+            });
 
-        app.update();
-        app.update();
+            app.update();
+            app.update();
 
-        let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
-        assert_eq!(stack_meta.url, "vmux://agent/codex/setup");
-        assert_eq!(stack_meta.title, "Set up Codex CLI");
+            let stack_meta = app.world().get::<PageMetadata>(stack).unwrap();
+            assert_eq!(stack_meta.url, "vmux://sessions/codex/setup", "{url}");
+            assert_eq!(stack_meta.title, "Set up Codex CLI", "{url}");
+        }
     }
 
     #[test]
@@ -1361,7 +1363,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack: first_stack,
-                url: "vmux://agent/claude/cli".to_string(),
+                url: "vmux://sessions/claude/cli".to_string(),
                 request_id: None,
             })
             .id();
@@ -1405,7 +1407,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack: second_stack,
-            url: "vmux://agent/codex/cli".to_string(),
+            url: "vmux://sessions/codex/cli".to_string(),
             request_id: None,
         });
         app.update();
@@ -1467,7 +1469,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/claude".to_string(),
+                url: "vmux://sessions/claude".to_string(),
                 request_id: None,
             })
             .id();
@@ -1476,7 +1478,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/claude".to_string(),
+                url: "vmux://sessions/claude".to_string(),
                 request_id: None,
             })
             .id();
@@ -1603,7 +1605,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/claude".to_string(),
+                url: "vmux://sessions/claude".to_string(),
                 request_id: None,
             })
             .id();
@@ -1664,7 +1666,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude/cli".to_string(),
+            url: "vmux://sessions/claude/cli".to_string(),
             request_id: None,
         });
 
@@ -1731,7 +1733,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude/cli".to_string(),
+            url: "vmux://sessions/claude/cli".to_string(),
             request_id: None,
         });
 
@@ -1831,7 +1833,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/codex/cli".to_string(),
+                url: "vmux://sessions/codex/cli".to_string(),
                 request_id: None,
             })
             .id();
@@ -1882,7 +1884,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude".to_string(),
+            url: "vmux://sessions/claude".to_string(),
             request_id: None,
         });
 
@@ -1954,7 +1956,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude".to_string(),
+            url: "vmux://sessions/claude".to_string(),
             request_id: None,
         });
 
@@ -1973,7 +1975,7 @@ mod tests {
             panic!("expected exactly one chat view, got {}", opened.len());
         };
         assert_eq!(*entity, webview);
-        assert_eq!(meta.url, "vmux://agent/claude");
+        assert_eq!(meta.url, "vmux://sessions/claude");
         assert_eq!(parent.parent(), stack);
         let queue = app.world().get::<vmux_session::PromptQueue>(stack).unwrap();
         assert_eq!(
@@ -2040,7 +2042,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/codex".to_string(),
+                url: "vmux://sessions/codex".to_string(),
                 request_id: None,
             })
             .id();
@@ -2106,7 +2108,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude/".to_string(),
+            url: "vmux://sessions/claude/".to_string(),
             request_id: None,
         });
 
@@ -2184,7 +2186,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude/cli".to_string(),
+            url: "vmux://sessions/claude/cli".to_string(),
             request_id: None,
         });
 
@@ -2218,7 +2220,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/codex/cli".to_string(),
+            url: "vmux://sessions/codex/cli".to_string(),
             request_id: None,
         });
 
@@ -2311,7 +2313,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude".to_string(),
+            url: "vmux://sessions/claude".to_string(),
             request_id: None,
         });
 
@@ -2375,7 +2377,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/claude/".to_string(),
+            url: "vmux://sessions/claude/".to_string(),
             request_id: None,
         });
 
@@ -2421,7 +2423,7 @@ mod tests {
             .spawn(PageOpenTask {
                 id: vmux_core::PageOpenId::new(),
                 stack,
-                url: "vmux://agent/claude/".to_string(),
+                url: "vmux://sessions/claude/".to_string(),
                 request_id: None,
             })
             .id();
@@ -2458,7 +2460,7 @@ mod tests {
         app.world_mut().spawn(PageOpenTask {
             id: vmux_core::PageOpenId::new(),
             stack,
-            url: "vmux://agent/vibe/".to_string(),
+            url: "vmux://sessions/vibe/".to_string(),
             request_id: None,
         });
 

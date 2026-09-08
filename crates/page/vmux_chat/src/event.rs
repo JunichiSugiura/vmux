@@ -73,6 +73,12 @@ pub struct ChatSnapshot {
     pub conversation_title: String,
     pub agent_icon: String,
     pub accent_color: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub user_initials: String,
+    #[serde(default)]
+    pub user_color: String,
     pub handoff_source: String,
     pub handoff_truncated: bool,
     pub handoff_message_count: u32,
@@ -708,7 +714,7 @@ mod tests {
                 project: "w".into(),
                 branch: "main".into(),
                 cross_runtime: true,
-                url: "vmux://agent/claude/sid-9".into(),
+                url: "vmux://sessions/claude/sid-9".into(),
             }],
             offset: 0,
             total: 1,

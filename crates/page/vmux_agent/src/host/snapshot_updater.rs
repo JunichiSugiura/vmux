@@ -91,7 +91,7 @@ fn acp_agent_summaries(
             id: agent.id.clone(),
             name: agent.name.clone(),
             url: format!(
-                "vmux://agent/{}",
+                "vmux://sessions/{}",
                 crate::acp_install::agent_url_id(&agent.id)
             ),
             icon: agent.icon.clone().unwrap_or_default(),
@@ -257,7 +257,7 @@ mod tests {
 
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].id, "new-agent-acp");
-        assert_eq!(agents[0].url, "vmux://agent/new-agent");
+        assert_eq!(agents[0].url, "vmux://sessions/new-agent");
     }
 
     #[test]
@@ -351,7 +351,7 @@ mod tests {
             ChildOf(cli_stack),
         ));
         app.world_mut().spawn(ArchivedPage {
-            url: "vmux://agent/codex-acp/session-1".to_string(),
+            url: "vmux://sessions/codex-acp/session-1".to_string(),
             closed_at: 30,
             ..default()
         });

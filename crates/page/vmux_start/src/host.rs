@@ -743,22 +743,22 @@ mod tests {
     #[test]
     fn inline_transition_only_supports_page_agents() {
         assert!(crate::supports_inline_agent_transition(
-            "vmux://agent/codex"
+            "vmux://sessions/codex"
         ));
         assert!(crate::supports_inline_agent_transition(
-            "vmux://agent/openai/gpt-5/session"
+            "vmux://sessions/openai/gpt-5/session"
         ));
         assert!(!crate::supports_inline_agent_transition(
-            "vmux://agent/codex/cli"
+            "vmux://sessions/codex/cli"
         ));
         assert!(!crate::supports_inline_agent_transition(
-            "vmux://agent/vibe/setup"
+            "vmux://sessions/vibe/setup"
         ));
         assert!(crate::supports_inline_agent_transition(
-            "vmux://agent/cliff"
+            "vmux://sessions/cliff"
         ));
         assert!(crate::supports_inline_agent_transition(
-            "vmux://agent/setupwizard"
+            "vmux://sessions/setupwizard"
         ));
     }
 

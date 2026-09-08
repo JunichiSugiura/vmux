@@ -39,6 +39,9 @@ impl ChatKeys {
         if self.answered_by_number(&event) {
             return;
         }
+        if self.submits_prompt(&event) {
+            return;
+        }
         self.hand_over(&event);
     }
 
@@ -186,6 +189,22 @@ impl ChatKeys {
         };
         event.prevent_default();
         list.choose(self.chat, index);
+        true
+    }
+
+    fn submits_prompt(&self, event: &KeyboardEvent) -> bool {
+        let modifiers = event.modifiers();
+        if event.key() != Key::Enter
+            || modifiers.shift()
+            || modifiers.meta()
+            || modifiers.ctrl()
+            || modifiers.alt()
+            || ChatList::of(self.chat).is_some()
+        {
+            return false;
+        }
+        event.prevent_default();
+        self.chat.submit();
         true
     }
 

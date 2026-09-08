@@ -73,7 +73,8 @@ pub(crate) fn apply_cef_state_to_meta(
     ev: bevy_cef_core::prelude::WebviewCefStateEvent,
 ) {
     let on_native_view = meta.url.starts_with("vmux://");
-    let accepts_dynamic_title = meta.url.starts_with("vmux://agent/");
+    let accepts_dynamic_title =
+        meta.url.starts_with("vmux://sessions/") || meta.url.starts_with("vmux://agent/");
     let navigating_away = ev.url.as_deref().is_some_and(|u| !u.starts_with("vmux://"));
     if on_native_view && !navigating_away {
         if accepts_dynamic_title && let Some(title) = ev.title {
@@ -237,26 +238,29 @@ mod apply_cef_state_tests {
 
     #[test]
     fn vmux_agent_url_accepts_dynamic_title_only() {
-        let mut meta = PageMetadata {
-            url: "vmux://agent/codex".into(),
-            title: "Codex".into(),
-            icon: vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
-            bg_color: None,
-        };
-        apply_cef_state_to_meta(
-            &mut meta,
-            ev(
-                Some("● Codex"),
-                Some("https://example.com/favicon.ico"),
-                None,
-            ),
-        );
-        assert_eq!(meta.title, "● Codex");
-        assert_eq!(meta.url, "vmux://agent/codex");
-        assert_eq!(
-            meta.icon,
-            vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles)
-        );
+        for url in ["vmux://sessions/codex", "vmux://agent/codex"] {
+            let mut meta = PageMetadata {
+                url: url.into(),
+                title: "Codex".into(),
+                icon: vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
+                bg_color: None,
+            };
+            apply_cef_state_to_meta(
+                &mut meta,
+                ev(
+                    Some("● Codex"),
+                    Some("https://example.com/favicon.ico"),
+                    None,
+                ),
+            );
+            assert_eq!(meta.title, "● Codex", "{url}");
+            assert_eq!(meta.url, url);
+            assert_eq!(
+                meta.icon,
+                vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Sparkles),
+                "{url}"
+            );
+        }
     }
 
     #[test]

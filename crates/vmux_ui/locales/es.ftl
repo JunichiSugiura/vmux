@@ -172,6 +172,7 @@ team-agents = { $count ->
 }
 team-empty = Aún no hay nadie aquí
 team-you = Tú
+agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agente
 
 services-title = Servicios en segundo plano

@@ -19,7 +19,7 @@ impl Plugin for ChatMediaPlugin {
             ChatMediaListRequest,
             ChatAttachPaths,
             ChatAttachmentPreviewRequest,
-        )>::for_hosts(&["agent", "start"]))
+        )>::for_hosts(super::CHAT_EVENT_HOSTS))
             .add_observer(on_chat_pick_files)
             .add_observer(on_chat_paste_media)
             .add_observer(on_chat_media_list_request)

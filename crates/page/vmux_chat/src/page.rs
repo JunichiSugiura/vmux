@@ -8,7 +8,7 @@ use self::state::use_chat;
 use self::transcript::ChatTranscript;
 use crate::transcript::MD_CSS;
 use dioxus::prelude::*;
-use vmux_ui::matrix_rain::MatrixRain;
+
 #[component]
 pub fn Page() -> Element {
     let chat = use_chat();
@@ -18,27 +18,15 @@ pub fn Page() -> Element {
 
     rsx! {
         main {
-            class: "agent-chat-page relative isolate flex h-dvh flex-col overflow-hidden bg-background text-foreground outline-none",
+            class: "session-chat-page relative isolate flex h-dvh flex-col overflow-hidden bg-zinc-100 text-foreground outline-none dark:bg-zinc-900",
             style: "--agent-accent:{accent.css};",
             tabindex: "-1",
             onkeydown: move |event| keys.on_root_keydown(event),
             style { dangerous_inner_html: MD_CSS }
-            if chat.installing_splash() {
-                InstallBackdrop { accent_rgb: accent.rgb, title: chat.header_name().to_uppercase() }
-            }
             ChatHeader { chat }
             ChatTranscript { chat }
             ChatApprovalDock { chat }
             ChatDock { chat }
-        }
-    }
-}
-
-#[component]
-fn InstallBackdrop(accent_rgb: String, title: String) -> Element {
-    rsx! {
-        div { class: "pointer-events-none absolute inset-0 overflow-hidden",
-            MatrixRain { accent_rgb, words: vec![title] }
         }
     }
 }

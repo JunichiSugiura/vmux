@@ -1186,7 +1186,7 @@ mod tests {
             .init_resource::<PendingCursorWarp>()
             .insert_resource(test_settings())
             .insert_resource(vmux_core::EffectiveStartupUrl(
-                "vmux://agent/vibe/".to_string(),
+                "vmux://sessions/vibe/".to_string(),
             ))
             .add_systems(
                 Update,

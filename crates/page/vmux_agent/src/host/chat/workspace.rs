@@ -19,7 +19,7 @@ impl Plugin for ChatWorkspacePlugin {
             ChatSelectWorkspace,
             ChatBranchesRequest,
             ChatGoToBranch,
-        )>::for_hosts(&["agent", "start"]))
+        )>::for_hosts(super::CHAT_EVENT_HOSTS))
             .add_observer(on_chat_select_workspace)
             .add_observer(on_chat_branches_request)
             .add_observer(on_chat_go_to_branch)

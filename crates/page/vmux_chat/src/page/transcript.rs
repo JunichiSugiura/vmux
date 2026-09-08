@@ -7,6 +7,7 @@ use crate::transcript::ChatItemRow;
 use dioxus::prelude::*;
 use std::collections::HashMap;
 use vmux_ui::agent_accent::agent_accent;
+use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_wire::prompt_media::ChatAttachment;
@@ -67,11 +68,26 @@ pub(super) fn ChatTranscript(chat: Chat) -> Element {
     let handoff_source = (chat.handoff.source)();
     let handoff_truncated = (chat.handoff.truncated)();
     let handoff_count = (chat.handoff.message_count)();
+    let agent = chat.agent();
+    let agent_name = chat.header_name();
+    let agent_avatar = favicon_src_for_url(
+        &(chat.identity.agent_icon)(),
+        &format!("vmux://sessions/{agent}"),
+    );
+    let agent_initial = agent_name
+        .chars()
+        .next()
+        .map(|character| character.to_ascii_uppercase().to_string())
+        .unwrap_or_default();
+    let agent_color = chat.accent().css;
+    let user_name = (chat.user.name)();
+    let user_initials = (chat.user.initials)();
+    let user_color = (chat.user.color)();
     rsx! {
         div {
             id: "chat-scroll",
             onmounted: move |e| scroll_container.set(Some(e.data())),
-            class: "relative z-10 flex-1 animate-agent-surface overflow-y-auto overscroll-contain px-3 py-6 [animation-delay:40ms] motion-reduce:animate-none sm:px-4 md:px-6",
+            class: "relative z-10 flex-1 overflow-y-auto overscroll-contain px-3 pb-8 pt-3 sm:px-4 md:px-6",
             onscroll: move |e: Event<ScrollData>| {
                 let top = e.scroll_top() as i32;
                 let dist = e.scroll_height() - top - e.client_height();
@@ -85,11 +101,11 @@ pub(super) fn ChatTranscript(chat: Chat) -> Element {
                     chat.request_history();
                 }
             },
-            div { class: "mx-auto flex min-h-full max-w-none flex-col gap-5 md:max-w-3xl",
+            div { class: "mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5",
                 if loaded_start() > 0 {
                     button {
                         id: "chat-load-older",
-                        class: "mx-auto rounded-full border border-foreground/10 bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm transition-colors hover:bg-foreground/[0.06] hover:text-foreground disabled:opacity-50",
+                        class: "mx-auto mb-3 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50",
                         disabled: history_loading(),
                         onclick: move |_| chat.request_history(),
                         {if history_loading() { translate("agent-loading-older") } else { translate("agent-load-older") }}
@@ -106,6 +122,13 @@ pub(super) fn ChatTranscript(chat: Chat) -> Element {
                         absolute_index: loaded_start() as usize + i,
                         item,
                         attachment_previews: chat.composer.attachment_previews,
+                        agent_name: agent_name.clone(),
+                        agent_avatar: agent_avatar.clone(),
+                        agent_initial: agent_initial.clone(),
+                        agent_color: agent_color.clone(),
+                        user_name: user_name.clone(),
+                        user_initials: user_initials.clone(),
+                        user_color: user_color.clone(),
                         latest_tool_block: latest_tool
                             .filter(|(item_index, _)| *item_index == i)
                             .map(|(_, block_index)| block_index),
@@ -135,9 +158,9 @@ pub(super) fn ChatTranscript(chat: Chat) -> Element {
 fn InstallIntro(chat: Chat, detail: String) -> Element {
     let accent = agent_accent(&chat.agent());
     rsx! {
-        div { class: "my-auto flex flex-col items-center gap-3 py-16 text-center",
+        div { class: "my-auto flex flex-col items-center gap-3 py-12 text-center",
             AgentBanner { chat }
-            div { class: "flex max-w-sm items-center gap-2 rounded-full bg-background/90 px-3 py-1.5 text-xs text-muted-foreground ring-1 ring-inset ring-foreground/10",
+            div { class: "flex max-w-sm items-center gap-2 text-xs text-muted-foreground",
                 span { class: "h-1.5 w-1.5 shrink-0 rounded-full {accent.accent_bg}" }
                 span { class: "truncate", "{detail}" }
             }
@@ -148,7 +171,7 @@ fn InstallIntro(chat: Chat, detail: String) -> Element {
 #[component]
 fn ReadyIntro(chat: Chat) -> Element {
     rsx! {
-        div { class: "flex animate-agent-ready flex-col items-center gap-3 py-24 text-center motion-reduce:animate-none",
+        div { class: "flex flex-col items-center gap-3 py-16 text-center",
             AgentBanner { chat }
             p { class: "text-sm text-muted-foreground", {translate("agent-ready")} }
         }
@@ -187,7 +210,7 @@ pub(super) fn QueuedPrompts(chat: Chat) -> Element {
             for queued_prompt in queued.into_iter() {
                 div {
                     key: "q{queued_prompt.id}",
-                    class: "group flex max-w-[80%] items-center gap-2 rounded-2xl border border-dashed border-foreground/20 bg-foreground/[0.03] py-2 pl-3.5 pr-2 text-sm text-muted-foreground",
+                    class: "group flex max-w-[80%] items-center gap-2 border-l-2 border-dashed border-foreground/20 py-2 pl-3 pr-2 text-sm text-muted-foreground",
                     span { class: "shrink-0 text-[10px] uppercase tracking-wide text-foreground/40", {translate("agent-queued")} }
                     span { class: "min-w-0 flex-1 whitespace-pre-wrap break-words",
                         if !queued_prompt.text.is_empty() {

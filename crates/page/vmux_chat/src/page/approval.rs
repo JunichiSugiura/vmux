@@ -41,7 +41,7 @@ pub fn ApprovalPanel(
                         )}
                     }
                     if !details.is_empty() {
-                        div { class: "mt-2 max-h-40 overflow-auto rounded-lg bg-foreground/[0.05] ring-1 ring-inset ring-foreground/10",
+                        div { class: "mt-2 max-h-40 overflow-auto border-y border-foreground/10",
                             for (i , detail) in details.iter().enumerate() {
                                 div {
                                     key: "approval-detail-{i}",
@@ -99,7 +99,7 @@ pub(super) fn ChoiceList(chat: Chat) -> Element {
     let mut menu_sel = chat.slash.menu_sel;
     let question = (chat.run.choice_question)();
     rsx! {
-        div { class: "rounded-2xl border border-foreground/10 bg-foreground/[0.045] p-3.5 shadow-sm",
+        div { class: "border-l-2 border-foreground/15 py-2 pl-3.5",
             div { class: "mb-3 text-sm font-medium text-foreground", "{question}" }
             div { class: "flex flex-col gap-1.5",
                 for (index , option) in options.into_iter().enumerate() {

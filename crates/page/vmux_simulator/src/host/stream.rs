@@ -16,6 +16,7 @@ pub struct StreamServer {
 impl StreamServer {
     const FPS: &'static str = "30";
     const JPEG_QUALITY: u8 = 80;
+    const ROW_ALIGNMENT: usize = 64;
     const SCALE: f32 = 0.5;
 
     pub fn start(
@@ -62,12 +63,13 @@ impl StreamServer {
             Self::pipe_screenshots(socket, axe, device);
             return;
         };
-        let width = ((pixel_width as f32) * Self::SCALE).round() as u32;
-        let height = ((pixel_height as f32) * Self::SCALE).round() as u32;
+        let width = ((pixel_width as f32) * Self::SCALE).floor() as u32;
+        let height = ((pixel_height as f32) * Self::SCALE).floor() as u32;
         if width == 0 || height == 0 {
             Self::pipe_screenshots(socket, axe, device);
             return;
         }
+        let stride = (width as usize * 4).next_multiple_of(Self::ROW_ALIGNMENT);
         let Some((mut child, stdout)) = Self::spawn_bgra(&axe, &device) else {
             Self::pipe_screenshots(socket, axe, device);
             return;
@@ -77,7 +79,7 @@ impl StreamServer {
         let reader = std::thread::Builder::new()
             .name("vmux-simulator-capture".into())
             .spawn(move || {
-                Self::read_bgra(stdout, width, height, captured);
+                Self::read_bgra(stdout, height, stride, captured);
                 let _ = child.kill();
                 let _ = child.wait();
             });
@@ -102,8 +104,8 @@ impl StreamServer {
         Some((child, stdout))
     }
 
-    fn read_bgra(mut stdout: ChildStdout, width: u32, height: u32, frames: Arc<FrameExchange>) {
-        let frame_bytes = width as usize * height as usize * 4;
+    fn read_bgra(mut stdout: ChildStdout, height: u32, stride: usize, frames: Arc<FrameExchange>) {
+        let frame_bytes = stride * height as usize;
         let mut frame = vec![0; frame_bytes];
         loop {
             if stdout.read_exact(&mut frame).is_err() {
@@ -150,22 +152,30 @@ impl StreamServer {
     }
 
     fn encode_bgra(bytes: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
-        let expected = width as usize * height as usize * 4;
-        if bytes.len() != expected {
+        let stride = (width as usize * 4).next_multiple_of(Self::ROW_ALIGNMENT);
+        let rgb = Self::rgb_from_bgra(bytes, width, height, stride)?;
+        let mut jpeg = Vec::new();
+        JpegEncoder::new_with_quality(&mut jpeg, Self::JPEG_QUALITY)
+            .encode(&rgb, width, height, ExtendedColorType::Rgb8)
+            .map_err(io::Error::other)?;
+        Ok(jpeg)
+    }
+
+    fn rgb_from_bgra(bytes: &[u8], width: u32, height: u32, stride: usize) -> io::Result<Vec<u8>> {
+        let row_bytes = width as usize * 4;
+        if stride < row_bytes || bytes.len() != stride * height as usize {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "simulator frame has an unexpected size",
             ));
         }
         let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
-        for pixel in bytes.chunks_exact(4) {
-            rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+        for row in bytes.chunks_exact(stride) {
+            for pixel in row[..row_bytes].chunks_exact(4) {
+                rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
+            }
         }
-        let mut jpeg = Vec::new();
-        JpegEncoder::new_with_quality(&mut jpeg, Self::JPEG_QUALITY)
-            .encode(&rgb, width, height, ExtendedColorType::Rgb8)
-            .map_err(io::Error::other)?;
-        Ok(jpeg)
+        Ok(rgb)
     }
 
     fn pipe_screenshots(mut socket: TcpStream, axe: PathBuf, device: SimulatorDevice) {
@@ -244,7 +254,8 @@ mod tests {
 
     #[test]
     fn a_bgra_frame_encodes_as_jpeg() {
-        let bytes = [0, 0, 255, 255, 0, 255, 0, 255];
+        let mut bytes = vec![0; StreamServer::ROW_ALIGNMENT];
+        bytes[..8].copy_from_slice(&[0, 0, 255, 255, 0, 255, 0, 255]);
 
         let encoded = StreamServer::encode_bgra(&bytes, 2, 1).expect("jpeg");
 
@@ -258,6 +269,19 @@ mod tests {
     #[test]
     fn a_malformed_bgra_frame_is_rejected() {
         assert!(StreamServer::encode_bgra(&[0; 7], 2, 1).is_err());
+    }
+
+    #[test]
+    fn core_video_row_padding_is_not_encoded_as_pixels() {
+        let bytes = [
+            1, 2, 3, 255, 4, 5, 6, 255, 91, 92, 93, 94, 7, 8, 9, 255, 10, 11, 12, 255, 95, 96, 97,
+            98,
+        ];
+
+        assert_eq!(
+            StreamServer::rgb_from_bgra(&bytes, 2, 2, 12).expect("rgb"),
+            [3, 2, 1, 6, 5, 4, 9, 8, 7, 12, 11, 10]
+        );
     }
 
     #[test]

@@ -171,7 +171,7 @@ struct HidBrokerClient {
 
 impl HidBrokerClient {
     const MAX_MESSAGE_BYTES: usize = 64 * 1024;
-    const STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+    const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
     fn new(axe: PathBuf, udid: String) -> io::Result<Self> {
         let developer = Self::developer_directory()?;

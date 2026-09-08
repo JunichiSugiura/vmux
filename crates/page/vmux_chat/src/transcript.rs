@@ -23,7 +23,7 @@ pub fn UserBubble(
 ) -> Element {
     let you = translate("team-you");
     rsx! {
-        div { class: "chat-user-bubble group flex w-full gap-3 px-1 py-1 text-sm [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
+        div { class: "chat-user-bubble group flex w-full flex-row-reverse items-start justify-start gap-3 px-1 py-1 text-sm [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
             Avatar {
                 src: None,
                 fallback: avatar_initials,
@@ -32,9 +32,9 @@ pub fn UserBubble(
                 class: "mt-0.5 h-8 w-8 text-[10px]".to_string(),
                 seed: Some(avatar_name),
             }
-            div { class: "relative min-w-0 flex-1 pr-8",
-                div { class: "mb-1 text-xs font-semibold text-foreground", "{you}" }
-                div { class: "flex min-w-0 flex-col gap-2", {children} }
+            div { class: "relative min-w-0 max-w-[80%] flex-none pl-8",
+                div { class: "mb-1 text-right text-xs font-semibold text-foreground", "{you}" }
+                div { class: "flex min-w-0 flex-col items-end gap-2 text-left", {children} }
             }
         }
     }
@@ -67,11 +67,12 @@ pub fn AssistantTurn(
 }
 
 #[component]
-pub fn MessageCopyButton(text: String) -> Element {
+pub fn MessageCopyButton(text: String, #[props(default)] left: bool) -> Element {
     let label = translate("agent-copy");
+    let position = if left { "left-0" } else { "right-2" };
     rsx! {
         button {
-            class: "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition hover:bg-foreground/[0.08] hover:text-foreground",
+            class: "absolute {position} top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition hover:bg-foreground/[0.08] hover:text-foreground",
             title: "{label}",
             aria_label: "{label}",
             onclick: move |event| {
@@ -111,7 +112,7 @@ pub fn ChatItemRow(
                 avatar_initials: user_initials,
                 avatar_color: user_color,
                 if !text.is_empty() {
-                    MessageCopyButton { text: text.clone() }
+                    MessageCopyButton { text: text.clone(), left: true }
                 }
                 if let Some(context) = context {
                     details { class: "disclosure user-context-panel rounded-xl border",

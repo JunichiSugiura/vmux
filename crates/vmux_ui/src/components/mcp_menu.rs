@@ -109,7 +109,7 @@ impl McpQuery {
     pub fn read(draft: &str) -> Option<&str> {
         let rest = draft.strip_prefix("/mcp")?;
         if rest.is_empty() {
-            return None;
+            return Some("");
         }
         rest.chars()
             .next()?
@@ -219,5 +219,17 @@ impl McpServerText {
                 "shrink-0 text-xs text-muted-foreground"
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::McpQuery;
+
+    #[test]
+    fn query_opens_on_the_complete_command() {
+        assert_eq!(McpQuery::read("/mcp"), Some(""));
+        assert_eq!(McpQuery::read("/mcp linear"), Some("linear"));
+        assert_eq!(McpQuery::read("/mcpx"), None);
     }
 }

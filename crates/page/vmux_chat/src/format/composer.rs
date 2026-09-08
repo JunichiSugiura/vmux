@@ -45,7 +45,7 @@ pub fn selector_mode(draft: &str) -> SelectorMode<'_> {
         return SelectorMode::Models(rest.trim_start_matches(char::is_whitespace));
     }
     if let Some(rest) = token.strip_prefix("mcp")
-        && rest.chars().next().is_some_and(char::is_whitespace)
+        && (rest.is_empty() || rest.chars().next().is_some_and(char::is_whitespace))
     {
         return SelectorMode::Mcp(rest.trim_start_matches(char::is_whitespace));
     }
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(selector_mode("/resume "), SelectorMode::Resume(""));
         assert_eq!(selector_mode("/model"), SelectorMode::Commands("model"));
         assert_eq!(selector_mode("/model son"), SelectorMode::Models("son"));
-        assert_eq!(selector_mode("/mcp"), SelectorMode::Commands("mcp"));
+        assert_eq!(selector_mode("/mcp"), SelectorMode::Mcp(""));
         assert_eq!(selector_mode("/mcp lin"), SelectorMode::Mcp("lin"));
         assert_eq!(
             selector_mode("/resume  SID-9"),

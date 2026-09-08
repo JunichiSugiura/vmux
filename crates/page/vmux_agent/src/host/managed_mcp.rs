@@ -28,14 +28,18 @@ pub fn load() -> BTreeMap<String, McpServerManifest> {
     BTreeMap::new()
 }
 
-pub fn acp_servers() -> Vec<ManagedMcpServer> {
-    load()
-        .into_iter()
-        .map(|(name, server)| acp_server(name, server))
-        .collect()
+pub fn acp_servers(agent_id: &str) -> Vec<ManagedMcpServer> {
+    let mut servers = Vec::new();
+    for (name, server) in load() {
+        servers.push(acp_server(name, server, agent_id));
+    }
+    servers
 }
 
-fn acp_server(name: String, server: McpServerManifest) -> ManagedMcpServer {
+fn acp_server(mut name: String, server: McpServerManifest, agent_id: &str) -> ManagedMcpServer {
+    if crate::acp_install::registry_id_alias(agent_id) == "codex-acp" {
+        name = format!("vmux_{name}");
+    }
     let headers = server.resolved_headers().into_iter().collect();
     ManagedMcpServer {
         name,
@@ -258,7 +262,7 @@ mod tests {
         };
 
         assert_eq!(
-            acp_server("local".to_string(), server),
+            acp_server("local".to_string(), server, "claude-acp"),
             ManagedMcpServer {
                 name: "local".to_string(),
                 transport: ManagedMcpTransport::Stdio,
@@ -269,6 +273,26 @@ mod tests {
                 url: None,
                 headers: Vec::new(),
             }
+        );
+    }
+
+    #[test]
+    fn codex_acp_namespaces_managed_servers() {
+        let server = McpServerManifest {
+            transport: McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            url: Some("https://example.com/mcp".to_string()),
+            headers: BTreeMap::new(),
+            header_env: BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+
+        assert_eq!(
+            acp_server("linear".to_string(), server, "codex-acp").name,
+            "vmux_linear"
         );
     }
 }

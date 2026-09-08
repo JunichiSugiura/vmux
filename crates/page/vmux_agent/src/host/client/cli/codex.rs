@@ -174,60 +174,63 @@ fn quote_toml(s: &str) -> String {
 
 fn append_managed_mcp_args(args: &mut Vec<String>) {
     for (name, server) in crate::managed_mcp::load() {
-        let prefix = format!("mcp_servers.{}", quote_toml(&name));
-        match server.transport {
-            vmux_core::profile::tools::McpTransport::Stdio => {
-                if let Some(command) = server.command {
-                    push_config_override(
-                        args,
-                        format!("{prefix}.command={}", quote_toml(&command)),
-                    );
-                }
-                if !server.args.is_empty() {
-                    push_config_override(
-                        args,
-                        format!("{prefix}.args={}", toml_array(&server.args)),
-                    );
-                }
-                if !server.env.is_empty() {
-                    push_config_override(
-                        args,
-                        format!("{prefix}.env={}", toml_inline_table(&server.env)),
-                    );
-                }
-                if let Some(cwd) = server.cwd {
-                    push_config_override(args, format!("{prefix}.cwd={}", quote_toml(&cwd)));
-                }
+        append_managed_mcp_server_args(args, &name, server);
+    }
+}
+
+fn append_managed_mcp_server_args(
+    args: &mut Vec<String>,
+    name: &str,
+    server: vmux_core::profile::tools::McpServerManifest,
+) {
+    let prefix = format!("mcp_servers.{}", quote_toml(name));
+    push_config_override(args, format!("{prefix}.enabled=true"));
+    match server.transport {
+        vmux_core::profile::tools::McpTransport::Stdio => {
+            if let Some(command) = server.command {
+                push_config_override(args, format!("{prefix}.command={}", quote_toml(&command)));
             }
-            vmux_core::profile::tools::McpTransport::Http
-            | vmux_core::profile::tools::McpTransport::Sse => {
-                if let Some(url) = server.url {
-                    push_config_override(args, format!("{prefix}.url={}", quote_toml(&url)));
-                }
-                if !server.headers.is_empty() {
-                    push_config_override(
-                        args,
-                        format!(
-                            "{prefix}.http_headers={}",
-                            toml_inline_table(&server.headers)
-                        ),
-                    );
-                }
-                if !server.header_env.is_empty() {
-                    push_config_override(
-                        args,
-                        format!(
-                            "{prefix}.env_http_headers={}",
-                            toml_inline_table(&server.header_env)
-                        ),
-                    );
-                }
-                if let Some(variable) = server.bearer_token_env_var {
-                    push_config_override(
-                        args,
-                        format!("{prefix}.bearer_token_env_var={}", quote_toml(&variable)),
-                    );
-                }
+            if !server.args.is_empty() {
+                push_config_override(args, format!("{prefix}.args={}", toml_array(&server.args)));
+            }
+            if !server.env.is_empty() {
+                push_config_override(
+                    args,
+                    format!("{prefix}.env={}", toml_inline_table(&server.env)),
+                );
+            }
+            if let Some(cwd) = server.cwd {
+                push_config_override(args, format!("{prefix}.cwd={}", quote_toml(&cwd)));
+            }
+        }
+        vmux_core::profile::tools::McpTransport::Http
+        | vmux_core::profile::tools::McpTransport::Sse => {
+            if let Some(url) = server.url {
+                push_config_override(args, format!("{prefix}.url={}", quote_toml(&url)));
+            }
+            if !server.headers.is_empty() {
+                push_config_override(
+                    args,
+                    format!(
+                        "{prefix}.http_headers={}",
+                        toml_inline_table(&server.headers)
+                    ),
+                );
+            }
+            if !server.header_env.is_empty() {
+                push_config_override(
+                    args,
+                    format!(
+                        "{prefix}.env_http_headers={}",
+                        toml_inline_table(&server.header_env)
+                    ),
+                );
+            }
+            if let Some(variable) = server.bearer_token_env_var {
+                push_config_override(
+                    args,
+                    format!("{prefix}.bearer_token_env_var={}", quote_toml(&variable)),
+                );
             }
         }
     }
@@ -704,6 +707,39 @@ mod tests {
             args.iter()
                 .any(|a| a == "mcp_servers.vmux.tool_timeout_sec=660")
         );
+    }
+
+    #[test]
+    fn managed_mcp_server_is_enabled_with_auth_headers() {
+        let server = vmux_core::profile::tools::McpServerManifest {
+            transport: vmux_core::profile::tools::McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: std::collections::BTreeMap::new(),
+            cwd: None,
+            url: Some("https://mcp.linear.app/mcp".to_string()),
+            headers: std::collections::BTreeMap::from([(
+                "Authorization".to_string(),
+                "Bearer token".to_string(),
+            )]),
+            header_env: std::collections::BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+        let mut args = Vec::new();
+
+        append_managed_mcp_server_args(&mut args, "linear", server);
+
+        assert!(
+            args.iter()
+                .any(|arg| arg == "mcp_servers.\"linear\".enabled=true")
+        );
+        assert!(
+            args.iter()
+                .any(|arg| { arg == "mcp_servers.\"linear\".url=\"https://mcp.linear.app/mcp\"" })
+        );
+        assert!(args.iter().any(|arg| {
+            arg == "mcp_servers.\"linear\".http_headers={\"Authorization\"=\"Bearer token\"}"
+        }));
     }
 
     #[test]

@@ -53,7 +53,16 @@ impl Axe {
 
     pub fn run_detached(mut command: Command) {
         std::thread::spawn(move || {
-            let _ = command.status();
+            let command_debug = format!("{command:?}");
+            match command.status() {
+                Ok(status) if status.success() => {}
+                Ok(status) => {
+                    bevy::log::error!("simulator command failed ({status}): {command_debug}")
+                }
+                Err(error) => {
+                    bevy::log::error!("could not run simulator command: {error}: {command_debug}")
+                }
+            }
         });
     }
 }

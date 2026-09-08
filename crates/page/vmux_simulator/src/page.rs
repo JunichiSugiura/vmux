@@ -44,48 +44,31 @@ fn Mirror(port: u16) -> Element {
                 event.prevent_default();
                 let _ = send(&key);
             },
+            onpointerup: move |event: Event<PointerData>| {
+                let Some(from) = press.take() else {
+                    return;
+                };
+                let Some(element) = image() else {
+                    return;
+                };
+                let point = event.client_coordinates();
+                spawn(Pointer::send(from, (point.x, point.y), element));
+            },
+            onpointercancel: move |_| press.set(None),
             div { class: "relative rounded-[3.25rem] bg-gradient-to-b from-zinc-700 via-zinc-950 to-black p-[7px] shadow-[0_28px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/20",
                 div { class: "absolute -left-[3px] top-28 h-16 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -left-[3px] top-48 h-24 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -right-[3px] top-36 h-24 w-[3px] rounded-r bg-zinc-700" }
                 div { class: "overflow-hidden rounded-[2.8rem] bg-black ring-1 ring-black",
                     img {
-                        class: "block h-auto max-h-[calc(100vh-5rem)] max-w-[calc(100vw-5rem)] select-none",
+                        class: "block h-auto max-h-[calc(100vh-5rem)] max-w-[calc(100vw-5rem)] cursor-grab touch-none select-none active:cursor-grabbing",
                         draggable: false,
                         src: "http://127.0.0.1:{port}/",
                         onmounted: move |event: Event<MountedData>| image.set(Some(event.data())),
-                        onmousedown: move |event: Event<MouseData>| {
-                            let point = event.element_coordinates();
+                        onpointerdown: move |event: Event<PointerData>| {
+                            event.prevent_default();
+                            let point = event.client_coordinates();
                             press.set(Some((point.x, point.y)));
-                        },
-                        onmouseup: move |event| {
-                            let Some(from) = press.take() else {
-                                return;
-                            };
-                            let Some(element) = image() else {
-                                return;
-                            };
-                            let point = event.element_coordinates();
-                            spawn(async move {
-                                let Ok(rect) = element.get_client_rect().await else {
-                                    return;
-                                };
-                                let Some(from) = Pointer::fraction(from, (rect.size.width, rect.size.height)) else {
-                                    return;
-                                };
-                                let Some(to) = Pointer::fraction((point.x, point.y), (rect.size.width, rect.size.height)) else {
-                                    return;
-                                };
-                                let _ = send(&SimulatorGesture {
-                                    from_x: from.0,
-                                    from_y: from.1,
-                                    to_x: to.0,
-                                    to_y: to.1,
-                                });
-                            });
-                        },
-                        onmouseleave: move |_| {
-                            press.set(None);
                         },
                     }
                 }
@@ -129,10 +112,33 @@ fn Waiting(route: Option<SimulatorRoute>) -> Element {
 struct Pointer;
 
 impl Pointer {
-    fn fraction(point: (f64, f64), size: (f64, f64)) -> Option<(f32, f32)> {
+    async fn send(from: (f64, f64), to: (f64, f64), element: Rc<MountedData>) {
+        let Ok(rect) = element.get_client_rect().await else {
+            return;
+        };
+        let origin = (rect.origin.x, rect.origin.y);
+        let size = (rect.size.width, rect.size.height);
+        let Some(from) = Self::fraction(from, origin, size) else {
+            return;
+        };
+        let Some(to) = Self::fraction(to, origin, size) else {
+            return;
+        };
+        let _ = send(&SimulatorGesture {
+            from_x: from.0,
+            from_y: from.1,
+            to_x: to.0,
+            to_y: to.1,
+        });
+    }
+
+    fn fraction(point: (f64, f64), origin: (f64, f64), size: (f64, f64)) -> Option<(f32, f32)> {
         if size.0 <= 0.0 || size.1 <= 0.0 {
             return None;
         }
-        Some(((point.0 / size.0) as f32, (point.1 / size.1) as f32))
+        Some((
+            ((point.0 - origin.0) / size.0) as f32,
+            ((point.1 - origin.1) / size.1) as f32,
+        ))
     }
 }

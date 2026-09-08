@@ -21,6 +21,8 @@ vmux_core = { path = "../../vmux_core" }
 bevy = { workspace = true }
 bevy_cef = { workspace = true }
 bevy_ecs = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+libc = "0.2"
 serde_json = { workspace = true }
 
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]

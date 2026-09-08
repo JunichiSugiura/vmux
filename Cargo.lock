@@ -10783,6 +10783,8 @@ dependencies = [
  "bevy_cef",
  "bevy_ecs",
  "dioxus",
+ "image",
+ "libc",
  "rkyv",
  "serde",
  "serde_json",

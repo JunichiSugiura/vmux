@@ -1,6 +1,7 @@
 use crate::url::IosVersion;
+use std::fs;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(bevy::prelude::Resource)]
 pub struct Axe {
@@ -188,6 +189,38 @@ impl SimulatorDevice {
         Self::root_frame_size(&output.stdout)
     }
 
+    pub fn pixel_size(&self, axe: &Axe) -> Option<(u32, u32)> {
+        let path = std::env::temp_dir().join(format!(
+            "vmux-simulator-{}-{}.png",
+            std::process::id(),
+            self.udid
+        ));
+        let status = axe
+            .command()
+            .args(["screenshot", "--udid", &self.udid, "--output"])
+            .arg(&path)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .ok()?;
+        if !status.success() {
+            let _ = fs::remove_file(path);
+            return None;
+        }
+        let bytes = fs::read(&path);
+        let _ = fs::remove_file(path);
+        Self::png_size(&bytes.ok()?)
+    }
+
+    fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
+        if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
+            return None;
+        }
+        let width = u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?);
+        let height = u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?);
+        (width > 0 && height > 0).then_some((width, height))
+    }
+
     fn root_frame_size(bytes: &[u8]) -> Option<(f32, f32)> {
         let parsed: serde_json::Value = serde_json::from_slice(bytes).ok()?;
         let root = match &parsed {
@@ -303,5 +336,17 @@ mod tests {
             SimulatorDevice::root_frame_size(br#"{"frame":{"width":0,"height":0}}"#),
             None
         );
+    }
+
+    #[test]
+    fn reads_pixel_size_from_a_png_header() {
+        let mut bytes = vec![0; 24];
+        bytes[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        bytes[12..16].copy_from_slice(b"IHDR");
+        bytes[16..20].copy_from_slice(&1206u32.to_be_bytes());
+        bytes[20..24].copy_from_slice(&2622u32.to_be_bytes());
+
+        assert_eq!(SimulatorDevice::png_size(&bytes), Some((1206, 2622)));
+        assert_eq!(SimulatorDevice::png_size(b"not png"), None);
     }
 }

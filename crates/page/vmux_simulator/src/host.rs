@@ -1,4 +1,5 @@
 mod device;
+mod hid;
 mod input;
 mod stream;
 
@@ -10,6 +11,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
+use hid::{HidBroker, HidRequest};
 use input::{DeviceGesture, DeviceKey};
 use std::sync::{Arc, Mutex};
 use stream::StreamServer;
@@ -81,6 +83,7 @@ enum AttachmentPhase {
 
 struct AttachedDevice {
     axe: Axe,
+    hid: HidBroker,
     device: SimulatorDevice,
     points: Option<(f32, f32)>,
     server: StreamServer,
@@ -131,6 +134,7 @@ impl SimulatorPlugin {
         }
         commands.insert_resource(attached.server);
         commands.insert_resource(attached.device);
+        commands.insert_resource(attached.hid);
         commands.insert_resource(attached.axe);
         if let Some(wake) = wake {
             let _ = wake.send_event(WinitUserEvent::WakeUp);
@@ -195,31 +199,35 @@ impl SimulatorPlugin {
 
     fn on_gesture(
         trigger: On<BinReceive<SimulatorGesture>>,
-        device: Option<Res<SimulatorDevice>>,
         points: Option<Res<DevicePoints>>,
-        axe: Option<Res<Axe>>,
+        hid: Option<Res<HidBroker>>,
     ) {
-        let (Some(device), Some(points), Some(axe)) =
-            (device.as_deref(), points.as_deref(), axe.as_deref())
+        let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref()) else {
+            return;
+        };
+        let Some(gesture) = DeviceGesture::resolve(&trigger.event().payload, (points.0, points.1))
         else {
             return;
         };
-        let Some(gesture) =
-            DeviceGesture::resolve(&trigger.event().payload, device, (points.0, points.1))
-        else {
-            return;
-        };
-        gesture.dispatch(axe);
+        gesture.dispatch(hid);
     }
 
     fn on_key(
         trigger: On<BinReceive<SimulatorKey>>,
         device: Option<Res<SimulatorDevice>>,
         axe: Option<Res<Axe>>,
+        points: Option<Res<DevicePoints>>,
+        hid: Option<Res<HidBroker>>,
     ) {
         let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
             return;
         };
+        if trigger.event().payload == SimulatorKey::Button(HardwareButton::Home)
+            && let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref())
+        {
+            hid.dispatch(HidRequest::bottom_edge((points.0, points.1)));
+            return;
+        }
         DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
     }
 
@@ -227,11 +235,19 @@ impl SimulatorPlugin {
         mut requests: MessageReader<HardwareButtonRequest>,
         device: Option<Res<SimulatorDevice>>,
         axe: Option<Res<Axe>>,
+        points: Option<Res<DevicePoints>>,
+        hid: Option<Res<HidBroker>>,
     ) {
         let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
             return;
         };
         for request in requests.read() {
+            if request.0 == HardwareButton::Home
+                && let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref())
+            {
+                hid.dispatch(HidRequest::bottom_edge((points.0, points.1)));
+                continue;
+            }
             DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
         }
     }
@@ -296,10 +312,14 @@ impl AttachedDevice {
         );
         let device = SimulatorDevice::booted_or_boot(want)?;
         let points = device.point_size(&axe);
-        let server = StreamServer::start(&axe, device.clone())
+        let pixels = device.pixel_size(&axe);
+        let hid = HidBroker::start(&axe, &device)
+            .map_err(|error| format!("could not start simulator input: {error}"))?;
+        let server = StreamServer::start(&axe, device.clone(), pixels)
             .map_err(|error| format!("could not serve the simulator stream: {error}"))?;
         Ok(Self {
             axe,
+            hid,
             device,
             points,
             server,

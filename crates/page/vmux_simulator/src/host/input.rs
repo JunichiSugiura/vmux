@@ -1,8 +1,8 @@
 use super::device::{Axe, SimulatorDevice};
+use super::hid::{HidBroker, HidRequest};
 use crate::event::{SimulatorGesture, SimulatorKey};
 
 pub struct DeviceGesture {
-    udid: String,
     points: (f32, f32),
     from: (f32, f32),
     to: (f32, f32),
@@ -11,11 +11,7 @@ pub struct DeviceGesture {
 }
 
 impl DeviceGesture {
-    pub fn resolve(
-        gesture: &SimulatorGesture,
-        device: &SimulatorDevice,
-        points: (f32, f32),
-    ) -> Option<Self> {
+    pub fn resolve(gesture: &SimulatorGesture, points: (f32, f32)) -> Option<Self> {
         if points.0 <= 0.0 || points.1 <= 0.0 {
             return None;
         }
@@ -25,7 +21,6 @@ impl DeviceGesture {
         let dx = gesture.to_x - gesture.from_x;
         let dy = gesture.to_y - gesture.from_y;
         Some(Self {
-            udid: device.udid.clone(),
             points,
             from: on_device(gesture.from_x, gesture.from_y),
             to: on_device(gesture.to_x, gesture.to_y),
@@ -34,29 +29,15 @@ impl DeviceGesture {
         })
     }
 
-    pub fn dispatch(self, axe: &Axe) {
-        let mut command = axe.command();
-        if self.tap {
-            command
-                .arg("tap")
-                .args(["-x", &format!("{:.0}", self.to.0)])
-                .args(["-y", &format!("{:.0}", self.to.1)]);
+    pub fn dispatch(self, hid: &HidBroker) {
+        let request = if self.tap {
+            HidRequest::tap(self.to)
         } else if self.from_bottom_edge {
-            command
-                .arg("gesture")
-                .arg("swipe-from-bottom-edge")
-                .args(["--screen-width", &format!("{:.0}", self.points.0)])
-                .args(["--screen-height", &format!("{:.0}", self.points.1)]);
+            HidRequest::bottom_edge(self.points)
         } else {
-            command
-                .arg("swipe")
-                .args(["--start-x", &format!("{:.0}", self.from.0)])
-                .args(["--start-y", &format!("{:.0}", self.from.1)])
-                .args(["--end-x", &format!("{:.0}", self.to.0)])
-                .args(["--end-y", &format!("{:.0}", self.to.1)]);
-        }
-        command.args(["--udid", &self.udid]);
-        Axe::run_detached(command);
+            HidRequest::swipe(self.from, self.to)
+        };
+        hid.dispatch(request);
     }
 }
 
@@ -97,16 +78,6 @@ mod tests {
 
     const POINTS: (f32, f32) = (402.0, 874.0);
 
-    impl SimulatorDevice {
-        fn fixture() -> Self {
-            Self {
-                udid: "174D774A-1F21-455C-AB54-AF19D513988A".into(),
-                name: "iPhone 17 Pro".into(),
-                version: None,
-            }
-        }
-    }
-
     #[test]
     fn the_centre_of_the_view_is_the_centre_of_the_device() {
         let gesture = SimulatorGesture {
@@ -116,8 +87,7 @@ mod tests {
             to_y: 0.5,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, &SimulatorDevice::fixture(), POINTS)
-            .expect("resolved");
+        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
 
         assert!(
             (resolved.to.0 - 200.5).abs() < 0.01,
@@ -141,8 +111,7 @@ mod tests {
             to_y: 0.2,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, &SimulatorDevice::fixture(), POINTS)
-            .expect("resolved");
+        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
 
         assert!(!resolved.tap);
         assert!(resolved.from.1 > resolved.to.1, "expected an upward swipe");
@@ -158,8 +127,7 @@ mod tests {
             to_y: 2.0,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, &SimulatorDevice::fixture(), POINTS)
-            .expect("resolved");
+        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
 
         assert_eq!(resolved.to.0, 0.0);
         assert!(
@@ -178,8 +146,7 @@ mod tests {
             to_y: 0.65,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, &SimulatorDevice::fixture(), POINTS)
-            .expect("resolved");
+        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
 
         assert!(resolved.from_bottom_edge);
     }
@@ -188,8 +155,6 @@ mod tests {
     fn a_device_with_no_measured_point_size_has_no_gesture() {
         let gesture = SimulatorGesture::default();
 
-        assert!(
-            DeviceGesture::resolve(&gesture, &SimulatorDevice::fixture(), (0.0, 0.0)).is_none()
-        );
+        assert!(DeviceGesture::resolve(&gesture, (0.0, 0.0)).is_none());
     }
 }

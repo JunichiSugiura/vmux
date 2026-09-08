@@ -648,6 +648,11 @@ fn extend_unique(out: &mut Vec<String>, values: impl IntoIterator<Item = String>
 }
 
 fn apply_codex_compatibility_env(mut env: Vec<(String, String)>) -> Vec<(String, String)> {
+    env.retain(|(key, _)| key != "DISABLE_MCP_CONFIG_FILTERING");
+    env.push((
+        "DISABLE_MCP_CONFIG_FILTERING".to_string(),
+        "true".to_string(),
+    ));
     let existing = env
         .iter()
         .rev()
@@ -1712,6 +1717,11 @@ mod tests {
             assert_eq!(config["tools"]["web_search"], false);
             assert_eq!(config["approvals_reviewer"], "user");
             assert_eq!(config["mcp_servers"]["vmux"]["tool_timeout_sec"], 660);
+            assert!(
+                env.iter().any(|(key, value)| {
+                    key == "DISABLE_MCP_CONFIG_FILTERING" && value == "true"
+                })
+            );
             assert_eq!(
                 config["features"]["code_mode"]["direct_only_tool_namespaces"],
                 serde_json::json!([crate::client::cli::codex::DIRECT_ONLY_NAMESPACE])

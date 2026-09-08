@@ -8,10 +8,11 @@ use vmux_core::{PageOpenRequest, PageOpenTarget};
 
 pub use appearance::{ColorSchemeChanged, ResolvedColorScheme, ResolvedScheme, SystemAppearance};
 pub use runtime::{
-    AcpAgentConfig, AgentSettings, AppSettings, BrowserSettings, ColorScheme, DirSource,
-    EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_WIDTH, EXPLORER_MIN_WIDTH, KeyComboDef, SettingsLoadSet,
-    SettingsRuntimePlugin, SettingsSaveRequest, SettingsWriteRequest, ShortcutDef, ShortcutEntry,
-    ShortcutSettings, SpaceOverrides, SpaceProject, StartupDir, TerminalSettings, TerminalTheme,
+    AcpAgentConfig, AgentSettings, AppSettings, BookmarkFolderSettings, BrowserSettings,
+    ColorScheme, DirSource, EXPLORER_DEFAULT_WIDTH, EXPLORER_MAX_WIDTH, EXPLORER_MIN_WIDTH,
+    KeyComboDef, SettingsLoadSet, SettingsRuntimePlugin, SettingsSaveRequest, SettingsWriteRequest,
+    ShortcutDef, ShortcutEntry, ShortcutSettings, SpaceOverrides, SpaceProject, StartupDir,
+    TerminalSettings, TerminalTheme,
 };
 pub use view::Settings;
 pub use vmux_command::event::SearchEngine;

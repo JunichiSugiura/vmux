@@ -25,14 +25,14 @@ pub fn Page() -> Element {
             if announced.port == 0 {
                 Waiting { route }
             } else {
-                Mirror { port: announced.port }
+                Mirror { port: announced.port, device_name: announced.device_name.clone() }
             }
         }
     }
 }
 
 #[component]
-fn Mirror(port: u16) -> Element {
+fn Mirror(port: u16, device_name: String) -> Element {
     let mut press = use_signal(|| None::<PointerSession>);
     let mut image_size = use_signal(|| None::<(f64, f64)>);
     let mut home_progress = use_signal(|| 0.0f32);
@@ -51,7 +51,7 @@ fn Mirror(port: u16) -> Element {
 
     rsx! {
         div {
-            class: "flex h-full w-full items-center justify-center overflow-hidden bg-zinc-950/70 p-8 outline-none",
+            class: "relative flex h-full w-full items-center justify-center overflow-hidden bg-zinc-950/70 p-8 outline-none",
             tabindex: 0,
             onkeydown: move |event| {
                 let Some(key) = Keystroke::of(&event) else {
@@ -96,6 +96,9 @@ fn Mirror(port: u16) -> Element {
                 };
                 current.cancel().dispatch(home_progress);
             },
+            div { class: "pointer-events-none absolute left-5 top-4 text-sm font-medium text-zinc-300",
+                "{device_name}"
+            }
             div { class: "relative rounded-[3.25rem] bg-gradient-to-b from-zinc-700 via-zinc-950 to-black p-[7px] shadow-[0_28px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/20",
                 div { class: "absolute -left-[3px] top-28 h-16 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -left-[3px] top-48 h-24 w-[3px] rounded-l bg-zinc-700" }
@@ -163,7 +166,11 @@ impl Keystroke {
 #[component]
 fn Waiting(route: Option<SimulatorRoute>) -> Element {
     let label = match route {
-        Some(SimulatorRoute::Pinned(version)) => format!("iOS {version}"),
+        Some(SimulatorRoute::Pinned {
+            version,
+            device_name: Some(device_name),
+        }) => format!("{device_name} · iOS {version}"),
+        Some(SimulatorRoute::Pinned { version, .. }) => format!("iOS {version}"),
         _ => translate("common-loading"),
     };
     rsx! {

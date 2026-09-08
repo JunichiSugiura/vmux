@@ -77,27 +77,37 @@ pub struct SimulatorDevice {
 
 impl SimulatorDevice {
     pub fn booted() -> Option<Self> {
-        Self::booted_matching(None)
+        Self::booted_matching(None, None)
     }
 
-    pub fn booted_matching(want: Option<&IosVersion>) -> Option<Self> {
-        Self::listed("booted", want).ok().flatten()
+    pub fn booted_matching(want: Option<&IosVersion>, device_name: Option<&str>) -> Option<Self> {
+        Self::listed("booted", want, device_name).ok().flatten()
     }
 
-    pub fn booted_or_boot(want: Option<&IosVersion>) -> Result<Self, String> {
-        if let Some(device) = Self::booted_matching(want) {
+    pub fn booted_or_boot(
+        want: Option<&IosVersion>,
+        device_name: Option<&str>,
+    ) -> Result<Self, String> {
+        if let Some(device) = Self::booted_matching(want, device_name) {
             return Ok(device);
         }
-        let Some(device) = Self::listed("available", want)? else {
+        let Some(device) = Self::listed("available", want, device_name)? else {
             let runtime = want
                 .map(|version| format!(" for iOS {version}"))
                 .unwrap_or_default();
-            return Err(format!("no available iOS Simulator{runtime}"));
+            let model = device_name
+                .map(|name| format!(" named {name}"))
+                .unwrap_or_default();
+            return Err(format!("no available iOS Simulator{model}{runtime}"));
         };
         device.boot()
     }
 
-    fn listed(scope: &str, want: Option<&IosVersion>) -> Result<Option<Self>, String> {
+    fn listed(
+        scope: &str,
+        want: Option<&IosVersion>,
+        device_name: Option<&str>,
+    ) -> Result<Option<Self>, String> {
         let output = Command::new("xcrun")
             .args(["simctl", "list", "devices", scope, "-j"])
             .output()
@@ -108,7 +118,7 @@ impl SimulatorDevice {
                 String::from_utf8_lossy(&output.stderr).trim()
             ));
         }
-        Ok(Self::from_simctl_json(&output.stdout, want))
+        Ok(Self::from_simctl_json(&output.stdout, want, device_name))
     }
 
     fn boot(self) -> Result<Self, String> {
@@ -135,7 +145,11 @@ impl SimulatorDevice {
         Ok(self)
     }
 
-    fn from_simctl_json(bytes: &[u8], want: Option<&IosVersion>) -> Option<Self> {
+    fn from_simctl_json(
+        bytes: &[u8],
+        want: Option<&IosVersion>,
+        device_name: Option<&str>,
+    ) -> Option<Self> {
         let parsed: serde_json::Value = serde_json::from_slice(bytes).ok()?;
         let runtimes = parsed.get("devices")?.as_object()?;
         let mut selected: Option<Self> = None;
@@ -160,6 +174,9 @@ impl SimulatorDevice {
                 let (Some(udid), Some(name)) = (udid, name) else {
                     continue;
                 };
+                if device_name.is_some_and(|wanted| wanted != name) {
+                    continue;
+                }
                 let replace = match selected.as_ref().and_then(|device| device.version.as_ref()) {
                     Some(current) => version > *current,
                     None => true,
@@ -252,7 +269,7 @@ mod tests {
 
     #[test]
     fn carries_the_runtime_version_of_the_device_it_picks() {
-        let device = SimulatorDevice::from_simctl_json(TWO_RUNTIMES, None).expect("device");
+        let device = SimulatorDevice::from_simctl_json(TWO_RUNTIMES, None, None).expect("device");
 
         assert_eq!(
             device.version.as_ref().map(IosVersion::as_str),
@@ -265,7 +282,8 @@ mod tests {
     fn a_pinned_version_selects_that_runtime_and_not_another_booted_one() {
         let want = IosVersion::parse("27.0").expect("version");
 
-        let device = SimulatorDevice::from_simctl_json(TWO_RUNTIMES, Some(&want)).expect("device");
+        let device =
+            SimulatorDevice::from_simctl_json(TWO_RUNTIMES, Some(&want), None).expect("device");
 
         assert_eq!(device.udid, "174D774A-1F21-455C-AB54-AF19D513988A");
         assert_eq!(device.name, "iPhone 17 Pro");
@@ -277,7 +295,7 @@ mod tests {
         let want = IosVersion::parse("18.0").expect("version");
 
         assert_eq!(
-            SimulatorDevice::from_simctl_json(TWO_RUNTIMES, Some(&want)),
+            SimulatorDevice::from_simctl_json(TWO_RUNTIMES, Some(&want), None),
             None
         );
     }
@@ -286,13 +304,16 @@ mod tests {
     fn no_booted_device_when_every_runtime_is_empty() {
         let json = br#"{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-27-0":[]}}"#;
 
-        assert_eq!(SimulatorDevice::from_simctl_json(json, None), None);
+        assert_eq!(SimulatorDevice::from_simctl_json(json, None, None), None);
     }
 
     #[test]
     fn malformed_output_does_not_panic() {
-        assert_eq!(SimulatorDevice::from_simctl_json(b"not json", None), None);
-        assert_eq!(SimulatorDevice::from_simctl_json(b"{}", None), None);
+        assert_eq!(
+            SimulatorDevice::from_simctl_json(b"not json", None, None),
+            None
+        );
+        assert_eq!(SimulatorDevice::from_simctl_json(b"{}", None, None), None);
     }
 
     #[test]
@@ -307,10 +328,26 @@ mod tests {
             ]
         }}"#;
 
-        let device = SimulatorDevice::from_simctl_json(json, None).expect("device");
+        let device = SimulatorDevice::from_simctl_json(json, None, None).expect("device");
 
         assert_eq!(device.udid, "AVAILABLE");
         assert_eq!(device.name, "iPhone 17 Pro Max");
+    }
+
+    #[test]
+    fn a_device_name_selects_that_model_within_the_runtime() {
+        let json = br#"{"devices":{
+            "com.apple.CoreSimulator.SimRuntime.iOS-27-0":[
+                {"udid":"PHONE","name":"iPhone 17","isAvailable":true},
+                {"udid":"PRO","name":"iPhone 17 Pro","isAvailable":true}
+            ]
+        }}"#;
+        let version = IosVersion::parse("27.0").expect("version");
+
+        let device = SimulatorDevice::from_simctl_json(json, Some(&version), Some("iPhone 17 Pro"))
+            .expect("device");
+
+        assert_eq!(device.udid, "PRO");
     }
 
     #[test]

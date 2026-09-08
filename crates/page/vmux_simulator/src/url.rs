@@ -1,5 +1,7 @@
 use std::cmp::Ordering;
 
+use percent_encoding::{NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
+
 pub const PAGE_HOST: &str = "simulator";
 pub const PAGE_URL: &str = "vmux://simulator/";
 pub const PLATFORM: &str = "ios";
@@ -58,7 +60,10 @@ impl std::fmt::Display for IosVersion {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SimulatorRoute {
     Unpinned,
-    Pinned(IosVersion),
+    Pinned {
+        version: IosVersion,
+        device_name: Option<String>,
+    },
 }
 
 impl SimulatorRoute {
@@ -70,10 +75,24 @@ impl SimulatorRoute {
         let Some(version) = segments.next() else {
             return Some(Self::Unpinned);
         };
+        let version = IosVersion::parse(version)?;
+        let device_name = match segments.next() {
+            Some(segment) => {
+                let decoded = percent_decode_str(segment).decode_utf8().ok()?.into_owned();
+                if decoded.is_empty() {
+                    return None;
+                }
+                Some(decoded)
+            }
+            None => None,
+        };
         if segments.next().is_some() {
             return None;
         }
-        IosVersion::parse(version).map(Self::Pinned)
+        Some(Self::Pinned {
+            version,
+            device_name,
+        })
     }
 
     pub fn of_url(url: &str) -> Option<Self> {
@@ -92,16 +111,28 @@ impl SimulatorRoute {
     pub fn version(&self) -> Option<&IosVersion> {
         match self {
             Self::Unpinned => None,
-            Self::Pinned(version) => Some(version),
+            Self::Pinned { version, .. } => Some(version),
         }
     }
 
-    pub fn path(version: &IosVersion) -> String {
-        format!("/{PLATFORM}/{version}")
+    pub fn device_name(&self) -> Option<&str> {
+        match self {
+            Self::Unpinned => None,
+            Self::Pinned { device_name, .. } => device_name.as_deref(),
+        }
     }
 
-    pub fn url(version: &IosVersion) -> String {
-        format!("vmux://{PAGE_HOST}/{PLATFORM}/{version}")
+    pub fn path(version: &IosVersion, device_name: Option<&str>) -> String {
+        let mut path = format!("/{PLATFORM}/{version}");
+        if let Some(device_name) = device_name {
+            path.push('/');
+            path.push_str(&utf8_percent_encode(device_name, NON_ALPHANUMERIC).to_string());
+        }
+        path
+    }
+
+    pub fn url(version: &IosVersion, device_name: Option<&str>) -> String {
+        format!("vmux://{PAGE_HOST}{}", Self::path(version, device_name))
     }
 }
 
@@ -130,6 +161,7 @@ mod tests {
         let route = SimulatorRoute::parse("/ios/27.0").expect("route");
 
         assert_eq!(route.version().map(IosVersion::as_str), Some("27.0"));
+        assert_eq!(route.device_name(), None);
     }
 
     #[test]
@@ -142,7 +174,7 @@ mod tests {
     #[test]
     fn a_non_version_or_extra_segment_is_rejected_rather_than_guessed() {
         assert_eq!(SimulatorRoute::parse("/ios/latest"), None);
-        assert_eq!(SimulatorRoute::parse("/ios/27.0/extra"), None);
+        assert_eq!(SimulatorRoute::parse("/ios/27.0/iPhone/extra"), None);
         assert_eq!(SimulatorRoute::parse("/ios/27.x"), None);
     }
 
@@ -216,10 +248,30 @@ mod tests {
         let version = IosVersion::from_runtime_key("com.apple.CoreSimulator.SimRuntime.iOS-27-0")
             .expect("version");
 
-        let path = SimulatorRoute::path(&version);
+        let path = SimulatorRoute::path(&version, None);
         let route = SimulatorRoute::parse(&path).expect("route");
 
-        assert_eq!(route, SimulatorRoute::Pinned(version.clone()));
-        assert_eq!(SimulatorRoute::url(&version), "vmux://simulator/ios/27.0");
+        assert_eq!(
+            route,
+            SimulatorRoute::Pinned {
+                version: version.clone(),
+                device_name: None,
+            }
+        );
+        assert_eq!(
+            SimulatorRoute::url(&version, None),
+            "vmux://simulator/ios/27.0"
+        );
+    }
+
+    #[test]
+    fn a_device_name_round_trips_through_its_url() {
+        let version = IosVersion::parse("27.0").expect("version");
+        let url = SimulatorRoute::url(&version, Some("iPhone 17 Pro"));
+
+        let route = SimulatorRoute::of_url(&url).expect("route");
+
+        assert_eq!(url, "vmux://simulator/ios/27.0/iPhone%2017%20Pro");
+        assert_eq!(route.device_name(), Some("iPhone 17 Pro"));
     }
 }

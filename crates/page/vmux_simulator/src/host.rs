@@ -112,7 +112,7 @@ impl SimulatorPlugin {
                     let _ = proxy.send_event(WinitUserEvent::WakeUp);
                 }) as Box<dyn FnOnce() + Send>
             });
-            attachment.start(route.version().cloned(), wake);
+            attachment.start(route, wake);
             return;
         }
         let Some(result) = attachment.take() else {
@@ -167,13 +167,11 @@ impl SimulatorPlugin {
             if !meta.url.starts_with(Self::URL_PREFIX) {
                 continue;
             }
-            if matches!(
-                SimulatorRoute::of_url(&meta.url),
-                Some(SimulatorRoute::Unpinned)
-            ) && let Some(version) = crate::url::IosVersion::parse(&payload.version)
+            if let Some(canonical_url) = device.as_deref().and_then(SimulatorDevice::canonical_url)
+                && meta.url != canonical_url
             {
                 let mut canonical = meta.clone();
-                canonical.url = SimulatorRoute::url(&version);
+                canonical.url = canonical_url;
                 commands.entity(entity).insert(canonical.clone());
                 if let Some(child_of) = child_of {
                     commands.entity(child_of.parent()).insert(canonical);
@@ -244,17 +242,13 @@ impl DeviceAttachment {
         matches!(self.phase, AttachmentPhase::Idle)
     }
 
-    fn start(
-        &mut self,
-        want: Option<crate::url::IosVersion>,
-        wake: Option<Box<dyn FnOnce() + Send>>,
-    ) {
+    fn start(&mut self, route: SimulatorRoute, wake: Option<Box<dyn FnOnce() + Send>>) {
         let result = Arc::new(Mutex::new(None));
         let worker_result = result.clone();
         let spawned = std::thread::Builder::new()
             .name("vmux-simulator-attach".into())
             .spawn(move || {
-                let attached = AttachedDevice::start(want.as_ref());
+                let attached = AttachedDevice::start(&route);
                 if let Ok(mut result) = worker_result.lock() {
                     *result = Some(attached);
                 }
@@ -284,7 +278,7 @@ impl DeviceAttachment {
 }
 
 impl AttachedDevice {
-    fn start(want: Option<&crate::url::IosVersion>) -> Result<Self, String> {
+    fn start(route: &SimulatorRoute) -> Result<Self, String> {
         let axe = Axe::locate().ok_or_else(|| {
             format!(
                 "`{}` not found; install it with `brew install cameroncooke/axe/axe`",
@@ -296,7 +290,7 @@ impl AttachedDevice {
             axe.version().unwrap_or_default(),
             axe.path().display()
         );
-        let device = SimulatorDevice::booted_or_boot(want)?;
+        let device = SimulatorDevice::booted_or_boot(route.version(), route.device_name())?;
         let points = device.point_size(&axe);
         let pixels = device.pixel_size(&axe);
         let hid = HidBroker::start(&axe, &device)
@@ -315,6 +309,8 @@ impl AttachedDevice {
 
 impl SimulatorDevice {
     pub fn canonical_url(&self) -> Option<String> {
-        self.version.as_ref().map(crate::url::SimulatorRoute::url)
+        self.version
+            .as_ref()
+            .map(|version| crate::url::SimulatorRoute::url(version, Some(&self.name)))
     }
 }

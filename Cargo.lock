@@ -10785,6 +10785,7 @@ dependencies = [
  "dioxus",
  "image",
  "libc",
+ "percent-encoding",
  "rkyv",
  "serde",
  "serde_json",

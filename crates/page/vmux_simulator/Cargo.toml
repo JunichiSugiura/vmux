@@ -13,6 +13,7 @@ default = []
 path = "src/lib.rs"
 
 [dependencies]
+percent-encoding = "2"
 rkyv = { workspace = true }
 serde = { workspace = true }
 vmux_core = { path = "../../vmux_core" }

@@ -24,7 +24,7 @@ impl Plugin for ChatResumePlugin {
             ResumeSession,
             RuntimeSwitchRequest,
             PromptHistoryRequest,
-        )>::for_hosts(&["agent", "start"]))
+        )>::for_hosts(super::CHAT_EVENT_HOSTS))
             .init_resource::<ResumableScan>()
             .add_observer(on_resume_list_request)
             .add_observer(on_resume_session)

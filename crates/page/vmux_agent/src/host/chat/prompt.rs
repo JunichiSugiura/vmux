@@ -25,11 +25,11 @@ impl Plugin for ChatPromptPlugin {
             ChatResume,
             ChatClearQueue,
             ChatCancelQueuedPrompt,
-        )>::for_hosts(&["agent", "start"]))
+        )>::for_hosts(super::CHAT_EVENT_HOSTS))
             .add_plugins(
-                BinEventEmitterPlugin::<(ChatApproval, ChatChoiceSelected)>::for_hosts(&[
-                    "agent", "start",
-                ]),
+                BinEventEmitterPlugin::<(ChatApproval, ChatChoiceSelected)>::for_hosts(
+                    super::CHAT_EVENT_HOSTS,
+                ),
             )
             .add_observer(on_chat_submit)
             .add_observer(on_chat_cancel)

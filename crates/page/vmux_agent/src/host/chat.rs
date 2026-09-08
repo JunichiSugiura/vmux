@@ -12,6 +12,8 @@ use bevy_cef::prelude::{BinEventEmitterPlugin, BinReceive};
 
 use vmux_chat::event::ChatOpenPage;
 
+const CHAT_EVENT_HOSTS: &[&str] = &["sessions", "agent", "start"];
+
 pub struct AgentChatPagePlugin;
 
 impl Plugin for AgentChatPagePlugin {
@@ -27,9 +29,9 @@ impl Plugin for AgentChatPagePlugin {
             transcript::ChatTranscriptPlugin,
             workspace::ChatWorkspacePlugin,
         ))
-        .add_plugins(BinEventEmitterPlugin::<(ChatOpenPage,)>::for_hosts(&[
-            "sessions", "agent", "start",
-        ]))
+        .add_plugins(BinEventEmitterPlugin::<(ChatOpenPage,)>::for_hosts(
+            CHAT_EVENT_HOSTS,
+        ))
         .add_observer(on_chat_open_page);
     }
 }

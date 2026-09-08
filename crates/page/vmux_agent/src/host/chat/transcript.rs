@@ -22,7 +22,7 @@ pub(super) struct ChatTranscriptPlugin;
 impl Plugin for ChatTranscriptPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(BinEventEmitterPlugin::<(ChatHistoryRequest,)>::for_hosts(
-            &["agent", "start"],
+            super::CHAT_EVENT_HOSTS,
         ))
         .add_observer(on_chat_history_request)
         .add_observer(reset_chat_synced_on_page_ready)

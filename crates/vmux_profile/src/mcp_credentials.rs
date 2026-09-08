@@ -3,6 +3,104 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "ai.vmux.mcp";
 
+#[cfg(target_os = "macos")]
+static MCP_CREDENTIAL_BROKER_ACCESS: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
+
+#[cfg(target_os = "macos")]
+struct McpCredentialBroker(std::path::PathBuf);
+
+#[cfg(target_os = "macos")]
+impl McpCredentialBroker {
+    fn current() -> Option<Self> {
+        let executable = std::env::current_exe().ok()?;
+        Self::candidate(crate::build_profile(), &executable)
+            .filter(|path| path.is_file())
+            .map(Self)
+    }
+
+    fn candidate(profile: &str, executable: &std::path::Path) -> Option<std::path::PathBuf> {
+        if profile == "dev" {
+            return None;
+        }
+        Some(executable.parent()?.join("vmux"))
+    }
+
+    fn load(&self, account: &str) -> Result<Option<Vec<u8>>, String> {
+        let output = self.run("load", account, None)?;
+        if output.status.success() {
+            return Ok(Some(output.stdout));
+        }
+        if output.status.code() == Some(2) {
+            return Ok(None);
+        }
+        Err(Self::error(&output))
+    }
+
+    fn store(&self, account: &str, bytes: &[u8]) -> Result<(), String> {
+        let output = self.run("store", account, Some(bytes))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(Self::error(&output))
+    }
+
+    fn remove(&self, account: &str) -> Result<(), String> {
+        let output = self.run("remove", account, None)?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(Self::error(&output))
+    }
+
+    fn run(
+        &self,
+        action: &str,
+        account: &str,
+        input: Option<&[u8]>,
+    ) -> Result<std::process::Output, String> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+
+        let _access = MCP_CREDENTIAL_BROKER_ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| error.to_string())?;
+        let mut command = Command::new(&self.0);
+        command
+            .args(["mcp-credentials", action, "--account", account])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        if input.is_none() {
+            return command
+                .output()
+                .map_err(|error| format!("failed to run packaged MCP credential broker: {error}"));
+        }
+        let mut child = command
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(|error| format!("failed to run packaged MCP credential broker: {error}"))?;
+        child
+            .stdin
+            .take()
+            .ok_or_else(|| "failed to open MCP credential broker input".to_string())?
+            .write_all(input.unwrap_or_default())
+            .map_err(|error| format!("failed to send MCP credentials to broker: {error}"))?;
+        child
+            .wait_with_output()
+            .map_err(|error| format!("failed to wait for MCP credential broker: {error}"))
+    }
+
+    fn error(output: &std::process::Output) -> String {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if error.is_empty() {
+            "MCP credential broker failed".to_string()
+        } else {
+            error
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpOauthCredentials {
     pub token_endpoint: String,
@@ -45,11 +143,91 @@ impl McpOauthCredentials {
     fn decode(bytes: &[u8]) -> Result<Self, String> {
         serde_json::from_slice(bytes).map_err(|error| error.to_string())
     }
+
+    #[doc(hidden)]
+    pub fn authorize_broker_parent() -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            crate::vault::authorize_key_broker_parent()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            Err("MCP credential broker is only available on macOS".to_string())
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn broker_load(account: &str) -> Result<Option<Vec<u8>>, String> {
+        #[cfg(target_os = "macos")]
+        {
+            Self::load_keychain_account(account)?
+                .map(|credentials| {
+                    serde_json::to_vec(&credentials).map_err(|error| error.to_string())
+                })
+                .transpose()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = account;
+            Err("MCP credential broker is only available on macOS".to_string())
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn broker_store(account: &str, bytes: &[u8]) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            Self::decode(bytes)?;
+            Self::store_keychain_account(account, bytes)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = (account, bytes);
+            Err("MCP credential broker is only available on macOS".to_string())
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn broker_remove(account: &str) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            Self::remove_keychain_account(account)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = account;
+            Err("MCP credential broker is only available on macOS".to_string())
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl McpOauthCredentials {
     fn load_account(account: &str) -> Result<Option<Self>, String> {
+        if let Some(broker) = McpCredentialBroker::current() {
+            return broker
+                .load(account)?
+                .map(|bytes| Self::decode(&bytes))
+                .transpose();
+        }
+        Self::load_keychain_account(account)
+    }
+
+    fn store_account(account: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(broker) = McpCredentialBroker::current() {
+            return broker.store(account, bytes);
+        }
+        Self::store_keychain_account(account, bytes)
+    }
+
+    fn remove_account(account: &str) -> Result<(), String> {
+        if let Some(broker) = McpCredentialBroker::current() {
+            return broker.remove(account);
+        }
+        Self::remove_keychain_account(account)
+    }
+
+    fn load_keychain_account(account: &str) -> Result<Option<Self>, String> {
         use security_framework::passwords::{PasswordOptions, generic_password};
         use security_framework_sys::base::errSecItemNotFound;
 
@@ -61,12 +239,12 @@ impl McpOauthCredentials {
         }
     }
 
-    fn store_account(account: &str, bytes: &[u8]) -> Result<(), String> {
+    fn store_keychain_account(account: &str, bytes: &[u8]) -> Result<(), String> {
         security_framework::passwords::set_generic_password(KEYCHAIN_SERVICE, account, bytes)
             .map_err(|error| format!("failed to store MCP credentials: {error}"))
     }
 
-    fn remove_account(account: &str) -> Result<(), String> {
+    fn remove_keychain_account(account: &str) -> Result<(), String> {
         use security_framework_sys::base::errSecItemNotFound;
 
         match security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, account) {
@@ -134,7 +312,7 @@ impl McpOauthCredentials {
 
 #[cfg(test)]
 mod tests {
-    use super::McpOauthCredentials;
+    use super::*;
 
     #[test]
     fn expiry_keeps_tokens_with_more_than_a_minute_left() {
@@ -154,5 +332,26 @@ mod tests {
         };
 
         assert!(credentials.expires_soon());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn packaged_builds_use_the_stable_mcp_credential_broker() {
+        let executable =
+            std::path::Path::new("/Applications/Vmux (abcdef0).app/Contents/MacOS/vmux_desktop");
+
+        assert_eq!(
+            McpCredentialBroker::candidate("local", executable),
+            Some(std::path::PathBuf::from(
+                "/Applications/Vmux (abcdef0).app/Contents/MacOS/vmux"
+            ))
+        );
+        assert_eq!(
+            McpCredentialBroker::candidate("release", executable),
+            Some(std::path::PathBuf::from(
+                "/Applications/Vmux (abcdef0).app/Contents/MacOS/vmux"
+            ))
+        );
+        assert_eq!(McpCredentialBroker::candidate("dev", executable), None);
     }
 }

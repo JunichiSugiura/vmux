@@ -509,8 +509,9 @@ anchor, so a background agent cannot read or disrupt the space you are looking a
 
 External MCP connections belong to Vmux rather than to one agent runtime. `/mcp` in either
 composer manages the shared catalog; OAuth credentials stay in the platform credential store,
-while `tools.toml` keeps the non-secret server definition. Agent launch projects that one source
-into Codex, Claude, Vibe, or ACP configuration and refreshes an expiring token before injection.
+with packaged macOS builds accessing Keychain through the stable signed `vmux` helper. `tools.toml`
+keeps the non-secret server definition. Agent launch projects that one source into Codex, Claude,
+Vibe, or ACP configuration and refreshes an expiring token before injection.
 
 `read_layout` / `update_layout` are the interesting pair: fetch the pane tree with stable
 ids, mutate it, commit it back. Vmux diffs against the live graph and reconciles

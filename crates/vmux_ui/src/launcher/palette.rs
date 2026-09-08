@@ -76,6 +76,9 @@ impl PaletteMode {
     }
 
     fn names_a_command(query: &str, slash_commands: &[SlashCommandEntry]) -> bool {
+        if query.trim() == "/" {
+            return !slash_commands.is_empty();
+        }
         let held = CommandBarQuery(query);
         let Some((name, _)) = held.slash_token() else {
             return false;
@@ -1839,6 +1842,35 @@ mod tests {
             typed_out.rows.is_empty(),
             "a line the catalog cannot complete offers nothing: {:?}",
             typed_out.rows
+        );
+    }
+
+    #[test]
+    fn slash_commands_open_from_the_prefix_and_complete_mcp() {
+        let mut state = Launcher::state();
+        state.prompt_context = CommandBarPromptContext::unrooted();
+
+        let palette = PaletteState::start(&state, PaletteDraft::typed("/"));
+        let names = palette
+            .rows
+            .iter()
+            .filter_map(|row| match row {
+                CommandBarResultItem::Slash { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(palette.mode, PaletteMode::Slash);
+        assert_eq!(names, ["upload", "resume", "mcp"]);
+
+        let mcp = PaletteState::start(&state, PaletteDraft::typed("/mcp"));
+        assert!(matches!(
+            mcp.rows.as_slice(),
+            [CommandBarResultItem::Slash { name, .. }] if name == "mcp"
+        ));
+        assert_eq!(
+            mcp.submit_start(&[]),
+            Submission::retyping("/mcp ".to_string())
         );
     }
 

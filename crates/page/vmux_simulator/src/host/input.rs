@@ -9,6 +9,8 @@ pub struct DeviceTouch {
 }
 
 impl DeviceTouch {
+    const DRAG_THRESHOLD: f32 = 6.0;
+
     pub fn resolve(touch: &SimulatorTouch, points: (f32, f32)) -> Option<Self> {
         if points.0 <= 0.0 || points.1 <= 0.0 {
             return None;
@@ -27,36 +29,63 @@ impl DeviceTouch {
     pub fn dispatch(self, session: &mut DeviceTouchSession, hid: &HidBroker) {
         match self.phase {
             SimulatorTouchPhase::Down => {
-                if let Some(previous) = session.last {
+                if session.dragging
+                    && let Some(previous) = session.last
+                {
                     hid.dispatch(HidRequest::up(previous));
                 }
-                session.active = true;
+                session.start = Some(self.point);
                 session.last = Some(self.point);
-                hid.dispatch(HidRequest::down(self.point));
+                session.dragging = false;
             }
             SimulatorTouchPhase::Move => {
-                if !session.active {
+                let Some(start) = session.start else {
                     return;
+                };
+                if !session.dragging && Self::distance(start, self.point) >= Self::DRAG_THRESHOLD {
+                    hid.dispatch(HidRequest::down(start));
+                    session.dragging = true;
                 }
                 session.last = Some(self.point);
-                hid.dispatch(HidRequest::move_to(self.point));
+                if session.dragging {
+                    hid.dispatch(HidRequest::move_to(self.point));
+                }
             }
             SimulatorTouchPhase::Up => {
-                if !session.active {
+                let Some(start) = session.start.take() else {
                     return;
-                }
-                session.active = false;
+                };
                 session.last = None;
-                hid.dispatch(HidRequest::up(self.point));
+                if session.dragging {
+                    hid.dispatch(HidRequest::up(self.point));
+                } else {
+                    hid.dispatch(HidRequest::tap(start));
+                }
+                session.dragging = false;
+            }
+            SimulatorTouchPhase::Cancel => {
+                session.start = None;
+                if session.dragging
+                    && let Some(last) = session.last.take()
+                {
+                    hid.dispatch(HidRequest::up(last));
+                }
+                session.last = None;
+                session.dragging = false;
             }
         }
+    }
+
+    fn distance(from: (f32, f32), to: (f32, f32)) -> f32 {
+        ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt()
     }
 }
 
 #[derive(Resource, Default)]
 pub struct DeviceTouchSession {
-    active: bool,
+    start: Option<(f32, f32)>,
     last: Option<(f32, f32)>,
+    dragging: bool,
 }
 
 pub struct DeviceKey {

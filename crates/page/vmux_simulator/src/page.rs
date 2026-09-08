@@ -236,7 +236,7 @@ impl PointerSession {
         if self.home {
             PointerRelease::None
         } else {
-            PointerRelease::Touch(self.touch(SimulatorTouchPhase::Up))
+            PointerRelease::Touch(self.touch(SimulatorTouchPhase::Cancel))
         }
     }
 

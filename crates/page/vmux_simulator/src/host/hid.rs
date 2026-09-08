@@ -41,6 +41,26 @@ pub struct HidRequest {
 }
 
 impl HidRequest {
+    pub fn tap(point: (f32, f32)) -> Self {
+        Self {
+            primitives: vec![
+                HidPrimitive::touch(HidKind::Down, point),
+                HidPrimitive::delay(0.1),
+                HidPrimitive::touch(HidKind::Up, point),
+            ],
+            fallback: vec![
+                "tap".into(),
+                "-x".into(),
+                format!("{:.0}", point.0),
+                "-y".into(),
+                format!("{:.0}", point.1),
+                "--tap-style".into(),
+                "physical".into(),
+            ],
+            coalescible: false,
+        }
+    }
+
     pub fn down(point: (f32, f32)) -> Self {
         Self {
             primitives: vec![HidPrimitive::touch(HidKind::Down, point)],
@@ -97,6 +117,7 @@ struct HidBrokerRequest {
 enum HidKind {
     Down,
     Up,
+    Delay,
 }
 
 #[derive(Serialize)]
@@ -114,6 +135,15 @@ impl HidPrimitive {
             x: Some(point.0 as f64),
             y: Some(point.1 as f64),
             duration: None,
+        }
+    }
+
+    fn delay(duration: f64) -> Self {
+        Self {
+            kind: HidKind::Delay,
+            x: None,
+            y: None,
+            duration: Some(duration),
         }
     }
 }
@@ -449,5 +479,20 @@ mod tests {
             .collect();
 
         assert_eq!(kinds, ["down", "down", "up"]);
+    }
+
+    #[test]
+    fn a_tap_holds_before_release() {
+        let request = HidRequest::tap((120.0, 240.0));
+        let json = serde_json::to_value(HidBrokerRequest {
+            primitives: request.primitives,
+        })
+        .expect("request");
+        let primitives = json["primitives"].as_array().expect("primitives");
+
+        assert_eq!(primitives[0]["kind"], "down");
+        assert_eq!(primitives[1]["kind"], "delay");
+        assert_eq!(primitives[1]["duration"], 0.1);
+        assert_eq!(primitives[2]["kind"], "up");
     }
 }

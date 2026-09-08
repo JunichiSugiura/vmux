@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 
-use crate::PageMetadata;
 use crate::archive::{ArchivedPage, ArchivedPagePosition, ArchivedTabPage, PaneStep, SplitAxis};
 use crate::component::{
     Active, Bookmark, BookmarkOrder, Collapsed, CreatedAt, Folder, LastActivatedAt, LastVisitedAt,
-    Order, Pin, SmartBookmarkFolder, TransitionType, Url, Uuid, Visit, VisitCount, VisitedUrl,
+    Order, Pin, TransitionType, Url, Uuid, Visit, VisitCount, VisitedUrl,
 };
 use crate::icon::{BuiltinIcon, PageIcon};
+use crate::{PageMetadata, SmartBookmarkFolder};
 
 pub struct CorePlugin;
 

@@ -73,6 +73,12 @@ pub struct ChatSnapshot {
     pub conversation_title: String,
     pub agent_icon: String,
     pub accent_color: String,
+    #[serde(default)]
+    pub user_name: String,
+    #[serde(default)]
+    pub user_initials: String,
+    #[serde(default)]
+    pub user_color: String,
     pub handoff_source: String,
     pub handoff_truncated: bool,
     pub handoff_message_count: u32,

@@ -41,6 +41,7 @@ pub struct Chat {
     pub transcript: Transcript,
     pub run: RunState,
     pub identity: AgentIdentity,
+    pub user: UserIdentity,
     pub handoff: Handoff,
     pub composer: ComposerDraft,
     pub queue: PromptQueue,
@@ -64,6 +65,7 @@ pub fn use_chat() -> Chat {
         transcript,
         run: use_run_state(),
         identity: use_agent_identity(),
+        user: use_user_identity(),
         handoff: use_handoff(),
         composer: use_composer_draft(),
         queue: use_prompt_queue(),
@@ -238,6 +240,15 @@ impl Chat {
         );
         set_if_changed(self.identity.agent_icon, snapshot.agent_icon.clone());
         set_if_changed(self.identity.accent, snapshot.accent_color.clone());
+        if !snapshot.user_name.is_empty() {
+            set_if_changed(self.user.name, snapshot.user_name.clone());
+        }
+        if !snapshot.user_initials.is_empty() {
+            set_if_changed(self.user.initials, snapshot.user_initials.clone());
+        }
+        if !snapshot.user_color.is_empty() {
+            set_if_changed(self.user.color, snapshot.user_color.clone());
+        }
         set_if_changed(self.handoff.source, snapshot.handoff_source.clone());
         set_if_changed(self.handoff.truncated, snapshot.handoff_truncated);
         set_if_changed(self.handoff.message_count, snapshot.handoff_message_count);
@@ -946,6 +957,21 @@ pub fn use_agent_identity() -> AgentIdentity {
         conversation_title: use_signal(String::new),
         agent_icon: use_signal(String::new),
         accent: use_signal(String::new),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct UserIdentity {
+    pub name: Signal<String>,
+    pub initials: Signal<String>,
+    pub color: Signal<String>,
+}
+
+pub fn use_user_identity() -> UserIdentity {
+    UserIdentity {
+        name: use_signal(|| "You".to_string()),
+        initials: use_signal(|| "Y".to_string()),
+        color: use_signal(|| "#3b82f6".to_string()),
     }
 }
 

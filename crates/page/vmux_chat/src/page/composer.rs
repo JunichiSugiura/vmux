@@ -46,6 +46,7 @@ fn ChatComposer(chat: Chat) -> Element {
     rsx! {
         PromptComposer {
             shared_transition: true,
+            show_send_button: false,
             value: drafted,
             preview: (chat.composer.transition_preview)(),
             attachments: chat.composer_attachments(),

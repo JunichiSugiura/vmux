@@ -87,6 +87,7 @@ pub fn PromptComposer(
     accent_gradient: String,
     #[props(default)] footer: Option<Element>,
     #[props(default)] shared_transition: bool,
+    #[props(default = true)] show_send_button: bool,
     #[props(default = PROMPT_INPUT_ID.to_string())] input_id: String,
     #[props(default = translate("composer-attach-files"))] attach_title: String,
     #[props(default = translate("composer-remove-attachment"))] remove_attachment_title: String,
@@ -245,35 +246,37 @@ pub fn PromptComposer(
                     }
                 }
             }
-            button {
-                class: "{action_class}",
-                r#type: "button",
-                disabled: !action_enabled,
-                title: "{action_title}",
-                onmousedown: move |event| event.prevent_default(),
-                onclick: move |_| {
-                    if action_enabled {
-                        on_action.call(());
-                    }
-                },
-                if action == PromptComposerAction::Stop {
-                    svg {
-                        class: "h-4 w-4",
-                        view_box: "0 0 24 24",
-                        fill: "currentColor",
-                        rect { x: "6", y: "6", width: "12", height: "12", rx: "2.5" }
-                    }
-                } else {
-                    svg {
-                        class: "h-4 w-4",
-                        view_box: "0 0 24 24",
-                        fill: "none",
-                        stroke: "currentColor",
-                        stroke_width: "2",
-                        stroke_linecap: "round",
-                        stroke_linejoin: "round",
-                        path { d: "M12 19V5" }
-                        path { d: "M5 12l7-7 7 7" }
+            if action == PromptComposerAction::Stop || show_send_button {
+                button {
+                    class: "{action_class}",
+                    r#type: "button",
+                    disabled: !action_enabled,
+                    title: "{action_title}",
+                    onmousedown: move |event| event.prevent_default(),
+                    onclick: move |_| {
+                        if action_enabled {
+                            on_action.call(());
+                        }
+                    },
+                    if action == PromptComposerAction::Stop {
+                        svg {
+                            class: "h-4 w-4",
+                            view_box: "0 0 24 24",
+                            fill: "currentColor",
+                            rect { x: "6", y: "6", width: "12", height: "12", rx: "2.5" }
+                        }
+                    } else {
+                        svg {
+                            class: "h-4 w-4",
+                            view_box: "0 0 24 24",
+                            fill: "none",
+                            stroke: "currentColor",
+                            stroke_width: "2",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                            path { d: "M12 19V5" }
+                            path { d: "M5 12l7-7 7 7" }
+                        }
                     }
                 }
             }

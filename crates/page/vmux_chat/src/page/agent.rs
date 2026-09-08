@@ -11,21 +11,20 @@ pub(super) fn ChatHeader(chat: Chat) -> Element {
     let name = chat.header_name();
     let title = chat.title();
     let you = translate("team-you");
-    let you_initial = you
-        .chars()
-        .next()
-        .map(|character| character.to_uppercase().to_string())
-        .unwrap_or_default();
+    let user_name = (chat.user.name)();
+    let user_initials = (chat.user.initials)();
+    let user_color = (chat.user.color)();
     rsx! {
         header { class: "session-chat-header relative z-10 flex min-w-0 items-center gap-3 bg-transparent px-3 pb-2 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5",
             BackButton {}
             div { class: "relative h-8 w-12 shrink-0",
                 Avatar {
                     src: None,
-                    fallback: you_initial,
-                    background: "#71717a".to_string(),
-                    alt: you.clone(),
+                    fallback: user_initials,
+                    background: user_color,
+                    alt: user_name.clone(),
                     class: "absolute left-0 top-0 h-8 w-8 border-2 border-zinc-100 text-[10px] dark:border-zinc-900".to_string(),
+                    seed: Some(user_name),
                 }
                 AgentAvatar { chat, size_class: "absolute left-5 top-0 h-8 w-8 border-2 border-zinc-100 text-[10px] dark:border-zinc-900" }
             }
@@ -77,20 +76,18 @@ pub(super) fn AgentAvatar(chat: Chat, size_class: String) -> Element {
 #[component]
 pub(super) fn AgentBanner(chat: Chat) -> Element {
     let name = chat.header_name();
-    let you = translate("team-you");
-    let you_initial = you
-        .chars()
-        .next()
-        .map(|character| character.to_uppercase().to_string())
-        .unwrap_or_default();
+    let user_name = (chat.user.name)();
+    let user_initials = (chat.user.initials)();
+    let user_color = (chat.user.color)();
     rsx! {
         div { class: "flex items-center -space-x-2",
             Avatar {
                 src: None,
-                fallback: you_initial,
-                background: "#71717a".to_string(),
-                alt: you,
+                fallback: user_initials,
+                background: user_color,
+                alt: user_name.clone(),
                 class: "h-10 w-10 border-2 border-zinc-100 text-xs dark:border-zinc-900".to_string(),
+                seed: Some(user_name),
             }
             AgentAvatar { chat, size_class: "h-10 w-10 border-2 border-zinc-100 text-xs dark:border-zinc-900" }
         }

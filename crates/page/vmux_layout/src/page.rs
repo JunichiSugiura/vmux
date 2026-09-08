@@ -1628,6 +1628,7 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                         background: user.color.clone(),
                         alt: user.name.clone(),
                         class: "size-5 text-[9px]",
+                        seed: Some(user.name.clone()),
                     }
                     span { class: "whitespace-nowrap text-xs font-medium text-foreground", "{user.name}" }
                 }
@@ -1655,6 +1656,7 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                                         background: m.color.clone(),
                                         alt: m.name.clone(),
                                         class: "size-5 text-[9px] ring-2 ring-background",
+                                        seed: None,
                                     }
                                     if m.is_running {
                                         span { class: "absolute -bottom-0.5 -right-0.5 size-1.5 rounded-full bg-success ring-2 ring-background" }

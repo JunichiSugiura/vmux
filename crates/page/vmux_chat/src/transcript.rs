@@ -15,23 +15,22 @@ use vmux_ui::platform::{random_index, sleep_ms};
 
 #[component]
 pub fn UserBubble(
+    avatar_name: String,
+    avatar_initials: String,
+    avatar_color: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
     let you = translate("team-you");
-    let initial = you
-        .chars()
-        .next()
-        .map(|character| character.to_uppercase().to_string())
-        .unwrap_or_default();
     rsx! {
         div { class: "chat-user-bubble group flex w-full gap-3 px-1 py-1 text-sm [contain-intrinsic-size:auto_160px] [contain:layout_paint_style] [content-visibility:auto]", ..attributes,
             Avatar {
                 src: None,
-                fallback: initial,
-                background: "#71717a".to_string(),
-                alt: you.clone(),
+                fallback: avatar_initials,
+                background: avatar_color,
+                alt: avatar_name.clone(),
                 class: "mt-0.5 h-8 w-8 text-[10px]".to_string(),
+                seed: Some(avatar_name),
             }
             div { class: "relative min-w-0 flex-1 pr-8",
                 div { class: "mb-1 text-xs font-semibold text-foreground", "{you}" }
@@ -94,6 +93,9 @@ pub fn ChatItemRow(
     agent_avatar: Option<String>,
     agent_initial: String,
     agent_color: String,
+    user_name: String,
+    user_initials: String,
+    user_color: String,
 ) -> Element {
     let key = absolute_index;
     let item = &item;
@@ -105,6 +107,9 @@ pub fn ChatItemRow(
         } => rsx! {
             UserBubble {
                 key: "{key}",
+                avatar_name: user_name,
+                avatar_initials: user_initials,
+                avatar_color: user_color,
                 if !text.is_empty() {
                     MessageCopyButton { text: text.clone() }
                 }

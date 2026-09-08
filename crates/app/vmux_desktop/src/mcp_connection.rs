@@ -1,5 +1,5 @@
 use std::collections::{BTreeSet, VecDeque};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -33,7 +33,10 @@ impl Plugin for McpConnectionPlugin {
             .add_observer(McpConnections::act)
             .add_systems(
                 Update,
-                (McpConnections::start, McpConnections::drain).chain(),
+                (
+                    (McpConnections::start, McpConnections::drain).chain(),
+                    McpConnections::drain_snapshots,
+                ),
             );
     }
 }
@@ -44,17 +47,14 @@ impl McpConnections {
     fn request(
         trigger: On<BinReceive<McpServersRequest>>,
         browsers: NonSend<Browsers>,
+        proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
         mut commands: Commands,
     ) {
         let target = trigger.event().webview;
         if !browsers.can_emit_to(&target) {
             return;
         }
-        commands.trigger(BinHostEmitEvent::from_rkyv(
-            target,
-            MCP_SERVERS_EVENT,
-            &McpCatalog::snapshot(),
-        ));
+        Self::spawn_snapshot(target, proxy.as_deref(), &mut commands);
     }
 
     fn act(trigger: On<BinReceive<McpServerActionRequest>>, mut queue: ResMut<McpActionQueue>) {
@@ -107,6 +107,7 @@ impl McpConnections {
         mut tasks: Query<(Entity, &mut McpActionTask)>,
         browsers: NonSend<Browsers>,
         mut app_commands: MessageWriter<AppCommand>,
+        proxy: Option<Res<bevy::winit::EventLoopProxyWrapper>>,
         mut commands: Commands,
     ) {
         for (entity, mut task) in &mut tasks {
@@ -138,10 +139,45 @@ impl McpConnections {
                     message,
                 },
             ));
+            Self::spawn_snapshot(task.target, proxy.as_deref(), &mut commands);
+        }
+    }
+
+    fn spawn_snapshot(
+        target: Entity,
+        proxy: Option<&bevy::winit::EventLoopProxyWrapper>,
+        commands: &mut Commands,
+    ) {
+        let wake = proxy.map(|proxy| (**proxy).clone());
+        commands.spawn(McpSnapshotTask {
+            target,
+            task: IoTaskPool::get().spawn(async move {
+                let snapshot = McpCatalog::snapshot();
+                if let Some(wake) = wake {
+                    let _ = wake.send_event(bevy::winit::WinitUserEvent::WakeUp);
+                }
+                snapshot
+            }),
+        });
+    }
+
+    fn drain_snapshots(
+        mut tasks: Query<(Entity, &mut McpSnapshotTask)>,
+        browsers: NonSend<Browsers>,
+        mut commands: Commands,
+    ) {
+        for (entity, mut task) in &mut tasks {
+            let Some(snapshot) = future::block_on(future::poll_once(&mut task.task)) else {
+                continue;
+            };
+            commands.entity(entity).despawn();
+            if !browsers.can_emit_to(&task.target) {
+                continue;
+            }
             commands.trigger(BinHostEmitEvent::from_rkyv(
                 task.target,
                 MCP_SERVERS_EVENT,
-                &McpCatalog::snapshot(),
+                &snapshot,
             ));
         }
     }
@@ -158,12 +194,38 @@ struct McpActionTask {
     progress: Mutex<mpsc::Receiver<String>>,
 }
 
+#[derive(Component)]
+struct McpSnapshotTask {
+    target: Entity,
+    task: Task<McpServers>,
+}
+
 #[derive(Clone, Copy)]
 struct McpCatalogEntry {
     id: &'static str,
     name: &'static str,
     url: &'static str,
     scopes: &'static [&'static str],
+}
+
+impl McpCatalogEntry {
+    fn server(self) -> McpServerManifest {
+        McpServerManifest {
+            transport: McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: Default::default(),
+            cwd: None,
+            url: Some(self.url.to_string()),
+            headers: Default::default(),
+            header_env: Default::default(),
+            bearer_token_env_var: None,
+        }
+    }
+
+    fn owns(self, server: &McpServerManifest) -> bool {
+        server == &self.server()
+    }
 }
 
 struct McpCatalog;
@@ -186,12 +248,22 @@ impl McpCatalog {
         let mut catalog_ids = BTreeSet::new();
         for entry in Self::ENTRIES {
             catalog_ids.insert(entry.id);
-            let configured = manifest.mcp.servers.contains_key(entry.id);
-            let authenticated = McpOauthCredentials::load(entry.id).ok().flatten().is_some();
-            let status = match (configured, authenticated) {
-                (true, true) => McpServerStatus::Connected,
-                (true, false) => McpServerStatus::AuthenticationRequired,
-                (false, _) => McpServerStatus::Available,
+            let configured = manifest
+                .mcp
+                .servers
+                .get(entry.id)
+                .is_some_and(|server| entry.owns(server));
+            let occupied = manifest.mcp.servers.contains_key(entry.id);
+            let authenticated = configured
+                && McpOauthCredentials::load(entry.id)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|credentials| credentials.authorizes(entry.url));
+            let status = match (configured, authenticated, occupied) {
+                (false, _, true) => McpServerStatus::Configured,
+                (true, true, _) => McpServerStatus::Connected,
+                (true, false, _) => McpServerStatus::AuthenticationRequired,
+                (false, _, false) => McpServerStatus::Available,
             };
             servers.push(McpServerEntry {
                 id: entry.id.to_string(),
@@ -224,6 +296,7 @@ struct McpConnection;
 impl McpConnection {
     fn connect(id: &str, progress: impl FnOnce(String)) -> Result<(), String> {
         let entry = McpCatalog::get(id).ok_or_else(|| format!("Unknown MCP server: {id}"))?;
+        Self::ensure_catalog_slot(entry)?;
         let listener = TcpListener::bind("127.0.0.1:0")
             .map_err(|error| format!("failed to open OAuth callback: {error}"))?;
         let address = listener
@@ -232,6 +305,7 @@ impl McpConnection {
         let redirect_uri = format!("http://127.0.0.1:{}/callback", address.port());
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| error.to_string())?;
         let protected = Self::protected_metadata(&client, entry.url)?;
@@ -248,8 +322,10 @@ impl McpConnection {
         );
         let challenge = base64_url(digest(&SHA256, verifier.as_bytes()).as_ref());
         let state = uuid::Uuid::new_v4().simple().to_string();
-        let mut url = Url::parse(&authorization.authorization_endpoint)
-            .map_err(|error| format!("invalid OAuth authorization URL: {error}"))?;
+        let mut url = Self::https_url(
+            &authorization.authorization_endpoint,
+            "OAuth authorization endpoint",
+        )?;
         url.query_pairs_mut()
             .append_pair("response_type", "code")
             .append_pair("client_id", &registration.client_id)
@@ -276,36 +352,61 @@ impl McpConnection {
             client_secret: registration.client_secret,
             access_token: token.access_token,
             refresh_token: token.refresh_token,
-            expires_at: token
-                .expires_in
-                .map(|seconds| chrono::Utc::now().timestamp() + seconds as i64)
-                .unwrap_or_default(),
+            expires_at: McpOauthCredentials::expires_at(token.expires_in),
             scope: token.scope.unwrap_or_else(|| entry.scopes.join(" ")),
             resource: entry.url.to_string(),
         };
-        credentials.store(id)?;
-        if let Err(error) = Self::write_manifest(entry) {
-            let _ = McpOauthCredentials::remove(id);
-            return Err(error);
-        }
-        Ok(())
+        McpOauthCredentials::write_transaction(|| {
+            Self::ensure_catalog_slot(entry)?;
+            let original_credentials = McpOauthCredentials::load(id)?;
+            credentials.store(id)?;
+            if let Err(error) = Self::write_manifest(entry) {
+                let credentials_rollback = original_credentials
+                    .as_ref()
+                    .map(|credentials| credentials.store(id))
+                    .unwrap_or_else(|| McpOauthCredentials::remove(id));
+                return Err(Self::rollback_error(error, Ok(()), credentials_rollback));
+            }
+            Ok(())
+        })
     }
 
     fn disconnect(id: &str) -> Result<(), String> {
-        McpOauthCredentials::remove(id)?;
-        let mut manifest = load_manifest()?;
-        manifest.mcp.servers.remove(id);
-        write_manifest(&manifest)
+        let entry = McpCatalog::get(id).ok_or_else(|| format!("Unknown MCP server: {id}"))?;
+        McpOauthCredentials::write_transaction(|| {
+            let credentials = McpOauthCredentials::load(id)?;
+            let original = load_manifest()?;
+            let server = original
+                .mcp
+                .servers
+                .get(id)
+                .ok_or_else(|| format!("MCP server is not configured: {id}"))?;
+            if !entry.owns(server) {
+                return Err(format!(
+                    "MCP server ID is already managed by tools.toml: {id}"
+                ));
+            }
+            let mut updated = original.clone();
+            updated.mcp.servers.remove(id);
+            write_manifest(&updated)?;
+            if let Err(error) = McpOauthCredentials::remove(id) {
+                let manifest_rollback = write_manifest(&original);
+                let credentials_rollback = credentials
+                    .as_ref()
+                    .map(|credentials| credentials.store(id))
+                    .unwrap_or(Ok(()));
+                return Err(Self::rollback_error(
+                    error,
+                    manifest_rollback,
+                    credentials_rollback,
+                ));
+            }
+            Ok(())
+        })
     }
 
     fn protected_metadata(client: &Client, resource: &str) -> Result<ProtectedResource, String> {
-        let resource = Url::parse(resource).map_err(|error| error.to_string())?;
-        let mut metadata = resource.clone();
-        metadata.set_path(&format!(
-            "/.well-known/oauth-protected-resource{}",
-            resource.path()
-        ));
-        metadata.set_query(None);
+        let metadata = Self::well_known_url(resource, "MCP resource", "oauth-protected-resource")?;
         Self::json(client.get(metadata).send())
     }
 
@@ -313,9 +414,7 @@ impl McpConnection {
         client: &Client,
         issuer: &str,
     ) -> Result<AuthorizationServer, String> {
-        let mut metadata = Url::parse(issuer).map_err(|error| error.to_string())?;
-        metadata.set_path("/.well-known/oauth-authorization-server");
-        metadata.set_query(None);
+        let metadata = Self::well_known_url(issuer, "OAuth issuer", "oauth-authorization-server")?;
         Self::json(client.get(metadata).send())
     }
 
@@ -330,6 +429,7 @@ impl McpConnection {
             .ok_or_else(|| {
                 "OAuth server does not support dynamic client registration".to_string()
             })?;
+        let endpoint = Self::https_url(endpoint, "OAuth registration endpoint")?;
         Self::json(
             client
                 .post(endpoint)
@@ -364,6 +464,7 @@ impl McpConnection {
         if let Some(secret) = &registration.client_secret {
             form.push(("client_secret", secret.clone()));
         }
+        let endpoint = Self::https_url(endpoint, "OAuth token endpoint")?;
         Self::json(client.post(endpoint).form(&form).send())
     }
 
@@ -379,23 +480,73 @@ impl McpConnection {
         serde_json::from_str(&body).map_err(|error| format!("invalid OAuth response: {error}"))
     }
 
+    fn https_url(value: &str, label: &str) -> Result<Url, String> {
+        let url = Url::parse(value).map_err(|error| format!("invalid {label}: {error}"))?;
+        if url.scheme() != "https" {
+            return Err(format!("{label} must use https"));
+        }
+        Ok(url)
+    }
+
+    fn well_known_url(value: &str, label: &str, metadata: &str) -> Result<Url, String> {
+        let mut url = Self::https_url(value, label)?;
+        let suffix = match url.path() {
+            "/" => String::new(),
+            path => path.to_string(),
+        };
+        url.set_path(&format!("/.well-known/{metadata}{suffix}"));
+        url.set_query(None);
+        url.set_fragment(None);
+        Ok(url)
+    }
+
+    fn rollback_error(
+        error: String,
+        manifest: Result<(), String>,
+        credentials: Result<(), String>,
+    ) -> String {
+        let mut failures = Vec::new();
+        if let Err(error) = manifest {
+            failures.push(format!("manifest rollback failed: {error}"));
+        }
+        if let Err(error) = credentials {
+            failures.push(format!("credential rollback failed: {error}"));
+        }
+        if failures.is_empty() {
+            return error;
+        }
+        format!("{error}; {}", failures.join("; "))
+    }
+
     fn write_manifest(entry: McpCatalogEntry) -> Result<(), String> {
         let mut manifest = load_manifest()?;
-        manifest.mcp.servers.insert(
-            entry.id.to_string(),
-            McpServerManifest {
-                transport: McpTransport::Http,
-                command: None,
-                args: Vec::new(),
-                env: Default::default(),
-                cwd: None,
-                url: Some(entry.url.to_string()),
-                headers: Default::default(),
-                header_env: Default::default(),
-                bearer_token_env_var: None,
-            },
-        );
+        if let Some(server) = manifest.mcp.servers.get(entry.id)
+            && !entry.owns(server)
+        {
+            return Err(format!(
+                "MCP server ID is already managed by tools.toml: {}",
+                entry.id
+            ));
+        }
+        manifest
+            .mcp
+            .servers
+            .insert(entry.id.to_string(), entry.server());
         write_manifest(&manifest)
+    }
+
+    fn ensure_catalog_slot(entry: McpCatalogEntry) -> Result<(), String> {
+        let manifest = load_manifest()?;
+        let Some(server) = manifest.mcp.servers.get(entry.id) else {
+            return Ok(());
+        };
+        if entry.owns(server) {
+            return Ok(());
+        }
+        Err(format!(
+            "MCP server ID is already managed by tools.toml: {}",
+            entry.id
+        ))
     }
 }
 
@@ -425,11 +576,15 @@ impl McpCallback {
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .map_err(|error| error.to_string())?;
-        let mut bytes = [0_u8; 16 * 1024];
-        let length = stream
-            .read(&mut bytes)
+        const MAX_REQUEST_LINE_BYTES: u64 = 16 * 1024;
+        let mut request = String::new();
+        let mut reader = BufReader::new(&mut *stream).take(MAX_REQUEST_LINE_BYTES + 1);
+        let length = reader
+            .read_line(&mut request)
             .map_err(|error| format!("failed to read OAuth callback: {error}"))?;
-        let request = String::from_utf8_lossy(&bytes[..length]);
+        if length == 0 || length as u64 > MAX_REQUEST_LINE_BYTES || !request.ends_with('\n') {
+            return Err("invalid OAuth callback".to_string());
+        }
         let target = request
             .lines()
             .next()
@@ -528,7 +683,7 @@ fn base64_url(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{McpCallback, base64_url};
+    use super::{McpCallback, McpConnection, base64_url};
 
     #[test]
     fn pkce_uses_unpadded_url_safe_base64() {
@@ -542,5 +697,25 @@ mod tests {
             "abc"
         );
         assert!(McpCallback::code("/callback?code=abc&state=wrong", "expected").is_err());
+    }
+
+    #[test]
+    fn oauth_endpoints_require_https() {
+        assert!(McpConnection::https_url("http://example.com", "endpoint").is_err());
+        assert!(McpConnection::https_url("https://example.com", "endpoint").is_ok());
+    }
+
+    #[test]
+    fn authorization_metadata_preserves_the_issuer_path() {
+        assert_eq!(
+            McpConnection::well_known_url(
+                "https://auth.example.com/tenant",
+                "issuer",
+                "oauth-authorization-server"
+            )
+            .unwrap()
+            .as_str(),
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant"
+        );
     }
 }

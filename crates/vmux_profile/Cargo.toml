@@ -13,6 +13,7 @@ ron = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+url = { workspace = true }
 zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -5,7 +5,7 @@ use vmux_layout::event::TERMINAL_PAGE_URL;
 use vmux_layout::pane::{PlacementCtx, resolve_spiral_pane};
 use vmux_layout::stack::stack_bundle;
 use vmux_service::client::ServiceClient;
-use vmux_service::protocol::{ClientMessage, SharedMessage};
+use vmux_service::protocol::{ClientMessage, ManagedMcpServer, SharedMessage};
 use vmux_setting::AppSettings;
 use vmux_terminal::reattach_terminal_bundle;
 
@@ -148,6 +148,8 @@ enum InstallMsg {
         command: String,
         args: Vec<String>,
         env: Vec<(String, String)>,
+        managed_mcp_servers: Vec<ManagedMcpServer>,
+        mcp_revision: u64,
     },
     Failed {
         sid: String,
@@ -490,6 +492,15 @@ fn install_acp_session_when_focused(
                 },
             );
             let login_env = vmux_terminal::shell_env::login_shell_env(&shell);
+            let managed_mcp = match crate::managed_mcp::acp_servers(&agent_id) {
+                Ok(managed_mcp) => managed_mcp,
+                Err(message) => {
+                    let _ = progress.send(InstallMsg::Failed { sid, message });
+                    return;
+                }
+            };
+            let mcp_revision = managed_mcp.revision;
+            let managed_mcp_servers = managed_mcp.servers;
             let msg = match resolved {
                 Ok(r) => InstallMsg::Ready {
                     sid,
@@ -499,6 +510,8 @@ fn install_acp_session_when_focused(
                         &agent_id,
                         build_agent_env(r.env, login_env, r.path_prepend),
                     ),
+                    managed_mcp_servers,
+                    mcp_revision,
                 },
                 Err(reg_err) => match fallback {
                     Some(cfg) if !cfg.command.is_empty() => InstallMsg::Ready {
@@ -509,6 +522,8 @@ fn install_acp_session_when_focused(
                             &agent_id,
                             build_agent_env(cfg.env, login_env, None),
                         ),
+                        managed_mcp_servers,
+                        mcp_revision,
                     },
                     _ => InstallMsg::Failed {
                         sid,
@@ -891,12 +906,13 @@ fn drain_acp_installs(
     service: Option<Res<ServiceClient>>,
     settings: Option<Res<AppSettings>>,
     mut install_generation: ResMut<AcpInstallGeneration>,
-    mut q: Query<(&AcpSession, &mut AgentRunState)>,
+    mut q: Query<(Entity, &AcpSession, &mut AgentRunState)>,
+    mut commands: Commands,
 ) {
     while let Ok(msg) = installs.rx.try_recv() {
         match msg {
             InstallMsg::Progress { sid, pct, message } => {
-                for (session, mut state) in &mut q {
+                for (_, session, mut state) in &mut q {
                     if session.sid == sid && matches!(*state, AgentRunState::Installing { .. }) {
                         *state = AgentRunState::Installing {
                             pct,
@@ -906,7 +922,7 @@ fn drain_acp_installs(
                 }
             }
             InstallMsg::Failed { sid, message } => {
-                for (session, mut state) in &mut q {
+                for (_, session, mut state) in &mut q {
                     if session.sid == sid {
                         *state = AgentRunState::Errored(message.clone());
                     }
@@ -917,16 +933,15 @@ fn drain_acp_installs(
                 command,
                 args,
                 env,
+                managed_mcp_servers,
+                mcp_revision,
             } => {
-                install_generation.bump();
                 let Some(service) = service.as_ref() else {
                     continue;
                 };
-                if let Some((session, mut state)) = q.iter_mut().find(|(s, _)| s.sid == sid) {
-                    *state = AgentRunState::Installing {
-                        pct: None,
-                        message: ready_agent_message(session.resume.as_deref()).to_string(),
-                    };
+                if let Some((entity, session, mut state)) =
+                    q.iter_mut().find(|(_, session, _)| session.sid == sid)
+                {
                     let mcp = crate::mcp::resolve_acp(
                         &session.cwd,
                         session.anchor,
@@ -938,13 +953,12 @@ fn drain_acp_installs(
                         );
                     })
                     .ok();
-                    let managed_mcp_servers = crate::managed_mcp::acp_servers(&session.agent_id);
                     let env = apply_managed_mcp_compatibility_env(
                         &session.agent_id,
                         env,
                         managed_mcp_servers.iter().map(|server| server.name.clone()),
                     );
-                    service.0.send(ClientMessage::SpawnAcpAgent {
+                    let message = ClientMessage::SpawnAcpAgent {
                         sid,
                         agent_id: session.agent_id.clone(),
                         command,
@@ -960,7 +974,29 @@ fn drain_acp_installs(
                             .as_ref()
                             .and_then(|settings| settings.agent.effort_for(&session.agent_id))
                             .map(str::to_string),
-                    });
+                    };
+                    match vmux_core::profile::mcp_credentials::McpOauthCredentials::with_revision(
+                        mcp_revision,
+                        || service.0.send(message),
+                    ) {
+                        Ok(Some(())) => {
+                            install_generation.bump();
+                            *state = AgentRunState::Installing {
+                                pct: None,
+                                message: ready_agent_message(session.resume.as_deref()).to_string(),
+                            };
+                        }
+                        Ok(None) => {
+                            *state = AgentRunState::Installing {
+                                pct: None,
+                                message: "Preparing agent…".to_string(),
+                            };
+                            commands.entity(entity).remove::<AcpInstallStarted>();
+                        }
+                        Err(error) => {
+                            *state = AgentRunState::Errored(error);
+                        }
+                    }
                 }
             }
         }

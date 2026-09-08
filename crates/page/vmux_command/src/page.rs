@@ -233,6 +233,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             .map(|query| mcp.filtered(query))
             .unwrap_or_default(),
     );
+    let mcp_selected = (*signals.selected.peek()).min(mcp_entries.len().saturating_sub(1));
     let media_menu_open = is_start && inline_media_query(&q).is_some();
     let media_sel = media.highlighted();
 
@@ -382,7 +383,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 }
                 if e.key() == Key::Enter && !e.modifiers().shift() {
                     e.prevent_default();
-                    if let Some(server) = entries.get(*signals.selected.peek()) {
+                    if let Some(server) = entries.get(mcp_selected) {
                         mcp.activate(server);
                     }
                     return;
@@ -478,7 +479,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             if e.key() == Key::Enter {
                 if mcp_open {
                     e.prevent_default();
-                    if let Some(server) = entries.get(*signals.selected.peek()) {
+                    if let Some(server) = entries.get(mcp_selected) {
                         mcp.activate(server);
                     }
                     return;
@@ -494,7 +495,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         let entries = mcp_entries.clone();
         move |_| {
             if mcp_open {
-                if let Some(server) = entries.get(*signals.selected.peek()) {
+                if let Some(server) = entries.get(mcp_selected) {
                     mcp.activate(server);
                 }
                 return;
@@ -588,7 +589,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 McpMenu {
                     connections: mcp,
                     entries: mcp_entries.as_ref().clone(),
-                    selected: palette.selected,
+                    selected: mcp_selected,
                     placement: if is_start { PromptPopupPlacement::Downward } else { PromptPopupPlacement::Inline },
                     on_select: {
                         let entries = mcp_entries.clone();

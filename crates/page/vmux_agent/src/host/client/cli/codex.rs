@@ -131,7 +131,7 @@ impl CliAgentStrategy for CodexStrategy {
     }
 
     fn build_env(&self, _mcp: &McpServerConfig) -> Vec<(String, String)> {
-        vec![]
+        crate::managed_mcp::CodexMcp::environment()
     }
 
     fn discover_session(
@@ -173,7 +173,7 @@ fn quote_toml(s: &str) -> String {
 }
 
 fn append_managed_mcp_args(args: &mut Vec<String>) {
-    for (name, server) in crate::managed_mcp::load() {
+    for (name, server) in crate::managed_mcp::CodexMcp::servers() {
         append_managed_mcp_server_args(args, &name, server);
     }
 }
@@ -183,6 +183,9 @@ fn append_managed_mcp_server_args(
     name: &str,
     server: vmux_core::profile::tools::McpServerManifest,
 ) {
+    if server.transport == vmux_core::profile::tools::McpTransport::Sse {
+        return;
+    }
     let prefix = format!("mcp_servers.{}", quote_toml(name));
     push_config_override(args, format!("{prefix}.enabled=true"));
     match server.transport {
@@ -203,8 +206,7 @@ fn append_managed_mcp_server_args(
                 push_config_override(args, format!("{prefix}.cwd={}", quote_toml(&cwd)));
             }
         }
-        vmux_core::profile::tools::McpTransport::Http
-        | vmux_core::profile::tools::McpTransport::Sse => {
+        vmux_core::profile::tools::McpTransport::Http => {
             if let Some(url) = server.url {
                 push_config_override(args, format!("{prefix}.url={}", quote_toml(&url)));
             }
@@ -233,6 +235,7 @@ fn append_managed_mcp_server_args(
                 );
             }
         }
+        vmux_core::profile::tools::McpTransport::Sse => unreachable!(),
     }
 }
 
@@ -710,7 +713,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_mcp_server_is_enabled_with_auth_headers() {
+    fn managed_mcp_server_is_enabled_with_auth_environment() {
         let server = vmux_core::profile::tools::McpServerManifest {
             transport: vmux_core::profile::tools::McpTransport::Http,
             command: None,
@@ -718,12 +721,9 @@ mod tests {
             env: std::collections::BTreeMap::new(),
             cwd: None,
             url: Some("https://mcp.linear.app/mcp".to_string()),
-            headers: std::collections::BTreeMap::from([(
-                "Authorization".to_string(),
-                "Bearer token".to_string(),
-            )]),
+            headers: std::collections::BTreeMap::new(),
             header_env: std::collections::BTreeMap::new(),
-            bearer_token_env_var: None,
+            bearer_token_env_var: Some("VMUX_MCP_OAUTH_LINEAR".to_string()),
         };
         let mut args = Vec::new();
 
@@ -738,8 +738,29 @@ mod tests {
                 .any(|arg| { arg == "mcp_servers.\"linear\".url=\"https://mcp.linear.app/mcp\"" })
         );
         assert!(args.iter().any(|arg| {
-            arg == "mcp_servers.\"linear\".http_headers={\"Authorization\"=\"Bearer token\"}"
+            arg == "mcp_servers.\"linear\".bearer_token_env_var=\"VMUX_MCP_OAUTH_LINEAR\""
         }));
+        assert!(!args.iter().any(|arg| arg.contains("Bearer token")));
+    }
+
+    #[test]
+    fn sse_managed_mcp_server_is_not_configured_for_codex() {
+        let server = vmux_core::profile::tools::McpServerManifest {
+            transport: vmux_core::profile::tools::McpTransport::Sse,
+            command: None,
+            args: Vec::new(),
+            env: std::collections::BTreeMap::new(),
+            cwd: None,
+            url: Some("https://example.com/sse".to_string()),
+            headers: std::collections::BTreeMap::new(),
+            header_env: std::collections::BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+        let mut args = Vec::new();
+
+        append_managed_mcp_server_args(&mut args, "legacy", server);
+
+        assert!(args.is_empty());
     }
 
     #[test]

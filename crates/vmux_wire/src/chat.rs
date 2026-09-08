@@ -479,22 +479,22 @@ pub struct ResumeSession {
 }
 impl SlashCommands {
     pub fn for_start() -> Self {
-        Self {
-            commands: vec![
-                SlashCommandEntry {
-                    name: "upload".into(),
-                    description: "Attach files".into(),
-                },
-                SlashCommandEntry {
-                    name: "resume".into(),
-                    description: "Resume a past session".into(),
-                },
-                SlashCommandEntry {
-                    name: "mcp".into(),
-                    description: String::new(),
-                },
-            ],
-        }
+        let mut commands = vec![
+            SlashCommandEntry {
+                name: "upload".into(),
+                description: "Attach files".into(),
+            },
+            SlashCommandEntry {
+                name: "resume".into(),
+                description: "Resume a past session".into(),
+            },
+        ];
+        #[cfg(host)]
+        commands.push(SlashCommandEntry {
+            name: "mcp".into(),
+            description: String::new(),
+        });
+        Self { commands }
     }
 
     pub fn for_agent(cross_runtime: bool, has_models: bool) -> Self {
@@ -507,11 +507,12 @@ impl SlashCommands {
                 name: "resume".into(),
                 description: "Resume a past session".into(),
             },
-            SlashCommandEntry {
-                name: "mcp".into(),
-                description: String::new(),
-            },
         ];
+        #[cfg(host)]
+        commands.push(SlashCommandEntry {
+            name: "mcp".into(),
+            description: String::new(),
+        });
         if has_models {
             commands.push(SlashCommandEntry {
                 name: "model".into(),

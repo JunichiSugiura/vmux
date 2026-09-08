@@ -36,7 +36,9 @@ pub fn run(args: McpCredentialArgs) -> io::Result<i32> {
     };
     match result {
         Ok(Some(bytes)) => {
-            io::stdout().write_all(&bytes)?;
+            let mut stdout = io::stdout();
+            stdout.write_all(&bytes)?;
+            stdout.flush()?;
             Ok(0)
         }
         Ok(None) => Ok(2),

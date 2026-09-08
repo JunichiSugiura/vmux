@@ -1008,7 +1008,7 @@ mod tests {
     use super::*;
     use crate::client::cli::vibe::VibeStrategy;
     use crate::host::provider::AgentExecutableOverride;
-    use crate::host::spawn::handle_spawn_agent_requests;
+    use crate::host::spawn::{SpawnPlugin, handle_spawn_agent_requests};
     use crate::host::test_support::{init_worktree_test_repo, test_settings};
     use crate::session::{AgentSession, SessionId};
     use crate::strategy::AgentStrategies;
@@ -2239,18 +2239,29 @@ mod tests {
         let mut strategies = AgentStrategies::default();
         strategies.register_cli(Box::new(crate::client::cli::codex::CodexStrategy));
         let mut app = App::new();
-        app.add_plugins(MinimalPlugins)
+        app.add_plugins((MinimalPlugins, SpawnPlugin))
             .add_message::<SpawnAgentInStackRequest>()
+            .add_message::<crate::session::AgentSessionExited>()
+            .add_message::<crate::host::command::ProcessStackSpawnRequest>()
+            .add_message::<vmux_core::agent::RestartAgentPty>()
+            .add_message::<vmux_core::agent::PageAgentAttachRequest>()
+            .add_message::<vmux_core::agent::PageAgentSpawnStackRequest>()
+            .add_message::<vmux_core::agent::PageAgentSpawnDefaultRequest>()
+            .add_message::<vmux_core::agent::PageAgentAttachDefaultRequest>()
             .insert_resource(strategies)
             .insert_resource(AgentExecutableOverride(std::collections::HashMap::from([
                 (AgentKind::Codex, true),
             ])))
-            .insert_resource(test_settings())
-            .add_systems(Update, handle_spawn_agent_requests);
+            .insert_resource(test_settings());
         let stack = app
             .world_mut()
             .spawn(vmux_layout::stack::stack_bundle())
             .id();
+        app.world_mut()
+            .entity_mut(stack)
+            .get_mut::<PageMetadata>()
+            .unwrap()
+            .url = "vmux://agent/codex/cli".to_string();
         app.world_mut()
             .resource_mut::<Messages<SpawnAgentInStackRequest>>()
             .write(SpawnAgentInStackRequest {
@@ -2262,8 +2273,19 @@ mod tests {
                 initial_attachments: Vec::new(),
             });
 
-        app.update();
-        app.update();
+        for _ in 0..100 {
+            app.update();
+            if app
+                .world_mut()
+                .query_filtered::<Entity, With<Terminal>>()
+                .iter(app.world())
+                .next()
+                .is_some()
+            {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
 
         let mut terminals = app.world_mut().query_filtered::<(
             &vmux_terminal::PromptCapture,

@@ -10676,6 +10676,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "toml",
+ "url",
  "zeroize",
 ]
 

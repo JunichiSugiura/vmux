@@ -1,5 +1,13 @@
 use serde::{Deserialize, Serialize};
 
+static MCP_CREDENTIAL_ACCESS: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
+static MCP_CREDENTIAL_REFRESH_ACCESS: std::sync::OnceLock<std::sync::Mutex<()>> =
+    std::sync::OnceLock::new();
+static MCP_CREDENTIAL_REVISION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+const DEFAULT_TOKEN_LIFETIME_SECS: u64 = 3600;
+
 #[cfg(target_os = "macos")]
 const KEYCHAIN_SERVICE: &str = "ai.vmux.mcp";
 
@@ -119,6 +127,67 @@ pub struct McpOauthCredentials {
 }
 
 impl McpOauthCredentials {
+    pub fn read_transaction<T>(operation: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+        let _access = MCP_CREDENTIAL_ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| error.to_string())?;
+        operation()
+    }
+
+    pub fn write_transaction<T>(
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _access = MCP_CREDENTIAL_ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| error.to_string())?;
+        MCP_CREDENTIAL_REVISION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        let result = operation();
+        MCP_CREDENTIAL_REVISION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        result
+    }
+
+    pub fn refresh_transaction<T>(
+        operation: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _access = MCP_CREDENTIAL_REFRESH_ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| error.to_string())?;
+        operation()
+    }
+
+    pub fn stable_revision() -> Result<u64, String> {
+        let _access = MCP_CREDENTIAL_ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| error.to_string())?;
+        Ok(Self::revision())
+    }
+
+    pub fn revision() -> u64 {
+        MCP_CREDENTIAL_REVISION.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    pub fn with_revision<T>(
+        revision: u64,
+        operation: impl FnOnce() -> T,
+    ) -> Result<Option<T>, String> {
+        let _access = match MCP_CREDENTIAL_ACCESS
+            .get_or_init(Default::default)
+            .try_lock()
+        {
+            Ok(access) => access,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(error)) => return Err(error.to_string()),
+        };
+        if Self::revision() != revision || revision % 2 != 0 {
+            return Ok(None);
+        }
+        Ok(Some(operation()))
+    }
+
     pub fn load(server: &str) -> Result<Option<Self>, String> {
         Self::load_account(&Self::account(server))
     }
@@ -134,6 +203,22 @@ impl McpOauthCredentials {
 
     pub fn expires_soon(&self) -> bool {
         self.expires_at != 0 && self.expires_at <= chrono::Utc::now().timestamp() + 60
+    }
+
+    pub fn expires_at(expires_in: Option<u64>) -> i64 {
+        let lifetime = expires_in.unwrap_or(DEFAULT_TOKEN_LIFETIME_SECS);
+        let lifetime = i64::try_from(lifetime).unwrap_or(i64::MAX);
+        chrono::Utc::now().timestamp().saturating_add(lifetime)
+    }
+
+    pub fn authorizes(&self, resource: &str) -> bool {
+        let Ok(stored) = url::Url::parse(&self.resource) else {
+            return false;
+        };
+        let Ok(requested) = url::Url::parse(resource) else {
+            return false;
+        };
+        stored.scheme() == "https" && requested.scheme() == "https" && stored == requested
     }
 
     fn account(server: &str) -> String {
@@ -268,20 +353,26 @@ impl McpOauthCredentials {
 
     fn store_account(account: &str, bytes: &[u8]) -> Result<(), String> {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
 
         let path = Self::path(account);
         let Some(parent) = path.parent() else {
             return Err("MCP credential path has no parent".to_string());
         };
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(|error| error.to_string())?;
+        let mut options = std::fs::OpenOptions::new();
+        options.create(true).truncate(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path).map_err(|error| error.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|error| error.to_string())?;
+        }
         file.write_all(bytes).map_err(|error| error.to_string())
     }
 
@@ -294,20 +385,21 @@ impl McpOauthCredentials {
     }
 
     fn path(account: &str) -> std::path::PathBuf {
-        let name = account
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
-                    character
-                } else {
-                    '-'
-                }
-            })
-            .collect::<String>();
         crate::profile_dir()
             .join("mcp-credentials")
-            .join(format!("{name}.json"))
+            .join(format!("{}.json", encoded_account(account)))
     }
+}
+
+#[cfg(any(not(target_os = "macos"), test))]
+fn encoded_account(account: &str) -> String {
+    use std::fmt::Write;
+
+    let mut encoded = String::with_capacity(account.len() * 2);
+    for byte in account.as_bytes() {
+        write!(&mut encoded, "{byte:02x}").unwrap();
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -332,6 +424,83 @@ mod tests {
         };
 
         assert!(credentials.expires_soon());
+    }
+
+    #[test]
+    fn missing_expiry_uses_a_bounded_lifetime() {
+        let before = chrono::Utc::now().timestamp() + DEFAULT_TOKEN_LIFETIME_SECS as i64;
+        let expires_at = McpOauthCredentials::expires_at(None);
+        let after = chrono::Utc::now().timestamp() + DEFAULT_TOKEN_LIFETIME_SECS as i64;
+
+        assert!((before..=after).contains(&expires_at));
+    }
+
+    #[test]
+    fn credential_file_names_preserve_distinct_accounts() {
+        assert_ne!(encoded_account("work.dev"), encoded_account("work-dev"));
+        assert_ne!(encoded_account("linear"), encoded_account("linear."));
+    }
+
+    #[test]
+    fn oauth_credentials_only_authorize_the_registered_resource() {
+        let credentials = McpOauthCredentials {
+            resource: "https://mcp.linear.app/mcp".to_string(),
+            ..McpOauthCredentials::default()
+        };
+
+        assert!(credentials.authorizes("https://mcp.linear.app/mcp"));
+        assert!(credentials.authorizes("https://MCP.LINEAR.APP:443/mcp"));
+        assert!(!credentials.authorizes("https://example.com/mcp"));
+        assert!(!credentials.authorizes("http://mcp.linear.app/mcp"));
+    }
+
+    #[test]
+    fn credential_writes_invalidate_prepared_launches() {
+        let revision = McpOauthCredentials::stable_revision().unwrap();
+        assert_eq!(
+            McpOauthCredentials::with_revision(revision, || "current").unwrap(),
+            Some("current")
+        );
+
+        McpOauthCredentials::write_transaction(|| Ok(())).unwrap();
+
+        assert_eq!(
+            McpOauthCredentials::with_revision(revision, || "stale").unwrap(),
+            None
+        );
+
+        let revision = McpOauthCredentials::stable_revision().unwrap();
+        let result: Result<(), String> =
+            McpOauthCredentials::write_transaction(|| Err("possibly changed".to_string()));
+        assert!(result.is_err());
+        assert_eq!(
+            McpOauthCredentials::with_revision(revision, || "current").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn launch_validation_does_not_wait_for_credential_writes() {
+        let revision = McpOauthCredentials::stable_revision().unwrap();
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (finish_tx, finish_rx) = std::sync::mpsc::channel();
+        let writer = std::thread::spawn(move || {
+            McpOauthCredentials::write_transaction(|| {
+                started_tx.send(()).unwrap();
+                finish_rx.recv().unwrap();
+                Ok(())
+            })
+            .unwrap();
+        });
+        started_rx.recv().unwrap();
+
+        assert_eq!(
+            McpOauthCredentials::with_revision(revision, || "stale").unwrap(),
+            None
+        );
+
+        finish_tx.send(()).unwrap();
+        writer.join().unwrap();
     }
 
     #[cfg(target_os = "macos")]

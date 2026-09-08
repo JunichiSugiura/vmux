@@ -499,7 +499,14 @@ impl Chat {
     }
 
     pub fn mcp_menu_open(&self) -> bool {
-        McpQuery::read(&self.draft()).is_some()
+        #[cfg(host)]
+        {
+            McpQuery::read(&self.draft()).is_some()
+        }
+        #[cfg(not(host))]
+        {
+            false
+        }
     }
 
     pub fn selector_open(&self) -> bool {
@@ -805,10 +812,16 @@ impl Chat {
     }
 
     pub fn activate_mcp_server(&self, index: usize) {
-        let Some(server) = self.filtered_mcp_servers().get(index).cloned() else {
+        let servers = self.filtered_mcp_servers();
+        let index = index.min(servers.len().saturating_sub(1));
+        let Some(server) = servers.get(index) else {
             return;
         };
-        self.mcp.activate(&server);
+        self.mcp.activate(server);
+    }
+
+    pub fn mcp_selected(&self) -> usize {
+        (self.slash.menu_sel)().min(self.filtered_mcp_servers().len().saturating_sub(1))
     }
 
     pub fn select_resume_session(&self, session: &ResumableSessionEntry) {

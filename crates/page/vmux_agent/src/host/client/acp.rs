@@ -5,7 +5,7 @@ use vmux_layout::event::TERMINAL_PAGE_URL;
 use vmux_layout::pane::{PlacementCtx, resolve_spiral_pane};
 use vmux_layout::stack::stack_bundle;
 use vmux_service::client::ServiceClient;
-use vmux_service::protocol::{ClientMessage, SharedMessage};
+use vmux_service::protocol::{ClientMessage, ManagedMcpServer, SharedMessage};
 use vmux_setting::AppSettings;
 use vmux_terminal::reattach_terminal_bundle;
 
@@ -148,6 +148,8 @@ enum InstallMsg {
         command: String,
         args: Vec<String>,
         env: Vec<(String, String)>,
+        managed_mcp_servers: Vec<ManagedMcpServer>,
+        mcp_revision: u64,
     },
     Failed {
         sid: String,
@@ -490,6 +492,15 @@ fn install_acp_session_when_focused(
                 },
             );
             let login_env = vmux_terminal::shell_env::login_shell_env(&shell);
+            let managed_mcp = match crate::managed_mcp::acp_servers(&agent_id) {
+                Ok(managed_mcp) => managed_mcp,
+                Err(message) => {
+                    let _ = progress.send(InstallMsg::Failed { sid, message });
+                    return;
+                }
+            };
+            let mcp_revision = managed_mcp.revision;
+            let managed_mcp_servers = managed_mcp.servers;
             let msg = match resolved {
                 Ok(r) => InstallMsg::Ready {
                     sid,
@@ -499,6 +510,8 @@ fn install_acp_session_when_focused(
                         &agent_id,
                         build_agent_env(r.env, login_env, r.path_prepend),
                     ),
+                    managed_mcp_servers,
+                    mcp_revision,
                 },
                 Err(reg_err) => match fallback {
                     Some(cfg) if !cfg.command.is_empty() => InstallMsg::Ready {
@@ -509,6 +522,8 @@ fn install_acp_session_when_focused(
                             &agent_id,
                             build_agent_env(cfg.env, login_env, None),
                         ),
+                        managed_mcp_servers,
+                        mcp_revision,
                     },
                     _ => InstallMsg::Failed {
                         sid,
@@ -648,6 +663,7 @@ fn extend_unique(out: &mut Vec<String>, values: impl IntoIterator<Item = String>
 }
 
 fn apply_codex_compatibility_env(mut env: Vec<(String, String)>) -> Vec<(String, String)> {
+    env.retain(|(key, _)| key != "DISABLE_MCP_CONFIG_FILTERING");
     let existing = env
         .iter()
         .rev()
@@ -751,6 +767,64 @@ fn apply_codex_compatibility_env(mut env: Vec<(String, String)>) -> Vec<(String,
     env
 }
 
+fn apply_managed_mcp_compatibility_env(
+    agent_id: &str,
+    mut env: Vec<(String, String)>,
+    server_names: impl IntoIterator<Item = String>,
+) -> Vec<(String, String)> {
+    if crate::acp_install::registry_id_alias(agent_id) != "codex-acp" {
+        return env;
+    }
+    let existing = env
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "CODEX_CONFIG")
+        .map(|(_, value)| value.as_str());
+    let (mut config, warning) = parse_codex_config(existing);
+    if let Some(warning) = warning {
+        bevy::log::warn!("{warning}");
+    }
+    let features = config
+        .entry("features")
+        .or_insert_with(|| serde_json::json!({}));
+    if !features.is_object() {
+        *features = serde_json::json!({});
+    }
+    let code_mode = features
+        .as_object_mut()
+        .unwrap()
+        .entry("code_mode")
+        .or_insert_with(|| serde_json::json!({}));
+    if !code_mode.is_object() {
+        *code_mode = serde_json::json!({});
+    }
+    let namespaces = code_mode
+        .as_object_mut()
+        .unwrap()
+        .entry("direct_only_tool_namespaces")
+        .or_insert_with(|| serde_json::json!([]));
+    if !namespaces.is_array() {
+        *namespaces = serde_json::json!([]);
+    }
+    let namespaces = namespaces.as_array_mut().unwrap();
+    let vmux = serde_json::Value::String(crate::client::cli::codex::DIRECT_ONLY_NAMESPACE.into());
+    if !namespaces.contains(&vmux) {
+        namespaces.push(vmux);
+    }
+    for server_name in server_names {
+        let namespace = serde_json::Value::String(format!("mcp__{server_name}"));
+        if !namespaces.contains(&namespace) {
+            namespaces.push(namespace);
+        }
+    }
+    env.retain(|(key, _)| key != "CODEX_CONFIG");
+    env.push((
+        "CODEX_CONFIG".to_string(),
+        serde_json::Value::Object(config).to_string(),
+    ));
+    env
+}
+
 fn disable_codex_skills(
     config: &mut serde_json::Map<String, serde_json::Value>,
     skill_files: &[std::path::PathBuf],
@@ -832,12 +906,13 @@ fn drain_acp_installs(
     service: Option<Res<ServiceClient>>,
     settings: Option<Res<AppSettings>>,
     mut install_generation: ResMut<AcpInstallGeneration>,
-    mut q: Query<(&AcpSession, &mut AgentRunState)>,
+    mut q: Query<(Entity, &AcpSession, &mut AgentRunState)>,
+    mut commands: Commands,
 ) {
     while let Ok(msg) = installs.rx.try_recv() {
         match msg {
             InstallMsg::Progress { sid, pct, message } => {
-                for (session, mut state) in &mut q {
+                for (_, session, mut state) in &mut q {
                     if session.sid == sid && matches!(*state, AgentRunState::Installing { .. }) {
                         *state = AgentRunState::Installing {
                             pct,
@@ -847,7 +922,7 @@ fn drain_acp_installs(
                 }
             }
             InstallMsg::Failed { sid, message } => {
-                for (session, mut state) in &mut q {
+                for (_, session, mut state) in &mut q {
                     if session.sid == sid {
                         *state = AgentRunState::Errored(message.clone());
                     }
@@ -858,16 +933,15 @@ fn drain_acp_installs(
                 command,
                 args,
                 env,
+                managed_mcp_servers,
+                mcp_revision,
             } => {
-                install_generation.bump();
                 let Some(service) = service.as_ref() else {
                     continue;
                 };
-                if let Some((session, mut state)) = q.iter_mut().find(|(s, _)| s.sid == sid) {
-                    *state = AgentRunState::Installing {
-                        pct: None,
-                        message: ready_agent_message(session.resume.as_deref()).to_string(),
-                    };
+                if let Some((entity, session, mut state)) =
+                    q.iter_mut().find(|(_, session, _)| session.sid == sid)
+                {
                     let mcp = crate::mcp::resolve_acp(
                         &session.cwd,
                         session.anchor,
@@ -879,7 +953,12 @@ fn drain_acp_installs(
                         );
                     })
                     .ok();
-                    service.0.send(ClientMessage::SpawnAcpAgent {
+                    let env = apply_managed_mcp_compatibility_env(
+                        &session.agent_id,
+                        env,
+                        managed_mcp_servers.iter().map(|server| server.name.clone()),
+                    );
+                    let message = ClientMessage::SpawnAcpAgent {
                         sid,
                         agent_id: session.agent_id.clone(),
                         command,
@@ -890,12 +969,34 @@ fn drain_acp_installs(
                         mcp_command: mcp.as_ref().map(|m| m.command.clone()),
                         mcp_args: mcp.map(|m| m.args).unwrap_or_default(),
                         resume_acp_session_id: session.resume.clone(),
-                        managed_mcp_servers: crate::managed_mcp::acp_servers(),
+                        managed_mcp_servers,
                         effort: settings
                             .as_ref()
                             .and_then(|settings| settings.agent.effort_for(&session.agent_id))
                             .map(str::to_string),
-                    });
+                    };
+                    match vmux_core::profile::mcp_credentials::McpOauthCredentials::with_revision(
+                        mcp_revision,
+                        || service.0.send(message),
+                    ) {
+                        Ok(Some(())) => {
+                            install_generation.bump();
+                            *state = AgentRunState::Installing {
+                                pct: None,
+                                message: ready_agent_message(session.resume.as_deref()).to_string(),
+                            };
+                        }
+                        Ok(None) => {
+                            *state = AgentRunState::Installing {
+                                pct: None,
+                                message: "Preparing agent…".to_string(),
+                            };
+                            commands.entity(entity).remove::<AcpInstallStarted>();
+                        }
+                        Err(error) => {
+                            *state = AgentRunState::Errored(error);
+                        }
+                    }
                 }
             }
         }
@@ -1712,6 +1813,10 @@ mod tests {
             assert_eq!(config["tools"]["web_search"], false);
             assert_eq!(config["approvals_reviewer"], "user");
             assert_eq!(config["mcp_servers"]["vmux"]["tool_timeout_sec"], 660);
+            assert!(
+                env.iter()
+                    .all(|(key, _)| key != "DISABLE_MCP_CONFIG_FILTERING")
+            );
             assert_eq!(
                 config["features"]["code_mode"]["direct_only_tool_namespaces"],
                 serde_json::json!([crate::client::cli::codex::DIRECT_ONLY_NAMESPACE])
@@ -1732,6 +1837,26 @@ mod tests {
             assert!(instructions.contains("mcp__vmux__browser_snapshot"));
             assert!(instructions.contains("page already visible beside you"));
         }
+    }
+
+    #[test]
+    fn codex_acp_exposes_managed_mcp_namespaces_directly() {
+        let env = apply_agent_compatibility_env("codex-acp", Vec::new());
+        let env = apply_managed_mcp_compatibility_env(
+            "codex-acp",
+            env,
+            ["vmux_linear".to_string(), "vmux_notion".to_string()],
+        );
+        let config = env
+            .iter()
+            .find(|(key, _)| key == "CODEX_CONFIG")
+            .map(|(_, value)| serde_json::from_str::<serde_json::Value>(value).unwrap())
+            .expect("codex ACP compatibility config");
+
+        assert_eq!(
+            config["features"]["code_mode"]["direct_only_tool_namespaces"],
+            serde_json::json!(["mcp__vmux", "mcp__vmux_linear", "mcp__vmux_notion"])
+        );
     }
 
     #[test]

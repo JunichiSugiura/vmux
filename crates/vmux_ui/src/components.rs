@@ -13,6 +13,7 @@ pub mod effort_menu;
 pub mod icon;
 pub mod input;
 pub mod manager;
+pub mod mcp_menu;
 pub mod model_menu;
 pub mod progress;
 pub mod project_picker;

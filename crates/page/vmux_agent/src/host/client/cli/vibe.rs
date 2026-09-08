@@ -52,7 +52,7 @@ impl CliAgentStrategy for VibeStrategy {
 
     fn build_env(&self, mcp: &McpServerConfig) -> Vec<(String, String)> {
         let mcp_json = serialize_vibe_mcp_env(mcp);
-        vec![
+        let mut env = vec![
             ("VIBE_MCP_SERVERS".to_string(), mcp_json),
             (
                 "VIBE_ENABLE_EXPERIMENTAL_HOOKS".to_string(),
@@ -67,7 +67,9 @@ impl CliAgentStrategy for VibeStrategy {
                         .into_path(),
                 ),
             ),
-        ]
+        ];
+        env.extend(crate::managed_mcp::McpAuthorization::environment());
+        env
     }
 
     fn prepare_launch(&self, mcp: &McpServerConfig) {

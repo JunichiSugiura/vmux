@@ -53,7 +53,6 @@ pub use self::attach::{
 pub use self::command::AgentLookups;
 pub use self::provider::AgentExecutableOverride;
 pub use self::run_terminal::AgentTerminalRegions;
-pub use self::spawn::detect_agent_session_process_exit;
 pub use vmux_space::cwd::valid_cwd;
 
 pub(crate) use self::follow::on_tidy_action;
@@ -69,7 +68,7 @@ pub use events::{
     RecordStartRequest, RecordStartResponse, RecordStopRequest, RecordStopResponse, RecordingInfo,
     ScreenshotImage, ScreenshotRequest, ScreenshotResponse,
 };
-pub use launch::build_agent_launch;
+pub(crate) use launch::build_agent_launch;
 pub use mcp::McpServerConfig;
 pub use message::{AssistantBlock, Message};
 pub use run_state::AgentRunState;

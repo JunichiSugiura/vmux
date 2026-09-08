@@ -610,7 +610,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slash_commands_include_cli_only_when_cross_runtime() {
+    fn slash_commands_include_mcp_and_gate_cli_by_runtime() {
         let names = |cross, models| {
             SlashCommands::for_agent(cross, models)
                 .commands
@@ -618,10 +618,13 @@ mod tests {
                 .map(|command| command.name.clone())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(names(false, false), ["upload", "resume"]);
-        assert_eq!(names(false, true), ["upload", "resume", "model"]);
-        assert_eq!(names(true, false), ["upload", "resume", "cli"]);
-        assert_eq!(names(true, true), ["upload", "resume", "model", "cli"]);
+        assert_eq!(names(false, false), ["upload", "resume", "mcp"]);
+        assert_eq!(names(false, true), ["upload", "resume", "mcp", "model"]);
+        assert_eq!(names(true, false), ["upload", "resume", "mcp", "cli"]);
+        assert_eq!(
+            names(true, true),
+            ["upload", "resume", "mcp", "model", "cli"]
+        );
     }
 
     #[test]

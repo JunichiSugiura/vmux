@@ -1,6 +1,7 @@
 use std::io;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 #[cfg(unix)]
 use std::collections::HashSet;
@@ -24,6 +25,18 @@ struct AgentConfigPaths {
     codex_extension_memories: PathBuf,
     vibe_instructions: PathBuf,
     vibe_config: PathBuf,
+}
+
+struct AgentConfigAccess;
+
+impl AgentConfigAccess {
+    fn lock() -> io::Result<MutexGuard<'static, ()>> {
+        static ACCESS: OnceLock<Mutex<()>> = OnceLock::new();
+        ACCESS
+            .get_or_init(Default::default)
+            .lock()
+            .map_err(|error| io::Error::other(error.to_string()))
+    }
 }
 
 impl AgentConfigPaths {
@@ -55,6 +68,7 @@ impl AgentConfigPaths {
 }
 
 pub fn sync_external_agent_configs() -> io::Result<()> {
+    let _access = AgentConfigAccess::lock()?;
     let vault = KnowledgeVault::user();
     vault.memories().import_external()?;
     let skills = vault.skills().into_path();

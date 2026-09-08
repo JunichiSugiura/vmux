@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 
 pub mod mcp;
+pub mod mcp_credentials;
 pub mod notify;
 pub mod notify_file_touch;
 pub mod notify_turn_end;
@@ -51,6 +52,8 @@ pub enum Command {
     },
     Tools(tools::ToolsArgs),
     Service(service::ServiceArgs),
+    #[command(hide = true)]
+    McpCredentials(mcp_credentials::McpCredentialArgs),
     #[command(hide = true)]
     VaultKey(vault_key::VaultKeyArgs),
     Remote(remote::RemoteArgs),

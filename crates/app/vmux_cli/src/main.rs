@@ -38,6 +38,10 @@ async fn main() -> std::io::Result<()> {
             let code = commands::service::run(args)?;
             std::process::exit(code);
         }
+        Some(Command::McpCredentials(args)) => {
+            let code = commands::mcp_credentials::run(args)?;
+            std::process::exit(code);
+        }
         Some(Command::VaultKey(args)) => {
             let code = commands::vault_key::run(args)?;
             std::process::exit(code);

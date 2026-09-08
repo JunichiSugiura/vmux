@@ -22,9 +22,10 @@ use vmux_ui::caret::{EventSelection, byte_offset_to_utf16};
 use vmux_ui::components::composer::{PROMPT_INPUT_ID, PromptComposer, focus_prompt_end};
 use vmux_ui::components::composer_bar::{ComposerBar, ComposerMenus, use_composer_menu};
 use vmux_ui::components::icon::Icon;
+use vmux_ui::components::mcp_menu::{McpMenu, McpQuery, use_mcp_connections};
 use vmux_ui::components::prompt_box::{PromptBox, PromptPopup, PromptPopupPlacement};
 use vmux_ui::components::prompt_media_options::PromptMediaOptions;
-use vmux_ui::hooks::{MenuDirection, send, use_key_claim, use_listener};
+use vmux_ui::hooks::{MenuDirection, move_selection, send, use_key_claim, use_listener};
 use vmux_ui::i18n::translate;
 use vmux_ui::ime::use_ime_guard;
 use vmux_ui::launcher::palette::{
@@ -63,6 +64,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let mut media = use_prompt_media();
     let search = use_host_search();
     let menu = use_composer_menu();
+    let mcp = use_mcp_connections();
     let ime = use_ime_guard();
 
     let keys = use_key_claim(Unclaimed::Types, move || match surface {
@@ -161,6 +163,12 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         let _ = send(&ResumeListRequest { offset: 0 });
     });
     use_effect(move || {
+        let query = (signals.query)();
+        if McpQuery::read(&query).is_some() {
+            mcp.request();
+        }
+    });
+    use_effect(move || {
         let selected = (signals.selected)() as u32;
         let loaded = feeds.sessions.read().len() as u32;
         let total = (feeds.sessions_total)();
@@ -181,8 +189,30 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
         signals,
         on_dismiss,
     };
-    let _key_listener =
-        use_listener::<CommandBarKey, _>(COMMAND_BAR_KEY_EVENT, move |key| palette_keys.apply(key));
+    let _key_listener = use_listener::<CommandBarKey, _>(COMMAND_BAR_KEY_EVENT, move |key| {
+        let query = signals.query.peek().clone();
+        if let Some(filter) = McpQuery::read(&query) {
+            let entries = mcp.filtered(filter);
+            match key {
+                CommandBarKey::Next => {
+                    let current = *signals.selected.peek();
+                    signals.highlight(move_selection(current, entries.len(), MenuDirection::Next));
+                }
+                CommandBarKey::Previous => {
+                    let current = *signals.selected.peek();
+                    signals.highlight(move_selection(
+                        current,
+                        entries.len(),
+                        MenuDirection::Previous,
+                    ));
+                }
+                CommandBarKey::Complete => {}
+                CommandBarKey::Dismiss => signals.retype(String::new()),
+            }
+            return;
+        }
+        palette_keys.apply(key);
+    });
 
     let state_val = state();
     let palette = std::rc::Rc::new(PaletteState::of(
@@ -195,6 +225,15 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let mut attachments = media.attachments;
     let q = palette.query.clone();
     let ghost_text = palette.ghost.clone();
+    let mcp_query = McpQuery::read(&q).map(str::to_string);
+    let mcp_open = mcp_query.is_some();
+    let mcp_entries = std::rc::Rc::new(
+        mcp_query
+            .as_deref()
+            .map(|query| mcp.filtered(query))
+            .unwrap_or_default(),
+    );
+    let mcp_selected = (*signals.selected.peek()).min(mcp_entries.len().saturating_sub(1));
     let media_menu_open = is_start && inline_media_query(&q).is_some();
     let media_sel = media.highlighted();
 
@@ -298,6 +337,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     let start_keydown = {
         let palette = palette.clone();
         let menus = menus.clone();
+        let entries = mcp_entries.clone();
         move |e: KeyboardEvent| {
             if Readline::chord(&e, signals.query, &palette.ghost, PROMPT_INPUT_ID) {
                 return;
@@ -328,6 +368,27 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
             let direction = MenuDirection::of(&e);
             let go_down = direction == Some(MenuDirection::Next);
             let go_up = direction == Some(MenuDirection::Previous);
+
+            if mcp_open {
+                if e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC) {
+                    e.prevent_default();
+                    signals.retype(String::new());
+                    return;
+                }
+                if let Some(direction) = direction {
+                    e.prevent_default();
+                    let current = *signals.selected.peek();
+                    signals.highlight(move_selection(current, entries.len(), direction));
+                    return;
+                }
+                if e.key() == Key::Enter && !e.modifiers().shift() {
+                    e.prevent_default();
+                    if let Some(server) = entries.get(mcp_selected) {
+                        mcp.activate(server);
+                    }
+                    return;
+                }
+            }
 
             if let Some(kind) = menu.opened() {
                 if e.key() == Key::Escape || (ctrl && e.code() == Code::KeyC) {
@@ -396,6 +457,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     };
     let modal_keydown = {
         let palette = palette.clone();
+        let entries = mcp_entries.clone();
         move |e: KeyboardEvent| {
             if ime.swallows(&e) {
                 return;
@@ -415,6 +477,13 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                 return;
             }
             if e.key() == Key::Enter {
+                if mcp_open {
+                    e.prevent_default();
+                    if let Some(server) = entries.get(mcp_selected) {
+                        mcp.activate(server);
+                    }
+                    return;
+                }
                 apply(palette.submit_modal(&attachments.peek()));
                 return;
             }
@@ -423,7 +492,16 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
     };
     let on_send = {
         let palette = palette.clone();
-        move |_| apply(palette.submit_action(&attachments.peek()))
+        let entries = mcp_entries.clone();
+        move |_| {
+            if mcp_open {
+                if let Some(server) = entries.get(mcp_selected) {
+                    mcp.activate(server);
+                }
+                return;
+            }
+            apply(palette.submit_action(&attachments.peek()));
+        }
     };
 
     rsx! {
@@ -507,7 +585,25 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     }
                 }
             }
-            if menu.opened().is_none() && media_menu_open {
+            if menu.opened().is_none() && mcp_open {
+                McpMenu {
+                    connections: mcp,
+                    entries: mcp_entries.as_ref().clone(),
+                    selected: mcp_selected,
+                    placement: if is_start { PromptPopupPlacement::Downward } else { PromptPopupPlacement::Inline },
+                    on_select: {
+                        let entries = mcp_entries.clone();
+                        move |index| {
+                            if let Some(server) = entries.get(index) {
+                                mcp.activate(server);
+                            }
+                        }
+                    },
+                    on_hover: move |index| signals.selected.set(index),
+                    on_dismiss: move |()| signals.retype(String::new()),
+                }
+            }
+            if menu.opened().is_none() && !mcp_open && media_menu_open {
                 PromptPopup {
                     placement: PromptPopupPlacement::Downward,
                     id: "command-bar-results",
@@ -522,7 +618,7 @@ pub fn CommandPalette(props: PaletteProps) -> Element {
                     }
                 }
             }
-            if menu.opened().is_none() && !media_menu_open && !palette.rows.is_empty() {
+            if menu.opened().is_none() && !mcp_open && !media_menu_open && !palette.rows.is_empty() {
                 PromptPopup {
                     placement: if is_start { PromptPopupPlacement::Downward } else { PromptPopupPlacement::Inline },
                     id: "command-bar-results",

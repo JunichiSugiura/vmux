@@ -136,6 +136,7 @@ impl Plugin for ToolsPlugin {
             .init_resource::<ToolActionQueue>()
             .init_resource::<VaultActionQueue>()
             .init_resource::<VaultAutoSync>()
+            .add_plugins(crate::mcp_connection::McpConnectionPlugin)
             .add_plugins(BinEventEmitterPlugin::<(
                 ToolsRefreshRequest,
                 ToolActionRequest,
@@ -1151,7 +1152,7 @@ fn scan_mcp(manifest: &mut ToolsManifest, errors: &mut Vec<String>) -> ToolCateg
             .map(|error| format!("MCP Servers: {error}")),
     );
     for (name, server) in &discovered {
-        if name != "vmux" && !server.conflict {
+        if name != "vmux" && name != "linear" && !server.conflict {
             manifest
                 .mcp
                 .servers

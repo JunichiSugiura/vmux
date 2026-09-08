@@ -104,10 +104,12 @@ impl CliAgentStrategy for ClaudeStrategy {
     }
 
     fn build_env(&self, _mcp: &McpServerConfig) -> Vec<(String, String)> {
-        vec![(
+        let mut env = vec![(
             "MCP_TOOL_TIMEOUT".to_string(),
             (crate::mcp::LONG_MCP_TOOL_TIMEOUT_SECS * 1_000).to_string(),
-        )]
+        )];
+        env.extend(crate::managed_mcp::McpAuthorization::environment());
+        env
     }
 
     fn discover_session(
@@ -194,7 +196,10 @@ fn build_mcp_config_json(mcp: &McpServerConfig) -> String {
     let mut servers = Map::new();
     servers.insert("vmux".into(), Value::Object(server));
     for (name, server) in crate::managed_mcp::load() {
-        servers.insert(name, crate::managed_mcp::claude_value(&server));
+        servers.insert(
+            name.clone(),
+            crate::managed_mcp::claude_value(&name, &server),
+        );
     }
     let mut root = Map::new();
     root.insert("mcpServers".into(), Value::Object(servers));

@@ -6,6 +6,7 @@ pub mod error;
 pub mod history;
 pub mod icon;
 pub mod layout;
+pub mod mcp;
 pub mod open_target;
 #[cfg(feature = "bevy")]
 pub mod page;

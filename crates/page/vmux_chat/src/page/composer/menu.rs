@@ -35,19 +35,28 @@ pub(super) fn CommandMenu(chat: Chat) -> Element {
     rsx! {
         PromptPopup { on_dismiss: move |()| chat.dismiss_selector(),
             for (index , command) in chat.filtered_commands().into_iter().enumerate() {
-                ResultRow {
-                    key: "sc{index}",
-                    index,
-                    item: CommandBarResultItem::Slash {
-                        name: command.name.clone(),
-                        hint: command.description.clone(),
-                    },
-                    selected: index == menu_sel(),
-                    on_activate: {
-                        let name = command.name.clone();
-                        move |()| chat.run_slash_command(&name)
-                    },
-                    on_hover: move |()| menu_sel.set(index),
+                {
+                    let hint = if command.name == "mcp" {
+                        translate("mcp-command-description")
+                    } else {
+                        command.description.clone()
+                    };
+                    rsx! {
+                        ResultRow {
+                            key: "sc{index}",
+                            index,
+                            item: CommandBarResultItem::Slash {
+                                name: command.name.clone(),
+                                hint,
+                            },
+                            selected: index == menu_sel(),
+                            on_activate: {
+                                let name = command.name.clone();
+                                move |()| chat.run_slash_command(&name)
+                            },
+                            on_hover: move |()| menu_sel.set(index),
+                        }
+                    }
                 }
             }
         }

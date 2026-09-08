@@ -19,8 +19,10 @@ impl SlashRows {
         pending: bool,
     ) -> Vec<CommandBarResultItem> {
         let held = vmux_wire::command_bar::CommandBarQuery(query);
-        let Some((name, rest)) = held.slash_token() else {
-            return Vec::new();
+        let (name, rest) = match held.slash_token() {
+            Some(parts) => parts,
+            None if query.trim() == "/" => ("", ""),
+            None => return Vec::new(),
         };
         let lowered = name.to_lowercase();
         let mut matching = Vec::new();
@@ -45,7 +47,11 @@ impl SlashRows {
         for command in matching {
             rows.push(CommandBarResultItem::Slash {
                 name: command.name.clone(),
-                hint: command.description.clone(),
+                hint: if command.name == "mcp" {
+                    translate("mcp-command-description")
+                } else {
+                    command.description.clone()
+                },
             });
         }
         rows

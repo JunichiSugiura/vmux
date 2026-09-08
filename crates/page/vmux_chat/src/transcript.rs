@@ -18,6 +18,7 @@ pub fn UserBubble(
     avatar_name: String,
     avatar_initials: String,
     avatar_color: String,
+    #[props(default)] copy_text: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
@@ -35,6 +36,7 @@ pub fn UserBubble(
             div { class: "relative min-w-0 max-w-[80%] flex-none pl-8",
                 div { class: "mb-1 text-right text-xs font-semibold text-foreground", "{you}" }
                 div { class: "flex min-w-0 flex-col items-end gap-2 text-left", {children} }
+                MessageMeta { text: copy_text, right: true }
             }
         }
     }
@@ -46,6 +48,7 @@ pub fn AssistantTurn(
     avatar_src: Option<String>,
     avatar_fallback: String,
     avatar_background: String,
+    #[props(default)] copy_text: String,
     #[props(extends = GlobalAttributes)] attributes: Vec<Attribute>,
     children: Element,
 ) -> Element {
@@ -61,18 +64,36 @@ pub fn AssistantTurn(
             div { class: "relative min-w-0 flex-1 pr-8",
                 div { class: "mb-1 text-xs font-semibold text-foreground", "{name}" }
                 div { class: "flex min-w-0 flex-col gap-2.5", {children} }
+                MessageMeta { text: copy_text }
             }
         }
     }
 }
 
 #[component]
-pub fn MessageCopyButton(text: String, #[props(default)] left: bool) -> Element {
+fn MessageMeta(text: String, #[props(default)] right: bool) -> Element {
+    let timestamp = use_hook(|| chrono::Local::now().format("%-I:%M%P").to_string());
+    let alignment = if right {
+        "justify-end"
+    } else {
+        "justify-start"
+    };
+    rsx! {
+        div { class: "mt-1 flex h-6 items-center gap-1 {alignment} text-[11px] text-muted-foreground/45",
+            if !text.is_empty() {
+                MessageCopyButton { text }
+            }
+            time { class: "tabular-nums", "{timestamp}" }
+        }
+    }
+}
+
+#[component]
+pub fn MessageCopyButton(text: String) -> Element {
     let label = translate("agent-copy");
-    let position = if left { "left-0" } else { "right-2" };
     rsx! {
         button {
-            class: "absolute {position} top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition hover:bg-foreground/[0.08] hover:text-foreground",
+            class: "pointer-events-none flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100",
             title: "{label}",
             aria_label: "{label}",
             onclick: move |event| {
@@ -111,9 +132,7 @@ pub fn ChatItemRow(
                 avatar_name: user_name,
                 avatar_initials: user_initials,
                 avatar_color: user_color,
-                if !text.is_empty() {
-                    MessageCopyButton { text: text.clone(), left: true }
-                }
+                copy_text: text.clone(),
                 if let Some(context) = context {
                     details { class: "disclosure user-context-panel rounded-xl border",
                         summary { class: "flex cursor-pointer select-none items-center gap-2 px-2.5 py-2 text-xs list-none [&::-webkit-details-marker]:hidden",
@@ -278,9 +297,7 @@ pub fn TurnView(
                     avatar_src: agent_avatar,
                     avatar_fallback: agent_initial,
                     avatar_background: agent_color,
-                    if !copy_text.is_empty() {
-                        MessageCopyButton { text: copy_text.clone() }
-                    }
+                    copy_text,
                     for item in items {
                         match item {
                             TurnItem::Block((j, block, children)) => rsx! {

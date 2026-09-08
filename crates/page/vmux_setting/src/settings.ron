@@ -21,29 +21,15 @@
         bookmark_folders: [
             (
                 name: "Projects",
-                bookmarks: [
-                    "vmux://projects/",
-                    "vmux://spaces/",
-                    "vmux://team/",
-                ],
+                smart: Some(projects),
             ),
             (
                 name: "Knowledge",
-                bookmarks: [
-                    "vmux://knowledge/",
-                    "vmux://vault/",
-                    "vmux://history/",
-                ],
+                smart: Some(knowledge),
             ),
             (
                 name: "Tools",
-                bookmarks: [
-                    "vmux://terminal/",
-                    "vmux://tools/",
-                    "vmux://services/",
-                    "vmux://extensions/",
-                    "vmux://lsp/",
-                ],
+                smart: Some(tools),
             ),
         ],
     ),

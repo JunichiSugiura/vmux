@@ -91,8 +91,26 @@ pub enum BookmarkOp {
     },
 }
 
-#[derive(Message, Clone, Debug, Default)]
-pub struct ShowBookmarkMenuRequest;
+#[derive(Clone, Debug)]
+pub enum BookmarkMenuTarget {
+    Root,
+    Pin {
+        uuid: String,
+    },
+    Bookmark {
+        uuid: String,
+    },
+    Folder {
+        uuid: String,
+        active_page: Option<PageMetadata>,
+    },
+}
+
+#[derive(Message, Clone, Debug)]
+pub struct ShowBookmarkMenuRequest {
+    pub webview: Entity,
+    pub target: BookmarkMenuTarget,
+}
 
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BookmarkTextInputActive;
@@ -440,8 +458,38 @@ fn on_bookmarks_command_emit(
         "toggle_active" => {
             app_cmds.write(AppCommand::Bookmark(BookmarkCommand::ToggleActive));
         }
-        "menu_new_folder" => {
-            menu_req.write(ShowBookmarkMenuRequest);
+        "menu_root" | "menu_new_folder" => {
+            menu_req.write(ShowBookmarkMenuRequest {
+                webview: trigger.event().webview,
+                target: BookmarkMenuTarget::Root,
+            });
+        }
+        "menu_pin" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Pin { uuid },
+                });
+            }
+        }
+        "menu_bookmark" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Bookmark { uuid },
+                });
+            }
+        }
+        "menu_folder" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Folder {
+                        uuid,
+                        active_page: e.metadata.clone(),
+                    },
+                });
+            }
         }
         "open" => {
             if let Some(url) = e.url.clone() {

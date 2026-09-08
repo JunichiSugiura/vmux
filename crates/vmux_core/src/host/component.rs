@@ -138,6 +138,29 @@ pub struct Bookmark;
 #[type_path = "vmux_core"]
 pub struct Folder;
 
+#[derive(
+    Component,
+    Clone,
+    Copy,
+    Debug,
+    Reflect,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+#[reflect(Component)]
+#[serde(rename_all = "snake_case")]
+#[type_path = "vmux_core"]
+pub enum SmartBookmarkFolder {
+    Projects,
+    Knowledge,
+    Tools,
+}
+
 #[derive(Component, Clone, Copy, Debug, Reflect, Default, PartialEq, Eq)]
 #[reflect(Component, Default)]
 #[type_path = "vmux_core"]

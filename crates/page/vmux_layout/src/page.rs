@@ -1,14 +1,15 @@
 #![allow(non_snake_case)]
 
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::event::{
-    BOOKMARKS_EVENT, BookmarkContextMenuEvent, BookmarkNode, BookmarkRow, BookmarkTextInputEvent,
-    BookmarksCommandEvent, BookmarksHostEvent, FolderRow, HeaderCommandEvent, LAYOUT_STATE_EVENT,
-    LayoutStateEvent, PANE_TREE_EVENT, PaneNode, PaneTreeEvent, RELOAD_EVENT, REMOTE_STATE_EVENT,
-    ReloadEvent, RemoteCommandEvent, RemoteCopyEvent, RemotePhase, RemoteStateEvent, STACKS_EVENT,
-    StackNode, StackRow, StacksHostEvent, TABS_EVENT, TabRow, TabsCommandEvent, TabsHostEvent,
-    WindowDragRegionEvent,
+    BOOKMARK_MENU_ACTION_EVENT, BOOKMARKS_EVENT, BookmarkContextMenuEvent, BookmarkMenuActionEvent,
+    BookmarkNode, BookmarkRow, BookmarkTextInputEvent, BookmarksCommandEvent, BookmarksHostEvent,
+    FolderRow, HeaderCommandEvent, LAYOUT_STATE_EVENT, LayoutStateEvent, PANE_TREE_EVENT, PaneNode,
+    PaneTreeEvent, RELOAD_EVENT, REMOTE_STATE_EVENT, ReloadEvent, RemoteCommandEvent,
+    RemoteCopyEvent, RemotePhase, RemoteStateEvent, STACKS_EVENT, StackNode, StackRow,
+    StacksHostEvent, TABS_EVENT, TabRow, TabsCommandEvent, TabsHostEvent, WindowDragRegionEvent,
 };
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -18,6 +19,10 @@ use vmux_core::event::{
     EXTENSIONS_LIST_EVENT, ExtActionRequest, ExtListRequest, ExtOpenManagerRequest, ExtRow,
     ExtensionsEvent,
 };
+use vmux_core::knowledge::{
+    KNOWLEDGE_TREE_EVENT, KnowledgeEntry, KnowledgeGitStatus, KnowledgeTreeEvent,
+};
+use vmux_core::tools::{TOOLS_SNAPSHOT_EVENT, ToolCategory, ToolItem, ToolStatus, ToolsSnapshot};
 use vmux_core::{PageIcon, PageMetadata};
 use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::context_menu::{
@@ -26,8 +31,9 @@ use vmux_ui::components::context_menu::{
 use vmux_ui::components::icon::Icon;
 use vmux_ui::components::progress::{Progress, ProgressIndicator};
 use vmux_ui::components::tree_row::{
-    SIDEBAR_CARD_CHEVRON_CLOSED, SIDEBAR_CARD_CHEVRON_OPEN, SIDEBAR_TREE_COLUMN,
-    SIDEBAR_TREE_SCROLLER, SidebarTreeChildren, SidebarTreeRow, SidebarTreeRowGroup,
+    SIDEBAR_CARD_CHEVRON_CLOSED, SIDEBAR_CARD_CHEVRON_OPEN, SIDEBAR_TREE_CHEVRON_CLOSED,
+    SIDEBAR_TREE_CHEVRON_OPEN, SIDEBAR_TREE_COLUMN, SIDEBAR_TREE_SCROLLER, SidebarTreeChildren,
+    SidebarTreeRow, SidebarTreeRowGroup,
 };
 use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
@@ -66,6 +72,11 @@ pub fn Page() -> Element {
     let _bookmarks_listener = use_listener::<BookmarksHostEvent, _>(BOOKMARKS_EVENT, move |data| {
         bookmarks_state.set(data);
     });
+    let bookmark_menu_action = use_event::<BookmarkMenuActionEvent>(
+        BOOKMARK_MENU_ACTION_EVENT,
+        BookmarkMenuActionEvent::default,
+    );
+    use_context_provider(|| bookmark_menu_action);
 
     let mut reload_key = use_signal(|| 0u32);
     let _reload_listener = use_listener::<ReloadEvent, _>(RELOAD_EVENT, move |_| {
@@ -88,6 +99,26 @@ pub fn Page() -> Element {
             spaces_state.set(data);
         },
     );
+
+    let projects_state = use_event::<crate::event::TabBoundaryEvent>(
+        crate::event::TAB_BOUNDARY_EVENT,
+        crate::event::TabBoundaryEvent::default,
+    );
+
+    let mut knowledge_state = use_signal(KnowledgeTreeEvent::default);
+    let mut knowledge_state_received = use_signal(|| false);
+    let _knowledge_listener =
+        use_listener::<KnowledgeTreeEvent, _>(KNOWLEDGE_TREE_EVENT, move |data| {
+            knowledge_state_received.set(true);
+            knowledge_state.set(data);
+        });
+
+    let mut tools_state = use_signal(ToolsSnapshot::default);
+    let mut tools_state_received = use_signal(|| false);
+    let _tools_listener = use_listener::<ToolsSnapshot, _>(TOOLS_SNAPSHOT_EVENT, move |data| {
+        tools_state_received.set(true);
+        tools_state.set(data);
+    });
 
     let team_state = use_event::<TeamEvent>(TEAM_EVENT, TeamEvent::default);
     let remote_state = use_event::<RemoteStateEvent>(REMOTE_STATE_EVENT, RemoteStateEvent::default);
@@ -200,6 +231,11 @@ pub fn Page() -> Element {
                             active_space,
                             remote: remote_state(),
                             bookmarks: bookmarks_state(),
+                            projects: projects_state().projects,
+                            knowledge: knowledge_state(),
+                            knowledge_loaded: knowledge_state_received(),
+                            tools: tools_state(),
+                            tools_loaded: tools_state_received(),
                             pane_tree_error: pane_tree_error.clone(),
                         }
                         if let Some(phase) = update_phase() {
@@ -323,6 +359,11 @@ fn SideSheetView(
     active_space: Option<vmux_core::event::space::SpaceRow>,
     remote: RemoteStateEvent,
     bookmarks: BookmarksHostEvent,
+    projects: Vec<vmux_core::event::ProjectRow>,
+    knowledge: KnowledgeTreeEvent,
+    knowledge_loaded: bool,
+    tools: ToolsSnapshot,
+    tools_loaded: bool,
     pane_tree_error: Option<String>,
 ) -> Element {
     let active_pane = panes
@@ -362,6 +403,14 @@ fn SideSheetView(
                     active_page,
                     pane_id: pane.id,
                     expanded: pane.bookmarks_expanded,
+                    smart: SmartBookmarkContent {
+                        pane_id: pane.id,
+                        projects: projects.clone(),
+                        knowledge: knowledge.clone(),
+                        knowledge_loaded,
+                        tools: tools.clone(),
+                        tools_loaded,
+                    },
                 }
             }
             if let Some(err) = pane_tree_error {
@@ -830,17 +879,56 @@ fn pairing_qr_svg(value: &str) -> Option<String> {
     )
 }
 
+#[derive(Clone, PartialEq)]
+struct SmartBookmarkContent {
+    pane_id: u64,
+    projects: Vec<vmux_core::event::ProjectRow>,
+    knowledge: KnowledgeTreeEvent,
+    knowledge_loaded: bool,
+    tools: ToolsSnapshot,
+    tools_loaded: bool,
+}
+
+impl SmartBookmarkContent {
+    fn count(&self, kind: vmux_core::SmartBookmarkFolder) -> usize {
+        match kind {
+            vmux_core::SmartBookmarkFolder::Projects => self.projects.len(),
+            vmux_core::SmartBookmarkFolder::Knowledge => self.knowledge.entries.len(),
+            vmux_core::SmartBookmarkFolder::Tools => self
+                .tools
+                .categories
+                .iter()
+                .map(|category| category.items.len())
+                .sum(),
+        }
+    }
+}
+
 #[component]
 fn BookmarksSection(
     bookmarks: BookmarksHostEvent,
     active_page: Option<StackNode>,
     pane_id: u64,
     expanded: bool,
+    smart: SmartBookmarkContent,
 ) -> Element {
     let BookmarksHostEvent { pins, roots } = bookmarks;
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let mut creating_folder = use_signal(|| false);
     let new_folder_draft = use_signal(|| translate("layout-new-folder"));
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.action == "new_folder" && action.uuid.is_none() {
+            begin_new_folder(creating_folder, new_folder_draft);
+        }
+    });
     let folders = bookmark_folder_choices(&roots);
     let folder_rows = bookmark_folder_rows(&roots);
     let root_targeted = bookmark_drop_targeted(drag_state, &BookmarkDropTarget::Root);
@@ -861,7 +949,7 @@ fn BookmarksSection(
             class: "glass group relative z-30 mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
-                request_bookmark_menu();
+                request_bookmark_menu("menu_root", None, None);
             },
             div {
                 "data-bookmark-drop": "root",
@@ -962,6 +1050,7 @@ fn BookmarksSection(
                                                 folders: folders.clone(),
                                                 folder_rows: folder_rows.clone(),
                                                 active_page: active_page.clone(),
+                                                smart: smart.clone(),
                                             }
                                         },
                                         BookmarkNode::Folder(_) => rsx! {},
@@ -1637,8 +1726,11 @@ fn PinTile(row: BookmarkRow) -> Element {
         uuid: row.uuid.clone(),
     };
     rsx! {
-        LayoutContextMenu {
-            ContextMenuTrigger { attributes: vec![],
+        BookmarkContextMenu {
+            command: "menu_pin".to_string(),
+            uuid: Some(row.uuid.clone()),
+            metadata: None,
+            trigger: rsx! {
                 div {
                     "data-bookmark-drag-source": "true",
                     onpointerdown: {
@@ -1665,32 +1757,34 @@ fn PinTile(row: BookmarkRow) -> Element {
                         icon_class: "h-5 w-5 shrink-0 text-muted-foreground".to_string(),
                     }
                 }
-            }
-            SideSheetContextMenuContent {
-                ContextMenuItem {
-                    index: 0usize,
-                    value: Into::<ReadSignal<String>>::into(menu_val),
-                    on_select: { let u = url_open.clone(); move |_: String| open_bookmark(u.clone()) },
-                    attributes: vec![],
-                    {translate("common-open")}
-                }
-                ContextMenuItem {
-                    index: 1usize,
-                    value: Into::<ReadSignal<String>>::into(menu_val),
-                    on_select: { let id = uuid_unpin.clone(); move |_: String| bookmark_cmd("unpin", Some(id.clone())) },
-                    attributes: vec![],
-                    {translate("layout-unpin-page")}
-                }
-                if row.bookmarked {
+            },
+            menu: rsx! {
+                SideSheetContextMenuContent {
                     ContextMenuItem {
-                        index: 2usize,
+                        index: 0usize,
                         value: Into::<ReadSignal<String>>::into(menu_val),
-                        on_select: { let id = row.uuid.clone(); move |_: String| bookmark_cmd("remove", Some(id.clone())) },
+                        on_select: { let u = url_open.clone(); move |_: String| open_bookmark(u.clone()) },
                         attributes: vec![],
-                        {translate("layout-remove-bookmark")}
+                        {translate("common-open")}
+                    }
+                    ContextMenuItem {
+                        index: 1usize,
+                        value: Into::<ReadSignal<String>>::into(menu_val),
+                        on_select: { let id = uuid_unpin.clone(); move |_: String| bookmark_cmd("unpin", Some(id.clone())) },
+                        attributes: vec![],
+                        {translate("layout-unpin-page")}
+                    }
+                    if row.bookmarked {
+                        ContextMenuItem {
+                            index: 2usize,
+                            value: Into::<ReadSignal<String>>::into(menu_val),
+                            on_select: { let id = row.uuid.clone(); move |_: String| bookmark_cmd("remove", Some(id.clone())) },
+                            attributes: vec![],
+                            {translate("layout-remove-bookmark")}
+                        }
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -2019,6 +2113,7 @@ fn BookmarkFolder(
     folders: Vec<BookmarkFolderChoice>,
     folder_rows: Vec<FolderRow>,
     active_page: Option<StackNode>,
+    smart: SmartBookmarkContent,
 ) -> Element {
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let uuid = folder.uuid.clone();
@@ -2029,6 +2124,26 @@ fn BookmarkFolder(
     let child_draft = use_signal(|| translate("layout-new-folder"));
     let menu_val = use_signal(|| folder.uuid.clone());
     let new_folder_uuid = uuid.clone();
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    let menu_action_uuid = uuid.clone();
+    let menu_action_name = folder.name.clone();
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.uuid.as_deref() != Some(menu_action_uuid.as_str()) {
+            return;
+        }
+        match action.action.as_str() {
+            "new_folder" => begin_new_folder(creating_child, child_draft),
+            "rename" => begin_inline_rename(editing, draft, menu_action_name.clone()),
+            _ => {}
+        }
+    });
     let mut move_targets = Vec::new();
     if parent_uuid.is_some() {
         move_targets.push((None, translate("layout-move-to-bookmarks")));
@@ -2057,8 +2172,15 @@ fn BookmarkFolder(
             child_folders += 1;
         }
     }
-    let child_count = child_folders + folder.children.len();
-    let folder_is_empty = child_count == 0;
+    let smart_count = folder.smart.map_or(0, |kind| smart.count(kind));
+    let child_count = child_folders + folder.children.len() + smart_count;
+    let folder_is_empty = child_count == 0 && folder.smart.is_none();
+    let active_metadata = active_page.clone().map(|page| PageMetadata {
+        title: page.title,
+        url: page.url,
+        icon: page.icon,
+        bg_color: page.bg_color,
+    });
 
     rsx! {
         div {
@@ -2089,9 +2211,11 @@ fn BookmarkFolder(
                     }
                 }
             } else {
-                LayoutContextMenu {
-                    ContextMenuTrigger {
-                        attributes: vec![],
+                BookmarkContextMenu {
+                    command: "menu_folder".to_string(),
+                    uuid: Some(folder.uuid.clone()),
+                    metadata: active_metadata,
+                    trigger: rsx! {
                         div {
                             "data-bookmark-drag-source": "true",
                             class: if folder_targeted { "rounded-md ring-2 ring-ring" } else { "rounded-md" },
@@ -2126,8 +2250,9 @@ fn BookmarkFolder(
                                 }
                             }
                         }
-                    }
-                    SideSheetContextMenuContent {
+                    },
+                    menu: rsx! {
+                        SideSheetContextMenuContent {
                         ContextMenuItem {
                             index: 0usize,
                             value: Into::<ReadSignal<String>>::into(menu_val),
@@ -2203,7 +2328,8 @@ fn BookmarkFolder(
                             attributes: vec![],
                             {translate("layout-remove-folder")}
                         }
-                    }
+                        }
+                    },
                 }
             }
             if creating_child() {
@@ -2239,7 +2365,11 @@ fn BookmarkFolder(
                             folders: folders.clone(),
                             folder_rows: folder_rows.clone(),
                             active_page: active_page.clone(),
+                            smart: smart.clone(),
                         }
+                    }
+                    if let Some(kind) = folder.smart {
+                        SmartBookmarkRows { kind, smart: smart.clone() }
                     }
                     for bookmark in folder.children.iter() {
                         BookmarkEntry {
@@ -2253,6 +2383,366 @@ fn BookmarkFolder(
                         div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-empty-folder")} }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartBookmarkRows(kind: vmux_core::SmartBookmarkFolder, smart: SmartBookmarkContent) -> Element {
+    match kind {
+        vmux_core::SmartBookmarkFolder::Projects => rsx! {
+            if smart.projects.is_empty() {
+                div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-no-project-selected")} }
+            } else {
+                for project in smart.projects.iter().cloned() {
+                    SmartProjectRow { project, pane_id: smart.pane_id }
+                }
+            }
+        },
+        vmux_core::SmartBookmarkFolder::Knowledge => rsx! {
+            SmartKnowledgeRows {
+                knowledge: smart.knowledge.clone(),
+                loaded: smart.knowledge_loaded,
+                pane_id: smart.pane_id,
+            }
+        },
+        vmux_core::SmartBookmarkFolder::Tools => rsx! {
+            SmartToolsRows {
+                tools: smart.tools.clone(),
+                loaded: smart.tools_loaded,
+                pane_id: smart.pane_id,
+            }
+        },
+    }
+}
+
+fn emit_project_command(command: &str, path: Option<String>) {
+    let _ = send(&vmux_wire::space::ProjectCommandEvent {
+        command: command.to_string(),
+        path,
+    });
+}
+
+fn open_project_path(pane_id: u64, path: String) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_project_path".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path,
+    });
+}
+
+#[component]
+fn SmartProjectRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Element {
+    let tree = project.kind.opens_a_tree();
+    let root = matches!(project.kind, vmux_core::event::ProjectRowKind::Project);
+    let activate = project.path.clone();
+    let forget = project.path.clone();
+    let forget_title = translate("layout-project-forget");
+    let activate_title = translate("layout-project-activate");
+    rsx! {
+        SidebarTreeRowGroup {
+            SidebarTreeRow {
+                path: project.path.clone(),
+                label: project.label.clone(),
+                is_dir: tree,
+                expanded: project.expanded,
+                depth: project.depth,
+                emphasis: root,
+                title: project.display_path.clone(),
+                on_activate: move |()| match tree {
+                    true => {
+                        let _ = send(&vmux_core::event::ProjectTreeToggle {
+                            path: activate.clone(),
+                            pane_id: pane_id.to_string(),
+                        });
+                    }
+                    false => open_project_path(pane_id, activate.clone()),
+                },
+                label_suffix: rsx! {
+                    if !project.branch.is_empty() {
+                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
+                    }
+                },
+            }
+            if root {
+                if project.is_active {
+                    span {
+                        aria_label: "{activate_title}",
+                        title: "{activate_title}",
+                        class: "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground",
+                        Icon { class: "h-3.5 w-3.5 pointer-events-none",
+                            path { d: "M12 17v5" }
+                            path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
+                        }
+                    }
+                }
+                button {
+                    r#type: "button",
+                    aria_label: "{forget_title}",
+                    title: "{forget_title}",
+                    class: "mr-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground",
+                    onclick: move |_| emit_project_command("forget", Some(forget.clone())),
+                    Icon { class: "h-3 w-3 pointer-events-none",
+                        path { d: "M18 6 6 18M6 6l12 12" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn toggle_knowledge_dir(pane_id: u64, path: String) {
+    let _ = send(&vmux_core::knowledge::KnowledgeTreeToggle {
+        path,
+        pane_id: pane_id.to_string(),
+    });
+}
+
+fn open_knowledge_path(pane_id: u64, path: String) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_knowledge_path".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path,
+    });
+}
+
+#[component]
+fn SmartKnowledgeRows(knowledge: KnowledgeTreeEvent, loaded: bool, pane_id: u64) -> Element {
+    if !loaded {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-loading")} }
+        };
+    }
+    if !knowledge.error.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-destructive", "{knowledge.error}" }
+        };
+    }
+    if knowledge.entries.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-no-markdown-files")} }
+        };
+    }
+    let entries_by_parent = Rc::new(knowledge.entries.iter().cloned().fold(
+        HashMap::<String, Vec<KnowledgeEntry>>::new(),
+        |mut grouped, entry| {
+            grouped.entry(entry.parent.clone()).or_default().push(entry);
+            grouped
+        },
+    ));
+    rsx! {
+        for entry in entries_by_parent.get(&knowledge.root).into_iter().flatten() {
+            SmartKnowledgeRow {
+                key: "{entry.path}",
+                entry: entry.clone(),
+                entries_by_parent: entries_by_parent.clone(),
+                pane_id,
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartKnowledgeRow(
+    entry: KnowledgeEntry,
+    entries_by_parent: Rc<HashMap<String, Vec<KnowledgeEntry>>>,
+    pane_id: u64,
+) -> Element {
+    if entry.is_directory {
+        let children = entries_by_parent.get(&entry.path);
+        let toggle_path = entry.path.clone();
+        return rsx! {
+            div { class: "flex flex-col",
+                SidebarTreeRowGroup {
+                    SidebarTreeRow {
+                        path: entry.path.clone(),
+                        label: entry.name.clone(),
+                        is_dir: true,
+                        expanded: entry.expanded,
+                        emphasis: true,
+                        on_activate: move |()| toggle_knowledge_dir(pane_id, toggle_path.clone()),
+                        trailing: rsx! { KnowledgeGitIndicator { status: entry.git_status } },
+                    }
+                }
+                SidebarTreeChildren { expanded: entry.expanded,
+                    div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
+                        if let Some(children) = children {
+                            for child in children {
+                                SmartKnowledgeRow {
+                                    key: "{child.path}",
+                                    entry: child.clone(),
+                                    entries_by_parent: entries_by_parent.clone(),
+                                    pane_id,
+                                }
+                            }
+                        } else {
+                            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-empty-folder")} }
+                        }
+                    }
+                }
+            }
+        };
+    }
+    let path = entry.path.clone();
+    let title = if entry.title.is_empty() {
+        entry.name.clone()
+    } else {
+        entry.title.clone()
+    };
+    rsx! {
+        SidebarTreeRowGroup {
+            SidebarTreeRow {
+                path: entry.path.clone(),
+                label: title,
+                is_dir: false,
+                on_activate: move |()| open_knowledge_path(pane_id, path.clone()),
+                trailing: rsx! { KnowledgeGitIndicator { status: entry.git_status } },
+            }
+        }
+    }
+}
+
+#[component]
+fn KnowledgeGitIndicator(status: KnowledgeGitStatus) -> Element {
+    let (class, title) = match status {
+        KnowledgeGitStatus::Clean => return rsx! {},
+        KnowledgeGitStatus::Added => ("bg-ansi-2", translate("git-status-untracked")),
+        KnowledgeGitStatus::Modified => ("bg-ansi-3", translate("git-status-modified")),
+        KnowledgeGitStatus::Deleted => ("bg-ansi-1", translate("git-status-deleted")),
+    };
+    rsx! {
+        span { class: "h-2 w-2 shrink-0 rounded-full {class}", title: "{title}" }
+    }
+}
+
+fn open_tools(pane_id: u64) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_tools".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path: String::new(),
+    });
+}
+
+#[component]
+fn SmartToolsRows(tools: ToolsSnapshot, loaded: bool, pane_id: u64) -> Element {
+    if !loaded {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("tools-scanning")} }
+        };
+    }
+    if !tools.error.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-destructive", "{tools.error}" }
+        };
+    }
+    let categories = tools
+        .categories
+        .iter()
+        .filter(|category| !category.items.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    if categories.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("tools-no-installed")} }
+        };
+    }
+    rsx! {
+        for category in categories {
+            SmartToolCategoryRow { key: "{category.provider.id()}", category, pane_id }
+        }
+    }
+}
+
+fn tools_provider_title(provider: vmux_core::tools::ToolProvider) -> String {
+    translate(match provider {
+        vmux_core::tools::ToolProvider::HomebrewFormula => "tools-provider-homebrew-formulae",
+        vmux_core::tools::ToolProvider::HomebrewCask => "tools-provider-homebrew-casks",
+        vmux_core::tools::ToolProvider::Npm => "tools-provider-npm",
+        vmux_core::tools::ToolProvider::Acp => "tools-provider-acp-agents",
+        vmux_core::tools::ToolProvider::Lsp => "tools-provider-lsp-servers",
+        vmux_core::tools::ToolProvider::Mcp => "tools-provider-mcp-servers",
+        vmux_core::tools::ToolProvider::Dotfiles => "tools-provider-dotfiles",
+    })
+}
+
+#[component]
+fn SmartToolCategoryRow(category: ToolCategory, pane_id: u64) -> Element {
+    let mut expanded = use_signal(|| false);
+    let updates = category
+        .items
+        .iter()
+        .filter(|item| item.status == ToolStatus::Outdated)
+        .count();
+    let conflicts = category
+        .items
+        .iter()
+        .filter(|item| item.status == ToolStatus::Conflict)
+        .count();
+    rsx! {
+        div { class: "flex flex-col gap-0.5",
+            button {
+                r#type: "button",
+                class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
+                onclick: move |_| expanded.set(!expanded()),
+                Icon {
+                    class: if expanded() { SIDEBAR_TREE_CHEVRON_OPEN } else { SIDEBAR_TREE_CHEVRON_CLOSED },
+                    path { d: "m9 18 6-6-6-6" }
+                }
+                span { class: "min-w-0 flex-1 truncate text-ui font-medium", {tools_provider_title(category.provider)} }
+                if updates > 0 {
+                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
+                        span { class: "size-1 rounded-full bg-amber-500" }
+                        "{updates}"
+                    }
+                }
+                if conflicts > 0 {
+                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
+                        span { class: "size-1 rounded-full bg-rose-500" }
+                        "{conflicts}"
+                    }
+                }
+                span { class: "text-[10px] tabular-nums text-muted-foreground/70", "{category.items.len()}" }
+            }
+            if expanded() {
+                div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
+                    for item in category.items.iter() {
+                        SmartToolItemRow { key: "{item.id}", item: item.clone(), pane_id }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartToolItemRow(item: ToolItem, pane_id: u64) -> Element {
+    let status_class = match item.status {
+        ToolStatus::Installed => "bg-success",
+        ToolStatus::Outdated => "bg-amber-400",
+        ToolStatus::Conflict | ToolStatus::Failed => "bg-ansi-1",
+        ToolStatus::Missing => "bg-muted-foreground/40",
+        ToolStatus::Available => "bg-cyan-400/60",
+    };
+    rsx! {
+        button {
+            r#type: "button",
+            title: tools_provider_title(item.provider),
+            class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 pl-5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
+            onclick: move |_| open_tools(pane_id),
+            span { class: "size-1.5 shrink-0 rounded-full {status_class}" }
+            span { class: "min-w-0 flex-1 truncate text-ui", "{item.name}" }
+            if item.managed {
+                span { class: "text-[9px] text-cyan-300/80", {translate("tools-managed")} }
+            }
+            if let Some(version) = item.version.as_ref() {
+                span { class: "max-w-20 truncate text-[9px] text-muted-foreground/60", "{version}" }
             }
         }
     }
@@ -2282,6 +2772,21 @@ fn BookmarkEntry(
     };
     let mut editing = use_signal(|| false);
     let draft = use_signal(|| title.clone());
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    let menu_action_uuid = row.uuid.clone();
+    let menu_action_name = title.clone();
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.action == "rename" && action.uuid.as_deref() == Some(menu_action_uuid.as_str()) {
+            begin_inline_rename(editing, draft, menu_action_name.clone());
+        }
+    });
     let mut move_targets: Vec<(Option<String>, String)> = Vec::new();
     if folder_uuid.is_some() {
         move_targets.push((None, translate("layout-move-to-bookmarks")));
@@ -2328,9 +2833,11 @@ fn BookmarkEntry(
                 }
             }
         } else {
-            LayoutContextMenu {
-                ContextMenuTrigger {
-                    attributes: vec![],
+            BookmarkContextMenu {
+                command: "menu_bookmark".to_string(),
+                uuid: Some(row.uuid.clone()),
+                metadata: None,
+                trigger: rsx! {
                     div {
                         "data-bookmark-drag-source": "true",
                         onpointerdown: {
@@ -2363,8 +2870,9 @@ fn BookmarkEntry(
                             }
                         }
                     }
-                }
-                SideSheetContextMenuContent {
+                },
+                menu: rsx! {
+                    SideSheetContextMenuContent {
                     ContextMenuItem {
                         index: 0usize,
                         value: Into::<ReadSignal<String>>::into(menu_val),
@@ -2414,19 +2922,20 @@ fn BookmarkEntry(
                         attributes: vec![],
                         {translate("common-remove")}
                     }
-                }
+                    }
+                },
             }
         }
     }
 }
 
-fn request_bookmark_menu() {
+fn request_bookmark_menu(command: &str, uuid: Option<String>, metadata: Option<PageMetadata>) {
     let _ = send(&BookmarksCommandEvent {
-        command: "menu_new_folder".into(),
-        uuid: None,
+        command: command.to_string(),
+        uuid,
         name: None,
         url: None,
-        metadata: None,
+        metadata,
         folder: None,
     });
 }
@@ -2459,6 +2968,45 @@ fn LayoutContextMenu(children: Element) -> Element {
             ],
             on_open_change: set_bookmark_context_menu_active,
             {children}
+        }
+    }
+}
+
+#[component]
+fn BookmarkContextMenu(
+    command: String,
+    uuid: Option<String>,
+    metadata: Option<PageMetadata>,
+    trigger: Element,
+    menu: Element,
+) -> Element {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = menu;
+        return rsx! {
+            div {
+                role: "button",
+                aria_haspopup: "menu",
+                user_select: "none",
+                oncontextmenu: move |event: Event<MouseData>| {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    request_bookmark_menu(&command, uuid.clone(), metadata.clone());
+                },
+                {trigger}
+            }
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = command;
+        let _ = uuid;
+        let _ = metadata;
+        rsx! {
+            LayoutContextMenu {
+                ContextMenuTrigger { attributes: vec![], {trigger} }
+                {menu}
+            }
         }
     }
 }

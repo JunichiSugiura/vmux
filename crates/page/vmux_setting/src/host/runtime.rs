@@ -863,7 +863,7 @@ pub struct BrowserSettings {
 pub struct BookmarkFolderSettings {
     pub name: String,
     #[serde(default)]
-    pub bookmarks: Vec<String>,
+    pub smart: Option<vmux_core::SmartBookmarkFolder>,
 }
 
 fn default_browser_settings() -> BrowserSettings {
@@ -1895,22 +1895,16 @@ mod tests {
 
         assert_eq!(folders, ["Projects", "Knowledge", "Tools"]);
         assert_eq!(
-            settings.browser.bookmark_folders[0].bookmarks,
-            ["vmux://projects/", "vmux://spaces/", "vmux://team/"]
+            settings.browser.bookmark_folders[0].smart,
+            Some(vmux_core::SmartBookmarkFolder::Projects)
         );
         assert_eq!(
-            settings.browser.bookmark_folders[1].bookmarks,
-            ["vmux://knowledge/", "vmux://vault/", "vmux://history/"]
+            settings.browser.bookmark_folders[1].smart,
+            Some(vmux_core::SmartBookmarkFolder::Knowledge)
         );
         assert_eq!(
-            settings.browser.bookmark_folders[2].bookmarks,
-            [
-                "vmux://terminal/",
-                "vmux://tools/",
-                "vmux://services/",
-                "vmux://extensions/",
-                "vmux://lsp/",
-            ]
+            settings.browser.bookmark_folders[2].smart,
+            Some(vmux_core::SmartBookmarkFolder::Tools)
         );
     }
 

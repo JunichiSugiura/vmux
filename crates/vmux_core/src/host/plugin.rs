@@ -4,7 +4,7 @@ use crate::PageMetadata;
 use crate::archive::{ArchivedPage, ArchivedPagePosition, ArchivedTabPage, PaneStep, SplitAxis};
 use crate::component::{
     Active, Bookmark, BookmarkOrder, Collapsed, CreatedAt, Folder, LastActivatedAt, LastVisitedAt,
-    Order, Pin, TransitionType, Url, Uuid, Visit, VisitCount, VisitedUrl,
+    Order, Pin, SmartBookmarkFolder, TransitionType, Url, Uuid, Visit, VisitCount, VisitedUrl,
 };
 use crate::icon::{BuiltinIcon, PageIcon};
 
@@ -35,6 +35,7 @@ impl Plugin for CorePlugin {
             .register_type::<Pin>()
             .register_type::<Bookmark>()
             .register_type::<Folder>()
+            .register_type::<SmartBookmarkFolder>()
             .register_type::<Collapsed>()
             .register_type::<Uuid>()
             .register_type::<Children>()
@@ -81,6 +82,11 @@ mod tests {
         assert!(registry.get(std::any::TypeId::of::<Pin>()).is_some());
         assert!(registry.get(std::any::TypeId::of::<Bookmark>()).is_some());
         assert!(registry.get(std::any::TypeId::of::<Folder>()).is_some());
+        assert!(
+            registry
+                .get(std::any::TypeId::of::<SmartBookmarkFolder>())
+                .is_some()
+        );
         assert!(registry.get(std::any::TypeId::of::<Collapsed>()).is_some());
         assert!(registry.get(std::any::TypeId::of::<Uuid>()).is_some());
     }

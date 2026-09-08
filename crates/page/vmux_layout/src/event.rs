@@ -24,9 +24,11 @@ pub const RELOAD_EVENT: &str = "reload";
 pub struct ReloadEvent;
 pub const TABS_EVENT: &str = "tabs";
 pub const BOOKMARKS_EVENT: &str = "bookmarks";
+pub const BOOKMARK_MENU_ACTION_EVENT: &str = "bookmark-menu-action";
 pub const PANE_TREE_EVENT: &str = "pane-tree";
 pub const SIDE_SHEET_COMMAND_EVENT: &str = "side-sheet-command";
 pub const SIDE_SHEET_DRAG_EVENT: &str = "side-sheet-drag";
+pub const TAB_BOUNDARY_EVENT: &str = "tab-boundary";
 pub const REMOTE_STATE_EVENT: &str = "remote-state";
 pub const REMOTE_COMMAND_EVENT: &str = "remote-command";
 
@@ -713,6 +715,44 @@ pub struct RemoteCopyEvent;
 
 #[derive(
     Clone,
+    Debug,
+    Default,
+    PartialEq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct TabBoundary {
+    pub effective_dir: String,
+    pub source: String,
+    pub is_git_repo: bool,
+    pub is_worktree: bool,
+    pub branch: String,
+    pub base_ref: String,
+    pub uncommitted: u32,
+    pub ahead: u32,
+    pub pane_count: u32,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct TabBoundaryEvent {
+    pub boundary: Option<TabBoundary>,
+    pub projects: Vec<vmux_core::event::ProjectRow>,
+}
+
+#[derive(
+    Clone,
     Copy,
     Debug,
     PartialEq,
@@ -843,6 +883,8 @@ pub struct FolderRow {
     pub uuid: String,
     pub name: String,
     pub collapsed: bool,
+    #[serde(default)]
+    pub smart: Option<vmux_core::SmartBookmarkFolder>,
     pub parent: Option<String>,
     pub children: Vec<BookmarkRow>,
 }
@@ -906,6 +948,24 @@ pub struct BookmarkTextInputEvent {
 )]
 pub struct BookmarkContextMenuEvent {
     pub active: bool,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct BookmarkMenuActionEvent {
+    pub sequence: u64,
+    pub action: String,
+    pub uuid: Option<String>,
 }
 
 #[cfg(test)]

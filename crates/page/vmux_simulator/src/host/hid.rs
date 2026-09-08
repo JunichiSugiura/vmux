@@ -44,7 +44,7 @@ impl HidRequest {
         Self {
             primitives: vec![
                 HidPrimitive::touch(HidKind::Down, point),
-                HidPrimitive::delay(0.03),
+                HidPrimitive::delay(0.1),
                 HidPrimitive::touch(HidKind::Up, point),
             ],
             fallback: vec![
@@ -175,7 +175,7 @@ impl HidBrokerClient {
 
     fn new(axe: PathBuf, udid: String) -> io::Result<Self> {
         let developer = Self::developer_directory()?;
-        let temporary = fs::canonicalize(std::env::temp_dir())?;
+        let temporary = std::env::temp_dir();
         let uid = unsafe { libc::getuid() };
         let endpoint = Self::endpoint_path(&udid, &developer, &temporary, uid);
         Self::ensure_private_directory(
@@ -452,6 +452,7 @@ mod tests {
         assert_eq!(primitives.len(), 3);
         assert_eq!(primitives[0]["kind"], "down");
         assert_eq!(primitives[1]["kind"], "delay");
+        assert_eq!(primitives[1]["duration"], 0.1);
         assert_eq!(primitives[2]["kind"], "up");
     }
 }

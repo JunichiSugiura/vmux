@@ -47,7 +47,7 @@ pub fn MessageCopyButton(text: String) -> Element {
     let label = translate("agent-copy");
     rsx! {
         button {
-            class: "absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 transition hover:bg-foreground/[0.08] hover:text-foreground",
+            class: "pointer-events-none flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/60 opacity-0 transition group-hover/message:pointer-events-auto group-hover/message:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100",
             title: "{label}",
             aria_label: "{label}",
             onclick: move |event| {
@@ -74,43 +74,46 @@ pub fn ChatItemRow(
             context,
             attachments,
         } => rsx! {
-            UserBubble {
+            div {
                 key: "{key}",
-                class: "chat-user-bubble relative flex max-w-[80%] self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border py-2.5 pl-2.5 pr-10 text-sm [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
+                class: "group/message flex max-w-[80%] self-end flex-col items-end gap-0.5",
+                UserBubble {
+                    class: "chat-user-bubble flex max-w-full self-end flex-col gap-2 rounded-[1.35rem] rounded-tr-md border p-2.5 text-sm [contain-intrinsic-size:auto_96px] [content-visibility:auto]",
+                    if let Some(context) = context {
+                        details { class: "disclosure user-context-panel rounded-xl border",
+                            summary { class: "flex cursor-pointer select-none items-center gap-2 px-2.5 py-2 text-xs list-none [&::-webkit-details-marker]:hidden",
+                                span { class: "agent-themed-activity flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
+                                    LineIconView { icon: LineIcon::Shield, class: "h-3 w-3" }
+                                }
+                                span { class: "font-medium", {translate("agent-prompt-context")} }
+                                span {
+                                    class: "text-[10px] text-muted-foreground",
+                                    {translate_with(
+                                        "agent-bytes",
+                                        &[("count", TranslationValue::Number(context.len() as i64))],
+                                    )}
+                                }
+                                DisclosureIcon {}
+                            }
+                            pre { class: "user-context-content max-h-72 overflow-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground", "{context}" }
+                        }
+                    }
+                    if !text.is_empty() {
+                        div { class: "whitespace-pre-wrap px-1.5", "{text}" }
+                    }
+                    if !attachments.is_empty() {
+                        div { class: "flex w-full flex-col gap-2",
+                            for attachment in attachments {
+                                UserAttachment {
+                                    attachment: attachment.clone(),
+                                    previews: attachment_previews,
+                                }
+                            }
+                        }
+                    }
+                }
                 if !text.is_empty() {
                     MessageCopyButton { text: text.clone() }
-                }
-                if let Some(context) = context {
-                    details { class: "disclosure user-context-panel rounded-xl border",
-                        summary { class: "flex cursor-pointer select-none items-center gap-2 px-2.5 py-2 text-xs list-none [&::-webkit-details-marker]:hidden",
-                            span { class: "agent-themed-activity flex h-5 w-5 shrink-0 items-center justify-center rounded-md",
-                                LineIconView { icon: LineIcon::Shield, class: "h-3 w-3" }
-                            }
-                            span { class: "font-medium", {translate("agent-prompt-context")} }
-                            span {
-                                class: "text-[10px] text-muted-foreground",
-                                {translate_with(
-                                    "agent-bytes",
-                                    &[("count", TranslationValue::Number(context.len() as i64))],
-                                )}
-                            }
-                            DisclosureIcon {}
-                        }
-                        pre { class: "user-context-content max-h-72 overflow-auto whitespace-pre-wrap rounded-lg px-3 py-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground", "{context}" }
-                    }
-                }
-                if !text.is_empty() {
-                    div { class: "whitespace-pre-wrap px-1.5", "{text}" }
-                }
-                if !attachments.is_empty() {
-                    div { class: "flex w-full flex-col gap-2",
-                        for attachment in attachments {
-                            UserAttachment {
-                                attachment: attachment.clone(),
-                                previews: attachment_previews,
-                            }
-                        }
-                    }
                 }
             }
         },
@@ -225,14 +228,11 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
     rsx! {
         div {
             key: "{key}",
-            class: "flex max-w-[92%] flex-col gap-2 self-start [contain-intrinsic-size:auto_180px] [content-visibility:auto]",
+            class: "group/message flex max-w-[92%] flex-col gap-0.5 self-start [contain-intrinsic-size:auto_180px] [content-visibility:auto]",
             if !blocks.is_empty() {
                 AssistantTurn {
                     standalone: false,
-                    class: "chat-assistant-turn relative flex flex-col gap-2.5 overflow-hidden rounded-2xl border py-3 pl-3.5 pr-10",
-                    if !copy_text.is_empty() {
-                        MessageCopyButton { text: copy_text.clone() }
-                    }
+                    class: "chat-assistant-turn flex flex-col gap-2.5 overflow-hidden rounded-2xl border px-3.5 py-3",
                     for item in items {
                         match item {
                             TurnItem::Block((j, block, children)) => rsx! {
@@ -251,11 +251,16 @@ pub fn TurnView(turn_index: usize, turn: ChatTurn, latest_tool_index: Option<usi
                         }
                     }
                 }
+                if !copy_text.is_empty() {
+                    div { class: "flex justify-end px-1",
+                        MessageCopyButton { text: copy_text.clone() }
+                    }
+                }
             }
             if turn.running && !reconnecting {
                 WorkingIndicator {}
             } else if let Some(label) = duration_label {
-                div { class: "flex items-center gap-2 px-1 text-sm text-muted-foreground/70",
+                div { class: "flex items-center gap-2 px-1 pt-1.5 text-sm text-muted-foreground/70",
                     span { class: "h-1.5 w-1.5 rounded-full bg-[color:var(--agent-accent)]" }
                     span { class: "tabular-nums", "{label}" }
                 }

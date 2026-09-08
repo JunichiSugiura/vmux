@@ -1,47 +1,62 @@
 use super::device::{Axe, SimulatorDevice};
 use super::hid::{HidBroker, HidRequest};
-use crate::event::{SimulatorGesture, SimulatorKey};
+use crate::event::{SimulatorKey, SimulatorTouch, SimulatorTouchPhase};
+use bevy::prelude::Resource;
 
-pub struct DeviceGesture {
-    from: (f32, f32),
-    to: (f32, f32),
-    tap: bool,
-    from_bottom_edge: bool,
+pub struct DeviceTouch {
+    point: (f32, f32),
+    phase: SimulatorTouchPhase,
 }
 
-impl DeviceGesture {
-    pub fn resolve(gesture: &SimulatorGesture, points: (f32, f32)) -> Option<Self> {
+impl DeviceTouch {
+    pub fn resolve(touch: &SimulatorTouch, points: (f32, f32)) -> Option<Self> {
         if points.0 <= 0.0 || points.1 <= 0.0 {
             return None;
         }
         let max_x = (points.0 - 1.0).max(0.0);
         let max_y = (points.1 - 1.0).max(0.0);
-        let on_device = |x: f32, y: f32| (x.clamp(0.0, 1.0) * max_x, y.clamp(0.0, 1.0) * max_y);
-        let dx = gesture.to_x - gesture.from_x;
-        let dy = gesture.to_y - gesture.from_y;
         Some(Self {
-            from: on_device(gesture.from_x, gesture.from_y),
-            to: on_device(gesture.to_x, gesture.to_y),
-            tap: gesture.is_tap(),
-            from_bottom_edge: gesture.from_y >= 0.94 && dy < -0.1 && dy.abs() > dx.abs(),
+            point: (
+                touch.x.clamp(0.0, 1.0) * max_x,
+                touch.y.clamp(0.0, 1.0) * max_y,
+            ),
+            phase: touch.phase,
         })
     }
 
-    pub fn dispatch(self, device: &SimulatorDevice, axe: &Axe, hid: &HidBroker) {
-        if self.from_bottom_edge {
-            DeviceKey::resolve(
-                &SimulatorKey::Button(crate::event::HardwareButton::Home),
-                device,
-            )
-            .dispatch(axe);
-            return;
+    pub fn dispatch(self, session: &mut DeviceTouchSession, hid: &HidBroker) {
+        match self.phase {
+            SimulatorTouchPhase::Down => {
+                if let Some(previous) = session.last {
+                    hid.dispatch(HidRequest::up(previous));
+                }
+                session.active = true;
+                session.last = Some(self.point);
+                hid.dispatch(HidRequest::down(self.point));
+            }
+            SimulatorTouchPhase::Move => {
+                if !session.active {
+                    return;
+                }
+                session.last = Some(self.point);
+                hid.dispatch(HidRequest::move_to(self.point));
+            }
+            SimulatorTouchPhase::Up => {
+                if !session.active {
+                    return;
+                }
+                session.active = false;
+                session.last = None;
+                hid.dispatch(HidRequest::up(self.point));
+            }
         }
-        if self.tap {
-            hid.dispatch(HidRequest::tap(self.to));
-            return;
-        }
-        hid.dispatch(HidRequest::swipe(self.from, self.to));
     }
+}
+
+#[derive(Resource, Default)]
+pub struct DeviceTouchSession {
+    active: bool,
+    last: Option<(f32, f32)>,
 }
 
 pub struct DeviceKey {
@@ -83,81 +98,52 @@ mod tests {
 
     #[test]
     fn the_centre_of_the_view_is_the_centre_of_the_device() {
-        let gesture = SimulatorGesture {
-            from_x: 0.5,
-            from_y: 0.5,
-            to_x: 0.5,
-            to_y: 0.5,
+        let touch = SimulatorTouch {
+            phase: SimulatorTouchPhase::Move,
+            x: 0.5,
+            y: 0.5,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
+        let resolved = DeviceTouch::resolve(&touch, POINTS).expect("resolved");
 
         assert!(
-            (resolved.to.0 - 200.5).abs() < 0.01,
+            (resolved.point.0 - 200.5).abs() < 0.01,
             "got {:?}",
-            resolved.to
+            resolved.point
         );
         assert!(
-            (resolved.to.1 - 436.5).abs() < 0.01,
+            (resolved.point.1 - 436.5).abs() < 0.01,
             "got {:?}",
-            resolved.to
+            resolved.point
         );
-        assert!(resolved.tap);
-    }
-
-    #[test]
-    fn a_drag_keeps_its_direction_and_is_not_a_tap() {
-        let gesture = SimulatorGesture {
-            from_x: 0.5,
-            from_y: 0.8,
-            to_x: 0.5,
-            to_y: 0.2,
-        };
-
-        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
-
-        assert!(!resolved.tap);
-        assert!(resolved.from.1 > resolved.to.1, "expected an upward swipe");
-        assert!(!resolved.from_bottom_edge);
     }
 
     #[test]
     fn fractions_outside_the_image_are_clamped_onto_it() {
-        let gesture = SimulatorGesture {
-            from_x: -0.5,
-            from_y: 2.0,
-            to_x: -0.5,
-            to_y: 2.0,
+        let touch = SimulatorTouch {
+            phase: SimulatorTouchPhase::Down,
+            x: -0.5,
+            y: 2.0,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
+        let resolved = DeviceTouch::resolve(&touch, POINTS).expect("resolved");
 
-        assert_eq!(resolved.to.0, 0.0);
+        assert_eq!(resolved.point.0, 0.0);
         assert!(
-            (resolved.to.1 - (POINTS.1 - 1.0)).abs() < 0.01,
+            (resolved.point.1 - (POINTS.1 - 1.0)).abs() < 0.01,
             "got {:?}",
-            resolved.to
+            resolved.point
         );
     }
 
     #[test]
-    fn an_upward_drag_from_the_home_indicator_becomes_home() {
-        let gesture = SimulatorGesture {
-            from_x: 0.5,
-            from_y: 0.98,
-            to_x: 0.5,
-            to_y: 0.65,
+    fn a_device_with_no_measured_point_size_has_no_gesture() {
+        let touch = SimulatorTouch {
+            phase: SimulatorTouchPhase::Down,
+            x: 0.5,
+            y: 0.5,
         };
 
-        let resolved = DeviceGesture::resolve(&gesture, POINTS).expect("resolved");
-
-        assert!(resolved.from_bottom_edge);
-    }
-
-    #[test]
-    fn a_device_with_no_measured_point_size_has_no_gesture() {
-        let gesture = SimulatorGesture::default();
-
-        assert!(DeviceGesture::resolve(&gesture, (0.0, 0.0)).is_none());
+        assert!(DeviceTouch::resolve(&touch, (0.0, 0.0)).is_none());
     }
 }

@@ -1,13 +1,16 @@
 #![allow(non_snake_case)]
 
 use crate::event::{
-    HardwareButton, SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, SimulatorReady,
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorKey, SimulatorReady, SimulatorTouch,
+    SimulatorTouchPhase,
 };
 use crate::url::SimulatorRoute;
+use dioxus::html::geometry::ClientPoint;
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
-use std::rc::Rc;
 use vmux_ui::hooks::{send, use_event, use_theme};
 use vmux_ui::i18n::translate;
+use vmux_ui::platform::sleep_ms;
 
 #[component]
 pub fn Page() -> Element {
@@ -30,8 +33,21 @@ pub fn Page() -> Element {
 
 #[component]
 fn Mirror(port: u16) -> Element {
-    let mut press = use_signal(|| None::<(f64, f64)>);
-    let mut image = use_signal(|| None::<Rc<MountedData>>);
+    let mut press = use_signal(|| None::<PointerSession>);
+    let mut image_size = use_signal(|| None::<(f64, f64)>);
+    let mut home_progress = use_signal(|| 0.0f32);
+    let progress = home_progress();
+    let scale = 1.0 - progress * 0.12;
+    let offset = -progress * 18.0;
+    let radius = progress * 28.0;
+    let transition = if press().is_some_and(PointerSession::is_home) {
+        "none"
+    } else {
+        "transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), border-radius 180ms ease-out"
+    };
+    let image_style = format!(
+        "transform:translateY({offset:.2}px) scale({scale:.4});border-radius:{radius:.2}px;transition:{transition};"
+    );
 
     rsx! {
         div {
@@ -44,17 +60,42 @@ fn Mirror(port: u16) -> Element {
                 event.prevent_default();
                 let _ = send(&key);
             },
-            onpointerup: move |event: Event<PointerData>| {
-                let Some(from) = press.take() else {
+            onpointermove: move |event: Event<PointerData>| {
+                let Some(current) = press() else {
                     return;
                 };
-                let Some(element) = image() else {
+                event.prevent_default();
+                if !event.held_buttons().contains(MouseButton::Primary) {
+                    press.set(None);
+                    current
+                        .release_at(event.client_coordinates())
+                        .dispatch(home_progress);
+                    return;
+                }
+                let Some((next, touch)) = current.move_to(event.client_coordinates()) else {
                     return;
                 };
-                let point = event.client_coordinates();
-                spawn(Pointer::send(from, (point.x, point.y), element));
+                press.set(Some(next));
+                home_progress.set(next.home_progress());
+                if let Some(touch) = touch {
+                    let _ = send(&touch);
+                }
             },
-            onpointercancel: move |_| press.set(None),
+            onpointerup: move |event: Event<PointerData>| {
+                let Some(current) = press.take() else {
+                    return;
+                };
+                event.prevent_default();
+                current
+                    .release_at(event.client_coordinates())
+                    .dispatch(home_progress);
+            },
+            onpointercancel: move |_| {
+                let Some(current) = press.take() else {
+                    return;
+                };
+                current.cancel().dispatch(home_progress);
+            },
             div { class: "relative rounded-[3.25rem] bg-gradient-to-b from-zinc-700 via-zinc-950 to-black p-[7px] shadow-[0_28px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/20",
                 div { class: "absolute -left-[3px] top-28 h-16 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -left-[3px] top-48 h-24 w-[3px] rounded-l bg-zinc-700" }
@@ -62,13 +103,34 @@ fn Mirror(port: u16) -> Element {
                 div { class: "overflow-hidden rounded-[2.8rem] bg-black ring-1 ring-black",
                     img {
                         class: "block h-auto max-h-[calc(100vh-5rem)] max-w-[calc(100vw-5rem)] cursor-grab touch-none select-none active:cursor-grabbing",
+                        style: image_style,
                         draggable: false,
                         src: "http://127.0.0.1:{port}/",
-                        onmounted: move |event: Event<MountedData>| image.set(Some(event.data())),
+                        onresize: move |event: Event<ResizeData>| {
+                            let Ok(size) = event.get_border_box_size() else {
+                                return;
+                            };
+                            image_size.set(Some((size.width, size.height)));
+                        },
                         onpointerdown: move |event: Event<PointerData>| {
+                            if event
+                                .trigger_button()
+                                .is_some_and(|button| button != MouseButton::Primary)
+                            {
+                                return;
+                            }
+                            let Some(size) = image_size() else {
+                                return;
+                            };
                             event.prevent_default();
-                            let point = event.client_coordinates();
-                            press.set(Some((point.x, point.y)));
+                            let Some((session, touch)) = PointerSession::start(&event, size) else {
+                                return;
+                            };
+                            press.set(Some(session));
+                            home_progress.set(0.0);
+                            if let Some(touch) = touch {
+                                let _ = send(&touch);
+                            }
                         },
                     }
                 }
@@ -109,27 +171,91 @@ fn Waiting(route: Option<SimulatorRoute>) -> Element {
     }
 }
 
-struct Pointer;
+#[derive(Clone, Copy)]
+struct PointerSession {
+    origin: (f64, f64),
+    size: (f64, f64),
+    start: (f32, f32),
+    last: (f32, f32),
+    home: bool,
+}
 
-impl Pointer {
-    async fn send(from: (f64, f64), to: (f64, f64), element: Rc<MountedData>) {
-        let Ok(rect) = element.get_client_rect().await else {
-            return;
+impl PointerSession {
+    fn start(
+        event: &Event<PointerData>,
+        size: (f64, f64),
+    ) -> Option<(Self, Option<SimulatorTouch>)> {
+        let client = event.client_coordinates();
+        let local = event.element_coordinates();
+        let origin = (client.x - local.x, client.y - local.y);
+        let point = Self::fraction((client.x, client.y), origin, size)?;
+        let home = point.1 >= 0.94;
+        let session = Self {
+            origin,
+            size,
+            start: point,
+            last: point,
+            home,
         };
-        let origin = (rect.origin.x, rect.origin.y);
-        let size = (rect.size.width, rect.size.height);
-        let Some(from) = Self::fraction(from, origin, size) else {
-            return;
-        };
-        let Some(to) = Self::fraction(to, origin, size) else {
-            return;
-        };
-        let _ = send(&SimulatorGesture {
-            from_x: from.0,
-            from_y: from.1,
-            to_x: to.0,
-            to_y: to.1,
-        });
+        let touch = (!home).then(|| session.touch(SimulatorTouchPhase::Down));
+        Some((session, touch))
+    }
+
+    fn move_to(mut self, point: ClientPoint) -> Option<(Self, Option<SimulatorTouch>)> {
+        let point = Self::fraction((point.x, point.y), self.origin, self.size)?;
+        if point == self.last {
+            return None;
+        }
+        self.last = point;
+        let touch = (!self.home).then(|| self.touch(SimulatorTouchPhase::Move));
+        Some((self, touch))
+    }
+
+    fn release_at(mut self, point: ClientPoint) -> PointerRelease {
+        if let Some(point) = Self::fraction((point.x, point.y), self.origin, self.size) {
+            self.last = point;
+        }
+        if !self.home {
+            return PointerRelease::Touch(self.touch(SimulatorTouchPhase::Up));
+        }
+        if self.completes_home() {
+            PointerRelease::Home
+        } else {
+            PointerRelease::None
+        }
+    }
+
+    fn cancel(self) -> PointerRelease {
+        if self.home {
+            PointerRelease::None
+        } else {
+            PointerRelease::Touch(self.touch(SimulatorTouchPhase::Up))
+        }
+    }
+
+    fn touch(self, phase: SimulatorTouchPhase) -> SimulatorTouch {
+        SimulatorTouch {
+            phase,
+            x: self.last.0,
+            y: self.last.1,
+        }
+    }
+
+    fn is_home(self) -> bool {
+        self.home
+    }
+
+    fn home_progress(self) -> f32 {
+        if !self.home {
+            return 0.0;
+        }
+        ((self.start.1 - self.last.1) / 0.35).clamp(0.0, 1.0)
+    }
+
+    fn completes_home(self) -> bool {
+        let dx = self.last.0 - self.start.0;
+        let dy = self.last.1 - self.start.1;
+        dy < -0.1 && dy.abs() > dx.abs()
     }
 
     fn fraction(point: (f64, f64), origin: (f64, f64), size: (f64, f64)) -> Option<(f32, f32)> {
@@ -137,8 +263,34 @@ impl Pointer {
             return None;
         }
         Some((
-            ((point.0 - origin.0) / size.0) as f32,
-            ((point.1 - origin.1) / size.1) as f32,
+            ((point.0 - origin.0) / size.0).clamp(0.0, 1.0) as f32,
+            ((point.1 - origin.1) / size.1).clamp(0.0, 1.0) as f32,
         ))
+    }
+}
+
+enum PointerRelease {
+    Touch(SimulatorTouch),
+    Home,
+    None,
+}
+
+impl PointerRelease {
+    fn dispatch(self, mut home_progress: Signal<f32>) {
+        match self {
+            Self::Touch(touch) => {
+                home_progress.set(0.0);
+                let _ = send(&touch);
+            }
+            Self::Home => {
+                home_progress.set(1.0);
+                let _ = send(&SimulatorKey::Button(HardwareButton::Home));
+                spawn(async move {
+                    sleep_ms(300).await;
+                    home_progress.set(0.0);
+                });
+            }
+            Self::None => home_progress.set(0.0),
+        }
     }
 }

@@ -4,7 +4,7 @@ mod input;
 mod stream;
 
 use crate::event::{
-    HardwareButton, SIMULATOR_READY_EVENT, SimulatorGesture, SimulatorKey, SimulatorReady,
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorKey, SimulatorReady, SimulatorTouch,
 };
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
 use hid::HidBroker;
-use input::{DeviceGesture, DeviceKey};
+use input::{DeviceKey, DeviceTouch, DeviceTouchSession};
 use std::sync::{Arc, Mutex};
 use stream::StreamServer;
 use vmux_core::PageMetadata;
@@ -31,6 +31,7 @@ impl Plugin for SimulatorPlugin {
         vmux_core::register_host_spawn(app, PAGE_HOST);
         app.init_resource::<DeviceAttachment>()
             .init_resource::<Announced>()
+            .init_resource::<DeviceTouchSession>()
             .add_message::<HardwareButtonRequest>()
             .add_systems(Update, (Self::attach_device, Self::announce).chain())
             .add_systems(
@@ -38,9 +39,9 @@ impl Plugin for SimulatorPlugin {
                 Self::handle_button_requests.in_set(SimulatorInputSet),
             )
             .add_plugins(
-                BinEventEmitterPlugin::<(SimulatorGesture, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
+                BinEventEmitterPlugin::<(SimulatorTouch, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
             )
-            .add_observer(Self::on_gesture)
+            .add_observer(Self::on_touch)
             .add_observer(Self::on_key)
             .add_observer(Self::forget_on_reload);
     }
@@ -197,26 +198,20 @@ impl SimulatorPlugin {
         told.0.remove(&trigger.event().webview);
     }
 
-    fn on_gesture(
-        trigger: On<BinReceive<SimulatorGesture>>,
-        device: Option<Res<SimulatorDevice>>,
+    fn on_touch(
+        trigger: On<BinReceive<SimulatorTouch>>,
         points: Option<Res<DevicePoints>>,
-        axe: Option<Res<Axe>>,
         hid: Option<Res<HidBroker>>,
+        mut session: ResMut<DeviceTouchSession>,
     ) {
-        let (Some(device), Some(points), Some(axe), Some(hid)) = (
-            device.as_deref(),
-            points.as_deref(),
-            axe.as_deref(),
-            hid.as_deref(),
-        ) else {
+        let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref()) else {
             return;
         };
-        let Some(gesture) = DeviceGesture::resolve(&trigger.event().payload, (points.0, points.1))
+        let Some(touch) = DeviceTouch::resolve(&trigger.event().payload, (points.0, points.1))
         else {
             return;
         };
-        gesture.dispatch(device, axe, hid);
+        touch.dispatch(&mut session, hid);
     }
 
     fn on_key(

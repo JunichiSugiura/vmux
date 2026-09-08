@@ -28,21 +28,30 @@ pub struct SimulatorReady {
     rkyv::Serialize,
     rkyv::Deserialize,
 )]
-pub struct SimulatorGesture {
-    pub from_x: f32,
-    pub from_y: f32,
-    pub to_x: f32,
-    pub to_y: f32,
+pub struct SimulatorTouch {
+    pub phase: SimulatorTouchPhase,
+    pub x: f32,
+    pub y: f32,
 }
 
-impl SimulatorGesture {
-    pub const DRAG_THRESHOLD: f32 = 0.012;
-
-    pub fn is_tap(&self) -> bool {
-        let dx = self.to_x - self.from_x;
-        let dy = self.to_y - self.from_y;
-        (dx * dx + dy * dy).sqrt() < Self::DRAG_THRESHOLD
-    }
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum SimulatorTouchPhase {
+    #[default]
+    Down,
+    Move,
+    Up,
 }
 
 #[derive(
@@ -149,41 +158,5 @@ mod tests {
         for key in ["Shift", "Meta", "F13", "Unidentified"] {
             assert_eq!(SimulatorKey::of_browser_key(key), None, "{key}");
         }
-    }
-
-    #[test]
-    fn a_stationary_press_is_a_tap() {
-        let gesture = SimulatorGesture {
-            from_x: 0.5,
-            from_y: 0.4,
-            to_x: 0.5,
-            to_y: 0.4,
-        };
-
-        assert!(gesture.is_tap());
-    }
-
-    #[test]
-    fn a_scroll_length_drag_is_not_a_tap() {
-        let gesture = SimulatorGesture {
-            from_x: 0.5,
-            from_y: 0.8,
-            to_x: 0.5,
-            to_y: 0.2,
-        };
-
-        assert!(!gesture.is_tap());
-    }
-
-    #[test]
-    fn a_few_pixels_of_hand_wobble_still_taps() {
-        let gesture = SimulatorGesture {
-            from_x: 0.500,
-            from_y: 0.400,
-            to_x: 0.505,
-            to_y: 0.404,
-        };
-
-        assert!(gesture.is_tap());
     }
 }

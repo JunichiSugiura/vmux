@@ -37,67 +37,53 @@ impl HidBroker {
 pub struct HidRequest {
     primitives: Vec<HidPrimitive>,
     fallback: Vec<String>,
+    coalescible: bool,
 }
 
 impl HidRequest {
-    pub fn tap(point: (f32, f32)) -> Self {
+    pub fn down(point: (f32, f32)) -> Self {
         Self {
-            primitives: vec![
-                HidPrimitive::touch(HidKind::Down, point),
-                HidPrimitive::delay(0.1),
-                HidPrimitive::touch(HidKind::Up, point),
-            ],
+            primitives: vec![HidPrimitive::touch(HidKind::Down, point)],
             fallback: vec![
-                "tap".into(),
+                "touch".into(),
                 "-x".into(),
                 format!("{:.0}", point.0),
                 "-y".into(),
                 format!("{:.0}", point.1),
+                "--down".into(),
             ],
+            coalescible: false,
         }
     }
 
-    pub fn swipe(from: (f32, f32), to: (f32, f32)) -> Self {
+    pub fn move_to(point: (f32, f32)) -> Self {
         Self {
-            primitives: Self::swipe_primitives(from, to, 0.25, 20.0),
+            primitives: vec![HidPrimitive::touch(HidKind::Down, point)],
             fallback: vec![
-                "swipe".into(),
-                "--start-x".into(),
-                format!("{:.0}", from.0),
-                "--start-y".into(),
-                format!("{:.0}", from.1),
-                "--end-x".into(),
-                format!("{:.0}", to.0),
-                "--end-y".into(),
-                format!("{:.0}", to.1),
-                "--duration".into(),
-                "0.25".into(),
+                "touch".into(),
+                "-x".into(),
+                format!("{:.0}", point.0),
+                "-y".into(),
+                format!("{:.0}", point.1),
+                "--down".into(),
             ],
+            coalescible: true,
         }
     }
 
-    fn swipe_primitives(
-        from: (f32, f32),
-        to: (f32, f32),
-        duration: f64,
-        delta: f32,
-    ) -> Vec<HidPrimitive> {
-        let distance = ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt();
-        let steps = (distance / delta).ceil().max(1.0) as usize;
-        let step_delay = duration / steps as f64;
-        let mut primitives = Vec::with_capacity(steps * 2 + 2);
-        primitives.push(HidPrimitive::touch(HidKind::Down, from));
-        for step in 1..=steps {
-            let progress = step as f32 / steps as f32;
-            let point = (
-                from.0 + (to.0 - from.0) * progress,
-                from.1 + (to.1 - from.1) * progress,
-            );
-            primitives.push(HidPrimitive::delay(step_delay));
-            primitives.push(HidPrimitive::touch(HidKind::Down, point));
+    pub fn up(point: (f32, f32)) -> Self {
+        Self {
+            primitives: vec![HidPrimitive::touch(HidKind::Up, point)],
+            fallback: vec![
+                "touch".into(),
+                "-x".into(),
+                format!("{:.0}", point.0),
+                "-y".into(),
+                format!("{:.0}", point.1),
+                "--up".into(),
+            ],
+            coalescible: false,
         }
-        primitives.push(HidPrimitive::touch(HidKind::Up, to));
-        primitives
     }
 }
 
@@ -111,7 +97,6 @@ struct HidBrokerRequest {
 enum HidKind {
     Down,
     Up,
-    Delay,
 }
 
 #[derive(Serialize)]
@@ -129,15 +114,6 @@ impl HidPrimitive {
             x: Some(point.0 as f64),
             y: Some(point.1 as f64),
             duration: None,
-        }
-    }
-
-    fn delay(duration: f64) -> Self {
-        Self {
-            kind: HidKind::Delay,
-            x: None,
-            y: None,
-            duration: Some(duration),
         }
     }
 }
@@ -184,7 +160,25 @@ impl HidBrokerClient {
         if let Err(error) = self.exchange(Vec::new()) {
             warn!("could not warm simulator input: {error}");
         }
-        while let Ok(request) = receiver.recv() {
+        let mut pending = None;
+        loop {
+            let mut request = match pending.take() {
+                Some(request) => request,
+                None => match receiver.recv() {
+                    Ok(request) => request,
+                    Err(_) => return,
+                },
+            };
+            if request.coalescible {
+                while let Ok(next) = receiver.try_recv() {
+                    if next.coalescible {
+                        request = next;
+                    } else {
+                        pending = Some(next);
+                        break;
+                    }
+                }
+            }
             if let Err(error) = self.exchange(request.primitives) {
                 warn!("fast simulator input failed: {error}");
                 self.fallback(request.fallback);
@@ -261,7 +255,11 @@ impl HidBrokerClient {
     fn fallback(&self, arguments: Vec<String>) {
         let mut command = std::process::Command::new(&self.axe);
         command.args(arguments).args(["--udid", &self.udid]);
-        Axe::run_detached(command);
+        match command.status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => warn!("simulator input fallback failed: {status}"),
+            Err(error) => warn!("simulator input fallback failed: {error}"),
+        }
     }
 
     fn read_message(stream: &mut UnixStream) -> io::Result<Vec<u8>> {
@@ -430,18 +428,26 @@ mod tests {
     }
 
     #[test]
-    fn tap_uses_one_connection_with_a_real_hold() {
-        let request = HidRequest::tap((120.0, 240.0));
-        let json = serde_json::to_value(HidBrokerRequest {
-            primitives: request.primitives,
-        })
-        .expect("request");
-        let primitives = json["primitives"].as_array().expect("primitives");
+    fn live_touch_phases_match_the_broker_protocol() {
+        let requests = [
+            HidRequest::down((120.0, 240.0)),
+            HidRequest::move_to((120.0, 180.0)),
+            HidRequest::up((120.0, 180.0)),
+        ];
+        let kinds: Vec<_> = requests
+            .into_iter()
+            .map(|request| {
+                let json = serde_json::to_value(HidBrokerRequest {
+                    primitives: request.primitives,
+                })
+                .expect("request");
+                json["primitives"][0]["kind"]
+                    .as_str()
+                    .expect("kind")
+                    .to_string()
+            })
+            .collect();
 
-        assert_eq!(primitives.len(), 3);
-        assert_eq!(primitives[0]["kind"], "down");
-        assert_eq!(primitives[1]["kind"], "delay");
-        assert_eq!(primitives[1]["duration"], 0.1);
-        assert_eq!(primitives[2]["kind"], "up");
+        assert_eq!(kinds, ["down", "down", "up"]);
     }
 }

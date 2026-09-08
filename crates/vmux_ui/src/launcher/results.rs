@@ -41,11 +41,18 @@ impl SlashRows {
             }
             return ResumeRows::filtered(rest, sessions);
         }
+        if settled.is_some_and(|command| command.name == "mcp") {
+            return Vec::new();
+        }
         let mut rows = Vec::new();
         for command in matching {
             rows.push(CommandBarResultItem::Slash {
                 name: command.name.clone(),
-                hint: command.description.clone(),
+                hint: if command.name == "mcp" {
+                    translate("mcp-command-description")
+                } else {
+                    command.description.clone()
+                },
             });
         }
         rows

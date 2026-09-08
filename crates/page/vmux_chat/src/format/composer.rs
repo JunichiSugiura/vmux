@@ -10,6 +10,7 @@ const CHAT_PAGE_TITLE_MAX_GRAPHEMES: usize = 64;
 pub enum SelectorMode<'a> {
     None,
     Commands(&'a str),
+    Mcp(&'a str),
     Resume(&'a str),
     Models(&'a str),
 }
@@ -43,6 +44,11 @@ pub fn selector_mode(draft: &str) -> SelectorMode<'_> {
     {
         return SelectorMode::Models(rest.trim_start_matches(char::is_whitespace));
     }
+    if let Some(rest) = token.strip_prefix("mcp")
+        && rest.chars().next().is_some_and(char::is_whitespace)
+    {
+        return SelectorMode::Mcp(rest.trim_start_matches(char::is_whitespace));
+    }
     if token.chars().any(char::is_whitespace) {
         SelectorMode::None
     } else {
@@ -64,7 +70,7 @@ pub(crate) fn should_fetch_resume(draft: &str, commands: &[SlashCommandEntry]) -
                 && matches.next().is_none()
         }
         SelectorMode::None => false,
-        SelectorMode::Models(_) => false,
+        SelectorMode::Mcp(_) | SelectorMode::Models(_) => false,
     }
 }
 
@@ -273,13 +279,15 @@ mod tests {
     }
 
     #[test]
-    fn selector_mode_distinguishes_commands_and_resume_arguments() {
+    fn selector_mode_distinguishes_mcp_and_other_selector_arguments() {
         assert_eq!(selector_mode("hello"), SelectorMode::None);
         assert_eq!(selector_mode("/res"), SelectorMode::Commands("res"));
         assert_eq!(selector_mode("/resume"), SelectorMode::Commands("resume"));
         assert_eq!(selector_mode("/resume "), SelectorMode::Resume(""));
         assert_eq!(selector_mode("/model"), SelectorMode::Commands("model"));
         assert_eq!(selector_mode("/model son"), SelectorMode::Models("son"));
+        assert_eq!(selector_mode("/mcp"), SelectorMode::Commands("mcp"));
+        assert_eq!(selector_mode("/mcp lin"), SelectorMode::Mcp("lin"));
         assert_eq!(
             selector_mode("/resume  SID-9"),
             SelectorMode::Resume("SID-9")

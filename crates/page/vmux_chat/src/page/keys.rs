@@ -217,6 +217,7 @@ enum ChatList {
     Choice,
     ComposerMenu(ComposerMenuKind),
     Media,
+    Mcp,
     Session,
     Model,
     Command,
@@ -235,6 +236,9 @@ impl ChatList {
         }
         if chat.media_menu_open() {
             return Some(Self::Media);
+        }
+        if chat.mcp_menu_open() {
+            return Some(Self::Mcp);
         }
         if chat.resume_menu_open() {
             return Some(Self::Session);
@@ -258,6 +262,7 @@ impl ChatList {
             Self::Choice => chat.run.choice_options.read().len(),
             Self::ComposerMenu(kind) => ChatMenuSet::of(chat).rows(kind),
             Self::Media => chat.media.entries.read().len(),
+            Self::Mcp => chat.filtered_mcp_servers().len(),
             Self::Session => chat.filtered_sessions().len(),
             Self::Model => chat.filtered_models().len(),
             Self::Command => chat.filtered_commands().len(),
@@ -308,6 +313,7 @@ impl ChatList {
                     chat.select_media_entry(&entry);
                 }
             }
+            Self::Mcp => chat.activate_mcp_server(index),
             Self::Session => {
                 if let Some(session) = chat.filtered_sessions().get(index) {
                     chat.select_resume_session(session);

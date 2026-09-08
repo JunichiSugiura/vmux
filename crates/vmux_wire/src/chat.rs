@@ -489,6 +489,10 @@ impl SlashCommands {
                     name: "resume".into(),
                     description: "Resume a past session".into(),
                 },
+                SlashCommandEntry {
+                    name: "mcp".into(),
+                    description: String::new(),
+                },
             ],
         }
     }
@@ -502,6 +506,10 @@ impl SlashCommands {
             SlashCommandEntry {
                 name: "resume".into(),
                 description: "Resume a past session".into(),
+            },
+            SlashCommandEntry {
+                name: "mcp".into(),
+                description: String::new(),
             },
         ];
         if has_models {

@@ -10395,7 +10395,9 @@ dependencies = [
  "objc2-user-notifications 0.3.2",
  "parking_lot",
  "raw-window-handle 0.6.2",
+ "reqwest",
  "rfd 0.15.4",
+ "ring",
  "rkyv",
  "ron 0.8.1",
  "semver",
@@ -10426,6 +10428,7 @@ dependencies = [
  "vmux_team",
  "vmux_terminal",
  "vmux_ui",
+ "vmux_wire",
 ]
 
 [[package]]

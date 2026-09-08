@@ -507,6 +507,11 @@ The daemon owns the sessions, so work keeps running even if the agent process ex
 Every agent is launched **anchored to its own Space**. Tool calls resolve relative to that
 anchor, so a background agent cannot read or disrupt the space you are looking at.
 
+External MCP connections belong to Vmux rather than to one agent runtime. `/mcp` in either
+composer manages the shared catalog; OAuth credentials stay in the platform credential store,
+while `tools.toml` keeps the non-secret server definition. Agent launch projects that one source
+into Codex, Claude, Vibe, or ACP configuration and refreshes an expiring token before injection.
+
 `read_layout` / `update_layout` are the interesting pair: fetch the pane tree with stable
 ids, mutate it, commit it back. Vmux diffs against the live graph and reconciles
 React-style, in one atomic transaction.

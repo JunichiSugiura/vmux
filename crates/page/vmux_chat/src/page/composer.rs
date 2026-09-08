@@ -9,6 +9,7 @@ use dioxus::prelude::*;
 use vmux_ui::agent_accent::agent_accent;
 use vmux_ui::components::composer::PromptComposer;
 use vmux_ui::components::composer_bar::ComposerBar;
+use vmux_ui::components::mcp_menu::McpMenu;
 use vmux_ui::hooks::send;
 use vmux_ui::i18n::translate;
 
@@ -22,6 +23,16 @@ pub(super) fn ChatDock(chat: Chat) -> Element {
                 }
                 if chat.command_menu_open() {
                     CommandMenu { chat }
+                }
+                if chat.mcp_menu_open() {
+                    McpMenu {
+                        connections: chat.mcp,
+                        entries: chat.filtered_mcp_servers(),
+                        selected: (chat.slash.menu_sel)(),
+                        on_select: move |index| chat.activate_mcp_server(index),
+                        on_hover: move |index| chat.slash.menu_sel.set(index),
+                        on_dismiss: move |()| chat.dismiss_selector(),
+                    }
                 }
                 if chat.resume_menu_open() {
                     ResumeMenu { chat }

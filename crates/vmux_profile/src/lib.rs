@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+pub mod mcp_credentials;
 pub mod tools;
 pub mod vault;
 

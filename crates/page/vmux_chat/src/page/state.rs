@@ -27,6 +27,7 @@ use vmux_ui::components::composer::{
 use vmux_ui::components::composer_bar::{
     ComposerChip, ComposerMenu, ComposerMenuKind, use_composer_menu,
 };
+use vmux_ui::components::mcp_menu::{McpConnections, McpQuery, use_mcp_connections};
 use vmux_ui::components::prompt_media_options::PromptMediaOption;
 use vmux_ui::file_icon::FilePath;
 use vmux_ui::hooks::{send, use_listener, use_selector, use_theme};
@@ -45,6 +46,7 @@ pub struct Chat {
     pub composer: ComposerDraft,
     pub queue: PromptQueue,
     pub media: MediaPicker,
+    pub mcp: McpConnections,
     pub models: ModelPicker,
     pub effort: EffortPicker,
     pub projects: ProjectPicker,
@@ -68,6 +70,7 @@ pub fn use_chat() -> Chat {
         composer: use_composer_draft(),
         queue: use_prompt_queue(),
         media: use_media_picker(),
+        mcp: use_mcp_connections(),
         models: use_model_picker(),
         effort: use_effort_picker(),
         projects: use_project_picker(),
@@ -181,6 +184,11 @@ impl Chat {
         });
         use_effect(move || chat.fetch_resume_sessions());
         use_effect(move || chat.fetch_media_entries());
+        use_effect(move || {
+            if chat.mcp_menu_open() {
+                chat.mcp.request();
+            }
+        });
         use_selector(chat.slash.menu_sel, move |selected| {
             let media_open = {
                 let draft = chat.composer.draft.read();
@@ -470,6 +478,14 @@ impl Chat {
         filter_models(&self.models.models.read(), query)
     }
 
+    pub fn filtered_mcp_servers(&self) -> Vec<vmux_wire::mcp::McpServerEntry> {
+        let draft = self.draft();
+        let Some(query) = McpQuery::read(&draft) else {
+            return Vec::new();
+        };
+        self.mcp.filtered(query)
+    }
+
     pub fn command_menu_open(&self) -> bool {
         !self.filtered_commands().is_empty()
     }
@@ -482,9 +498,14 @@ impl Chat {
         matches!(selector_mode(&self.draft()), SelectorMode::Models(_))
     }
 
+    pub fn mcp_menu_open(&self) -> bool {
+        McpQuery::read(&self.draft()).is_some()
+    }
+
     pub fn selector_open(&self) -> bool {
         self.media_menu_open()
             || self.command_menu_open()
+            || self.mcp_menu_open()
             || self.resume_menu_open()
             || self.model_menu_open()
     }
@@ -758,6 +779,11 @@ impl Chat {
                 menu_sel.set(0);
                 draft.set("/model ".to_string());
             }
+            "mcp" => {
+                menu_sel.set(0);
+                draft.set("/mcp ".to_string());
+                self.mcp.request();
+            }
             "cli" => {
                 let _ = send(&RuntimeSwitchRequest { to: "cli".into() });
                 draft.set(String::new());
@@ -776,6 +802,13 @@ impl Chat {
             model_id: model.id.clone(),
         });
         draft.set(String::new());
+    }
+
+    pub fn activate_mcp_server(&self, index: usize) {
+        let Some(server) = self.filtered_mcp_servers().get(index).cloned() else {
+            return;
+        };
+        self.mcp.activate(&server);
     }
 
     pub fn select_resume_session(&self, session: &ResumableSessionEntry) {

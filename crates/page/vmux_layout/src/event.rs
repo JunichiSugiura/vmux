@@ -24,6 +24,7 @@ pub const RELOAD_EVENT: &str = "reload";
 pub struct ReloadEvent;
 pub const TABS_EVENT: &str = "tabs";
 pub const BOOKMARKS_EVENT: &str = "bookmarks";
+pub const BOOKMARK_MENU_ACTION_EVENT: &str = "bookmark-menu-action";
 pub const PANE_TREE_EVENT: &str = "pane-tree";
 pub const SIDE_SHEET_COMMAND_EVENT: &str = "side-sheet-command";
 pub const SIDE_SHEET_DRAG_EVENT: &str = "side-sheet-drag";
@@ -587,13 +588,7 @@ pub struct PaneNode {
     #[serde(default)]
     pub collapsed: bool,
     #[serde(default)]
-    pub projects_expanded: bool,
-    #[serde(default)]
     pub bookmarks_expanded: bool,
-    #[serde(default)]
-    pub knowledge_expanded: bool,
-    #[serde(default)]
-    pub tools_expanded: bool,
     pub stacks: Vec<StackNode>,
 }
 
@@ -888,6 +883,8 @@ pub struct FolderRow {
     pub uuid: String,
     pub name: String,
     pub collapsed: bool,
+    #[serde(default)]
+    pub smart: Option<vmux_core::SmartBookmarkFolder>,
     pub parent: Option<String>,
     pub children: Vec<BookmarkRow>,
 }
@@ -951,6 +948,24 @@ pub struct BookmarkTextInputEvent {
 )]
 pub struct BookmarkContextMenuEvent {
     pub active: bool,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct BookmarkMenuActionEvent {
+    pub sequence: u64,
+    pub action: String,
+    pub uuid: Option<String>,
 }
 
 #[cfg(test)]

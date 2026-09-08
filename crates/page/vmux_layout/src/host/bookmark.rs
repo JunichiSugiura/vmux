@@ -28,7 +28,7 @@ impl Plugin for BookmarkPlugin {
                 (
                     handle_bookmark_app_commands.in_set(ReadAppCommands),
                     apply_bookmark_ops,
-                    sync_bookmark_icons,
+                    sync_bookmark_metadata,
                 )
                     .chain(),
             );
@@ -91,8 +91,26 @@ pub enum BookmarkOp {
     },
 }
 
-#[derive(Message, Clone, Debug, Default)]
-pub struct ShowBookmarkMenuRequest;
+#[derive(Clone, Debug)]
+pub enum BookmarkMenuTarget {
+    Root,
+    Pin {
+        uuid: String,
+    },
+    Bookmark {
+        uuid: String,
+    },
+    Folder {
+        uuid: String,
+        active_page: Option<PageMetadata>,
+    },
+}
+
+#[derive(Message, Clone, Debug)]
+pub struct ShowBookmarkMenuRequest {
+    pub webview: Entity,
+    pub target: BookmarkMenuTarget,
+}
 
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BookmarkTextInputActive;
@@ -397,7 +415,7 @@ fn apply_bookmark_ops(
     }
 }
 
-fn sync_bookmark_icons(
+fn sync_bookmark_metadata(
     pages: Query<
         &PageMetadata,
         (
@@ -409,19 +427,22 @@ fn sync_bookmark_icons(
     >,
     mut bookmarks: Query<&mut PageMetadata, (Or<(With<Bookmark>, With<Pin>)>, Without<Stack>)>,
 ) {
-    let mut icons = std::collections::HashMap::new();
+    let mut metadata_by_url = std::collections::HashMap::new();
     for page in &pages {
-        if page.url.is_empty() || page.icon.is_none() {
+        if page.url.is_empty() {
             continue;
         }
-        icons.insert(page.url.clone(), page.icon.clone());
+        metadata_by_url.insert(page.url.clone(), page.clone());
     }
     for mut bookmark in &mut bookmarks {
-        let Some(icon) = icons.get(&bookmark.url) else {
+        let Some(page) = metadata_by_url.get(&bookmark.url) else {
             continue;
         };
-        if bookmark.icon != *icon {
-            bookmark.icon.clone_from(icon);
+        if bookmark.title == bookmark.url && !page.title.is_empty() {
+            bookmark.title.clone_from(&page.title);
+        }
+        if !page.icon.is_none() && bookmark.icon != page.icon {
+            bookmark.icon.clone_from(&page.icon);
         }
     }
 }
@@ -437,8 +458,38 @@ fn on_bookmarks_command_emit(
         "toggle_active" => {
             app_cmds.write(AppCommand::Bookmark(BookmarkCommand::ToggleActive));
         }
-        "menu_new_folder" => {
-            menu_req.write(ShowBookmarkMenuRequest);
+        "menu_root" | "menu_new_folder" => {
+            menu_req.write(ShowBookmarkMenuRequest {
+                webview: trigger.event().webview,
+                target: BookmarkMenuTarget::Root,
+            });
+        }
+        "menu_pin" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Pin { uuid },
+                });
+            }
+        }
+        "menu_bookmark" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Bookmark { uuid },
+                });
+            }
+        }
+        "menu_folder" => {
+            if let Some(uuid) = e.uuid.clone() {
+                menu_req.write(ShowBookmarkMenuRequest {
+                    webview: trigger.event().webview,
+                    target: BookmarkMenuTarget::Folder {
+                        uuid,
+                        active_page: e.metadata.clone(),
+                    },
+                });
+            }
         }
         "open" => {
             if let Some(url) = e.url.clone() {
@@ -591,7 +642,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_message::<BookmarkOp>()
-            .add_systems(Update, (apply_bookmark_ops, sync_bookmark_icons).chain());
+            .add_systems(Update, (apply_bookmark_ops, sync_bookmark_metadata).chain());
         app
     }
 
@@ -727,6 +778,43 @@ mod tests {
     }
 
     #[test]
+    fn add_accepts_any_page_url() {
+        let mut app = test_app();
+        for url in [
+            "vmux://projects/",
+            "https://example.com/docs",
+            "file:///tmp/readme.md",
+        ] {
+            send(
+                &mut app,
+                BookmarkOp::Add {
+                    metadata: PageMetadata {
+                        title: url.into(),
+                        url: url.into(),
+                        ..default()
+                    },
+                    folder: None,
+                },
+            );
+        }
+        let mut urls = app
+            .world_mut()
+            .query_filtered::<&PageMetadata, With<Bookmark>>()
+            .iter(app.world())
+            .map(|metadata| metadata.url.clone())
+            .collect::<Vec<_>>();
+        urls.sort();
+        assert_eq!(
+            urls,
+            [
+                "file:///tmp/readme.md",
+                "https://example.com/docs",
+                "vmux://projects/",
+            ]
+        );
+    }
+
+    #[test]
     fn bookmark_entities_are_not_space_save_entities() {
         let mut app = test_app();
         send(
@@ -796,6 +884,41 @@ mod tests {
         assert_eq!(
             metadata.icon,
             PageIcon::Favicon("https://a.test/favicon.ico".into())
+        );
+    }
+
+    #[test]
+    fn live_page_title_replaces_a_seeded_url_title() {
+        let mut app = test_app();
+        let bookmark = app
+            .world_mut()
+            .spawn((
+                Pin,
+                PageMetadata {
+                    title: "vmux://history/".into(),
+                    url: "vmux://history/".into(),
+                    icon: PageIcon::None,
+                    bg_color: None,
+                },
+            ))
+            .id();
+        app.world_mut().spawn((
+            Stack::default(),
+            PageMetadata {
+                title: "History".into(),
+                url: "vmux://history/".into(),
+                icon: PageIcon::Favicon("vmux://history/assets/favicons/history.svg".into()),
+                bg_color: None,
+            },
+        ));
+
+        app.update();
+
+        let metadata = app.world().get::<PageMetadata>(bookmark).unwrap();
+        assert_eq!(metadata.title, "History");
+        assert_eq!(
+            metadata.icon,
+            PageIcon::Favicon("vmux://history/assets/favicons/history.svg".into())
         );
     }
 

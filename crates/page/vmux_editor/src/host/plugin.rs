@@ -29,7 +29,8 @@ pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
-        app.world_mut().spawn(PAGE_MANIFEST);
+        app.world_mut().spawn(FILES_PAGE_MANIFEST);
+        app.world_mut().spawn(PROJECTS_PAGE_MANIFEST);
         let (tx, rx) = mpsc::channel();
         let proxy = app
             .world()
@@ -833,10 +834,13 @@ type NavigableFileView = (
 );
 
 fn new_file_view_bundle(url: &str, path: PathBuf) -> impl Bundle {
-    let title = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| path.to_string_lossy().to_string());
+    let title = if url.starts_with("vmux://") {
+        url.to_string()
+    } else {
+        path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string_lossy().to_string())
+    };
     (
         (
             FileView { path },
@@ -896,17 +900,22 @@ pub fn handle_file_page_open(
     children_q: Query<&Children>,
     mut views: Query<NavigableFileView>,
     mut manager: ResMut<crate::lsp::manager::LspManager>,
+    effective_startup_dir: Option<Res<vmux_layout::settings::EffectiveStartupDir>>,
     mut commands: Commands,
     mut record_writer: MessageWriter<vmux_core::event::RecordVisitRequest>,
 ) {
     for (entity, task) in &tasks {
-        if !task.url.starts_with("file:") {
+        let project_dir = effective_startup_dir
+            .as_deref()
+            .and_then(|effective| effective.0.as_ref())
+            .and_then(|(_, path)| path.as_deref());
+        let knowledge_root = vmux_core::knowledge::KnowledgeVault::user().into_root();
+        let Some(target) = FilePageTarget::of(&task.url, project_dir, &knowledge_root) else {
             continue;
-        }
-        let Some(path) = vmux_core::file_url::FileUrl::parse(&task.url).and_then(|u| u.path())
-        else {
+        };
+        let Some(path) = target.path else {
             commands.entity(entity).insert(PageOpenError {
-                message: format!("malformed file URL '{}'", task.url),
+                message: target.error,
             });
             continue;
         };
@@ -937,6 +946,13 @@ pub fn handle_file_page_open(
                         &mut commands,
                     );
                 }
+                if let Ok((_, _, mut metadata)) = views.get_mut(view)
+                    && clean_url.starts_with("vmux://")
+                {
+                    metadata.title.clone_from(&clean_url);
+                    metadata.url = clean_url.clone();
+                    metadata.icon = vmux_core::PageIcon::None;
+                }
                 view
             }
             None => {
@@ -950,6 +966,41 @@ pub fn handle_file_page_open(
             commands.entity(view).insert(pg);
         }
         commands.entity(entity).insert(PageOpenHandled);
+    }
+}
+
+struct FilePageTarget {
+    path: Option<PathBuf>,
+    error: String,
+}
+
+impl FilePageTarget {
+    fn of(url: &str, project_dir: Option<&Path>, knowledge_root: &Path) -> Option<Self> {
+        if url.trim_end_matches('/') == vmux_wire::space::PROJECTS_PAGE_URL.trim_end_matches('/') {
+            return Some(Self {
+                path: Some(
+                    project_dir
+                        .map(Path::to_path_buf)
+                        .unwrap_or_else(vmux_core::profile::projects_dir),
+                ),
+                error: String::new(),
+            });
+        }
+        if url.trim_end_matches('/')
+            == vmux_core::knowledge::KNOWLEDGE_PAGE_URL.trim_end_matches('/')
+        {
+            return Some(Self {
+                path: Some(knowledge_root.to_path_buf()),
+                error: String::new(),
+            });
+        }
+        if !url.starts_with("file:") {
+            return None;
+        }
+        Some(Self {
+            path: vmux_core::file_url::FileUrl::parse(url).and_then(|file| file.path()),
+            error: format!("malformed file URL '{url}'"),
+        })
     }
 }
 
@@ -5245,12 +5296,22 @@ fn on_explorer_search_open(
     });
 }
 
-pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
+pub const FILES_PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
     host: "files",
     title: "Files",
     title_message_id: None,
     replaces_command: None,
     keywords: &["file", "open"],
+    icon: Some(vmux_core::BuiltinIcon::Files),
+    command_bar: true,
+};
+
+pub const PROJECTS_PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
+    host: "projects",
+    title: "Projects",
+    title_message_id: Some("layout-projects"),
+    replaces_command: None,
+    keywords: &["project", "files", "folder", "open"],
     icon: Some(vmux_core::BuiltinIcon::Files),
     command_bar: true,
 };

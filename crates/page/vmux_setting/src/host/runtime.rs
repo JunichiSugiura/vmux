@@ -853,12 +853,25 @@ pub struct BrowserSettings {
     pub startup_url: String,
     #[serde(default)]
     pub search_engine: SearchEngine,
+    #[serde(default)]
+    pub bookmarks: Vec<String>,
+    #[serde(default)]
+    pub bookmark_folders: Vec<BookmarkFolderSettings>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct BookmarkFolderSettings {
+    pub name: String,
+    #[serde(default)]
+    pub smart: Option<vmux_core::SmartBookmarkFolder>,
 }
 
 fn default_browser_settings() -> BrowserSettings {
     BrowserSettings {
         startup_url: default_browser_startup_url(),
         search_engine: SearchEngine::default(),
+        bookmarks: Vec::new(),
+        bookmark_folders: Vec::new(),
     }
 }
 
@@ -1718,6 +1731,8 @@ mod tests {
             browser: BrowserSettings {
                 startup_url: default_browser_startup_url(),
                 search_engine: SearchEngine::default(),
+                bookmarks: Default::default(),
+                bookmark_folders: Default::default(),
             },
             layout: LayoutSettings {
                 radius: 0.0,
@@ -1835,6 +1850,62 @@ mod tests {
     fn embedded_settings_default_to_start() {
         let s = load_embedded_settings();
         assert_eq!(s.startup_url("space-1"), "vmux://start/");
+    }
+
+    #[test]
+    fn embedded_settings_pin_every_user_facing_page() {
+        let settings = load_embedded_settings();
+        let urls = settings
+            .browser
+            .bookmarks
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            urls,
+            [
+                "vmux://start/",
+                "vmux://terminal/",
+                "vmux://projects/",
+                "vmux://knowledge/",
+                "vmux://agents/",
+                "vmux://tools/",
+                "vmux://vault/",
+                "vmux://services/",
+                "vmux://spaces/",
+                "vmux://team/",
+                "vmux://history/",
+                "vmux://extensions/",
+                "vmux://lsp/",
+                "vmux://settings/",
+            ]
+        );
+    }
+
+    #[test]
+    fn embedded_settings_offer_starter_bookmark_folders() {
+        let settings = load_embedded_settings();
+        let folders = settings
+            .browser
+            .bookmark_folders
+            .iter()
+            .map(|folder| folder.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(folders, ["Projects", "Knowledge", "Tools"]);
+        assert_eq!(
+            settings.browser.bookmark_folders[0].smart,
+            Some(vmux_core::SmartBookmarkFolder::Projects)
+        );
+        assert_eq!(
+            settings.browser.bookmark_folders[1].smart,
+            Some(vmux_core::SmartBookmarkFolder::Knowledge)
+        );
+        assert_eq!(
+            settings.browser.bookmark_folders[2].smart,
+            Some(vmux_core::SmartBookmarkFolder::Tools)
+        );
     }
 
     #[test]

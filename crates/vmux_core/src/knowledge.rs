@@ -2,6 +2,7 @@ pub const KNOWLEDGE_TREE_EVENT: &str = "knowledge-tree";
 pub const KNOWLEDGE_SEARCH_EVENT: &str = "knowledge-search";
 pub const KNOWLEDGE_CREATE_RESULT_EVENT: &str = "knowledge-create-result";
 pub const KNOWLEDGE_TREE_TOGGLE_EVENT: &str = "knowledge-tree-toggle";
+pub const KNOWLEDGE_PAGE_URL: &str = "vmux://knowledge/";
 
 #[derive(
     Clone,

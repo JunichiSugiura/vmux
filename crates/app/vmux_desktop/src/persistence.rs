@@ -1292,6 +1292,50 @@ mod tests {
     }
 
     #[test]
+    fn legacy_side_sheet_sections_load_through_store() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("store.ron");
+        std::fs::write(
+            &path,
+            r#"(
+  resources: {},
+  entities: {
+    1: (
+      components: {
+        "vmux_desktop::layout::side_sheet::SideSheetSectionsExpanded": (
+          projects: true,
+          bookmarks: true,
+          knowledge: true,
+          tools: true,
+        ),
+      },
+    ),
+  },
+)
+"#,
+        )
+        .expect("write store");
+
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .add_plugins(vmux_core::CorePlugin)
+            .register_type::<vmux_layout::side_sheet::SideSheetSectionsExpanded>()
+            .add_observer(load_on_default_event);
+        app.update();
+        app.world_mut()
+            .commands()
+            .trigger_load(LoadWorld::default_from_file(path));
+        app.update();
+
+        let sections = app
+            .world_mut()
+            .query::<&vmux_layout::side_sheet::SideSheetSectionsExpanded>()
+            .single(app.world())
+            .expect("legacy side sheet sections loaded");
+        assert!(sections.bookmarks);
+    }
+
+    #[test]
     fn window_geometry_round_trips_through_store() {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("store.ron");

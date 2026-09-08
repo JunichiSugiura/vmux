@@ -33,7 +33,6 @@ pub use native_layout::NativeLayout;
 use bevy::{ecs::relationship::Relationship, input::mouse::MouseButton, prelude::*};
 use bevy_cef::prelude::*;
 use bevy_cef_core::prelude::{CefEmbeddedHosts, CommandLineConfig};
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 use vmux_command::ReadAppCommands;
@@ -126,18 +125,20 @@ impl Plugin for BrowserPlugin {
                 .takes::<vmux_core::PageMetadata>(),
             native_page::NativePagePlugin::in_pane(&native_page::LSP_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::FILES_PAGE),
+            native_page::NativePagePlugin::in_pane(&native_page::PROJECTS_PAGE),
+            native_page::NativePagePlugin::in_pane(&native_page::KNOWLEDGE_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::TERMINAL_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::SETTINGS_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::SERVICES_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::SPACES_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::TOOLS_PAGE),
-            native_page::NativePagePlugin::in_pane(&native_page::EXTENSIONS_PAGE),
-            native_page::NativePagePlugin::in_pane(&native_page::ERROR_PAGE)
-                .takes::<vmux_wire::error::ErrorPageData>(),
         ))
         .add_plugins((
             native_page::NativePagePlugin::in_pane(&native_page::VAULT_PAGE)
                 .takes::<vmux_core::PageMetadata>(),
+            native_page::NativePagePlugin::in_pane(&native_page::EXTENSIONS_PAGE),
+            native_page::NativePagePlugin::in_pane(&native_page::ERROR_PAGE)
+                .takes::<vmux_wire::error::ErrorPageData>(),
         ));
         let mut manifests = app.world_mut().query::<&PageManifest>();
         let embedded_hosts = CefEmbeddedHosts(
@@ -648,38 +649,6 @@ fn should_emit_cached_payload(body: &str, last: &str, page_ready_changed: bool) 
     page_ready_changed || body != last
 }
 
-fn tab_boundary_dir(
-    tab: &Tab,
-    settings: &AppSettings,
-    active_space: Option<&vmux_space::spaces::ActiveSpace>,
-) -> Option<vmux_setting::StartupDir> {
-    match tab.startup_dir.as_deref() {
-        Some(path) => Some(
-            vmux_setting::StartupDir::from_tab(path).unwrap_or_else(|_| vmux_setting::StartupDir {
-                path: std::path::PathBuf::from(path),
-                source: vmux_setting::DirSource::Tab,
-            }),
-        ),
-        None => {
-            let active_space = active_space?;
-            vmux_setting::StartupDir::resolve(settings, &active_space.record.id, None)
-        }
-    }
-}
-
-fn abbreviate_home(path: &std::path::Path) -> String {
-    let s = path.to_string_lossy();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = home.to_string_lossy();
-        if !home.is_empty()
-            && let Some(rest) = s.strip_prefix(home.as_ref())
-        {
-            return format!("~{rest}");
-        }
-    }
-    s.into_owned()
-}
-
 fn active_stack_in_tab(
     tab_e: Entity,
     all_children: &Query<&Children>,
@@ -712,43 +681,6 @@ fn should_emit_update(
     page_ready_changed: bool,
 ) -> bool {
     last.as_ref() != Some(current) || (page_ready_changed && *current != UpdateState::Idle)
-}
-
-fn project_path_url(requested: &Path) -> Option<String> {
-    let metadata = std::fs::symlink_metadata(requested).ok()?;
-    if metadata.file_type().is_symlink() {
-        return None;
-    }
-    let path = requested.canonicalize().ok()?;
-    url::Url::from_file_path(path)
-        .ok()
-        .map(|url| url.to_string())
-}
-
-fn knowledge_path_url(root: &Path, requested: &Path) -> Option<String> {
-    let root = root.canonicalize().ok()?;
-    let metadata = std::fs::symlink_metadata(requested).ok()?;
-    if metadata.file_type().is_symlink() {
-        return None;
-    }
-    let path = requested.canonicalize().ok()?;
-    if !path.starts_with(&root) {
-        return None;
-    }
-    let markdown = path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            extension.eq_ignore_ascii_case("md")
-                || extension.eq_ignore_ascii_case("markdown")
-                || extension.eq_ignore_ascii_case("mdx")
-        });
-    if !path.is_dir() && !markdown {
-        return None;
-    }
-    url::Url::from_file_path(path)
-        .ok()
-        .map(|url| url.to_string())
 }
 
 fn normalize_vmux_url(url: &str) -> String {
@@ -866,70 +798,6 @@ mod tests {
                 .switch_values
                 .contains(&("disable-features", "BackForwardCache"))
         );
-    }
-
-    #[test]
-    fn knowledge_paths_only_open_vault_markdown_and_directories() {
-        let temp = tempfile::tempdir().unwrap();
-        let vault = temp.path().join("knowledge");
-        let folder = vault.join("projects");
-        std::fs::create_dir_all(&folder).unwrap();
-        let note = folder.join("brief.md");
-        let text = folder.join("brief.txt");
-        let outside = temp.path().join("outside.md");
-        std::fs::write(&note, "# Brief").unwrap();
-        std::fs::write(&text, "Brief").unwrap();
-        std::fs::write(&outside, "# Outside").unwrap();
-
-        assert!(knowledge_path_url(&vault, &vault).is_some());
-        assert!(knowledge_path_url(&vault, &folder).is_some());
-        assert!(knowledge_path_url(&vault, &note).is_some());
-        assert!(knowledge_path_url(&vault, &text).is_none());
-        assert!(knowledge_path_url(&vault, &outside).is_none());
-    }
-
-    #[test]
-    fn stored_tab_dir_is_sidebar_source_of_truth() {
-        let tab = Tab {
-            name: "test".into(),
-            startup_dir: Some("/tmp/agent-checkout".into()),
-        };
-        let settings = test_app_settings_with_radius(0.0);
-
-        assert_eq!(
-            tab_boundary_dir(&tab, &settings, None),
-            Some(vmux_setting::StartupDir {
-                path: std::path::PathBuf::from("/tmp/agent-checkout"),
-                source: vmux_setting::DirSource::Tab,
-            })
-        );
-    }
-
-    #[test]
-    fn legacy_tab_boundary_uses_space_fallback_without_migration() {
-        let dir = std::env::temp_dir();
-        let record = vmux_space::model::bootstrap_space_record();
-        let mut settings = test_app_settings_with_radius(0.0);
-        settings.spaces.insert(
-            record.id.clone(),
-            vmux_setting::SpaceOverrides {
-                startup_url: None,
-                startup_dir: Some(dir.to_string_lossy().into_owned()),
-                ..Default::default()
-            },
-        );
-        let tab = Tab::default();
-
-        let boundary = tab_boundary_dir(
-            &tab,
-            &settings,
-            Some(&vmux_space::spaces::ActiveSpace { record }),
-        )
-        .unwrap();
-
-        assert_eq!(boundary.path, dir);
-        assert_eq!(boundary.source, vmux_setting::DirSource::Space);
-        assert_eq!(tab.startup_dir, None);
     }
 
     #[test]

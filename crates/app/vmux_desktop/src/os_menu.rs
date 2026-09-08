@@ -338,6 +338,9 @@ fn forward_menu_events(world: &mut World) {
         world.resource_mut::<LastMenuCommandAt>().0 = Some(std::time::Instant::now());
     }
     for event_id in drained {
+        if crate::bookmark_menu::forward_menu_event(world, &event_id) {
+            continue;
+        }
         if event_id == "app_quit" {
             handle_quit_request(world);
         } else if let Some(cmd) = AppCommand::from_menu_id(event_id.as_str()) {

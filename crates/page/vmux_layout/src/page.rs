@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::event::{
-    BOOKMARKS_EVENT, BookmarkContextMenuEvent, BookmarkNode, BookmarkRow, BookmarkTextInputEvent,
-    BookmarksCommandEvent, BookmarksHostEvent, FolderRow, HeaderCommandEvent, LAYOUT_STATE_EVENT,
-    LayoutStateEvent, PANE_TREE_EVENT, PaneNode, PaneTreeEvent, RELOAD_EVENT, REMOTE_STATE_EVENT,
-    ReloadEvent, RemoteCommandEvent, RemoteCopyEvent, RemotePhase, RemoteStateEvent, STACKS_EVENT,
-    StackNode, StackRow, StacksHostEvent, TABS_EVENT, TabRow, TabsCommandEvent, TabsHostEvent,
-    WindowDragRegionEvent,
+    BOOKMARK_MENU_ACTION_EVENT, BOOKMARKS_EVENT, BookmarkContextMenuEvent, BookmarkMenuActionEvent,
+    BookmarkNode, BookmarkRow, BookmarkTextInputEvent, BookmarksCommandEvent, BookmarksHostEvent,
+    FolderRow, HeaderCommandEvent, LAYOUT_STATE_EVENT, LayoutStateEvent, PANE_TREE_EVENT, PaneNode,
+    PaneTreeEvent, RELOAD_EVENT, REMOTE_STATE_EVENT, ReloadEvent, RemoteCommandEvent,
+    RemoteCopyEvent, RemotePhase, RemoteStateEvent, STACKS_EVENT, StackNode, StackRow,
+    StacksHostEvent, TABS_EVENT, TabRow, TabsCommandEvent, TabsHostEvent, WindowDragRegionEvent,
 };
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -20,9 +20,7 @@ use vmux_core::event::{
     ExtensionsEvent,
 };
 use vmux_core::knowledge::{
-    KNOWLEDGE_CREATE_RESULT_EVENT, KNOWLEDGE_SEARCH_EVENT, KNOWLEDGE_TREE_EVENT,
-    KnowledgeCreateRequest, KnowledgeCreateResult, KnowledgeEntry, KnowledgeGitStatus,
-    KnowledgeSearchEvent, KnowledgeSearchRequest, KnowledgeTreeEvent,
+    KNOWLEDGE_TREE_EVENT, KnowledgeEntry, KnowledgeGitStatus, KnowledgeTreeEvent,
 };
 use vmux_core::tools::{TOOLS_SNAPSHOT_EVENT, ToolCategory, ToolItem, ToolStatus, ToolsSnapshot};
 use vmux_core::{PageIcon, PageMetadata};
@@ -38,10 +36,9 @@ use vmux_ui::components::tree_row::{
     SidebarTreeRow, SidebarTreeRowGroup,
 };
 use vmux_ui::favicon::favicon_src_for_url;
-use vmux_ui::file_icon::TypeIcon;
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
-use vmux_ui::icon::{BuiltinIconView, PageIconView};
+use vmux_ui::icon::PageIconView;
 use vmux_ui::platform::sleep_ms;
 use vmux_ui::scroll::ScrollIntoView;
 use vmux_ui::util::cn;
@@ -75,6 +72,11 @@ pub fn Page() -> Element {
     let _bookmarks_listener = use_listener::<BookmarksHostEvent, _>(BOOKMARKS_EVENT, move |data| {
         bookmarks_state.set(data);
     });
+    let bookmark_menu_action = use_event::<BookmarkMenuActionEvent>(
+        BOOKMARK_MENU_ACTION_EVENT,
+        BookmarkMenuActionEvent::default,
+    );
+    use_context_provider(|| bookmark_menu_action);
 
     let mut reload_key = use_signal(|| 0u32);
     let _reload_listener = use_listener::<ReloadEvent, _>(RELOAD_EVENT, move |_| {
@@ -98,7 +100,7 @@ pub fn Page() -> Element {
         },
     );
 
-    let boundary_state = use_event::<crate::event::TabBoundaryEvent>(
+    let projects_state = use_event::<crate::event::TabBoundaryEvent>(
         crate::event::TAB_BOUNDARY_EVENT,
         crate::event::TabBoundaryEvent::default,
     );
@@ -109,11 +111,6 @@ pub fn Page() -> Element {
         use_listener::<KnowledgeTreeEvent, _>(KNOWLEDGE_TREE_EVENT, move |data| {
             knowledge_state_received.set(true);
             knowledge_state.set(data);
-        });
-    let mut knowledge_search = use_signal(KnowledgeSearchEvent::default);
-    let _knowledge_search_listener =
-        use_listener::<KnowledgeSearchEvent, _>(KNOWLEDGE_SEARCH_EVENT, move |data| {
-            knowledge_search.set(data)
         });
 
     let mut tools_state = use_signal(ToolsSnapshot::default);
@@ -167,9 +164,6 @@ pub fn Page() -> Element {
     let tabs = tabs_state();
     let PaneTreeEvent { panes } = pane_tree_state();
     let active_space = spaces_state().spaces.into_iter().find(|s| s.is_active);
-    let boundary_event = boundary_state();
-    let tab_boundary = boundary_event.boundary;
-    let space_projects = boundary_event.projects;
     let layout_error = (layout_listener.error)();
     let stacks_error = (stacks_listener.error)();
     let tabs_error = (tabs_listener.error)();
@@ -235,12 +229,10 @@ pub fn Page() -> Element {
                         SideSheetView {
                             panes,
                             active_space,
-                            tab_boundary,
-                            space_projects,
                             remote: remote_state(),
                             bookmarks: bookmarks_state(),
+                            projects: projects_state().projects,
                             knowledge: knowledge_state(),
-                            knowledge_search: knowledge_search(),
                             knowledge_loaded: knowledge_state_received(),
                             tools: tools_state(),
                             tools_loaded: tools_state_received(),
@@ -365,12 +357,10 @@ impl StackReveal {
 fn SideSheetView(
     panes: Vec<PaneNode>,
     active_space: Option<vmux_core::event::space::SpaceRow>,
-    tab_boundary: Option<crate::event::TabBoundary>,
-    space_projects: Vec<vmux_core::event::ProjectRow>,
     remote: RemoteStateEvent,
     bookmarks: BookmarksHostEvent,
+    projects: Vec<vmux_core::event::ProjectRow>,
     knowledge: KnowledgeTreeEvent,
-    knowledge_search: KnowledgeSearchEvent,
     knowledge_loaded: bool,
     tools: ToolsSnapshot,
     tools_loaded: bool,
@@ -397,14 +387,6 @@ fn SideSheetView(
         remove_bookmark_drag_ghost();
         set_bookmark_context_menu_active(false);
     });
-    let project_boundary = tab_boundary.clone().or_else(|| {
-        active_space.as_ref().and_then(|space| {
-            (!space.startup_dir.is_empty()).then(|| crate::event::TabBoundary {
-                effective_dir: space.startup_dir.clone(),
-                ..Default::default()
-            })
-        })
-    });
     rsx! {
         div {
             class: "flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-2 pb-3 pt-2 text-foreground [scrollbar-gutter:stable]",
@@ -421,27 +403,15 @@ fn SideSheetView(
                     active_page,
                     pane_id: pane.id,
                     expanded: pane.bookmarks_expanded,
+                    smart: SmartBookmarkContent {
+                        pane_id: pane.id,
+                        projects: projects.clone(),
+                        knowledge: knowledge.clone(),
+                        knowledge_loaded,
+                        tools: tools.clone(),
+                        tools_loaded,
+                    },
                 }
-                ProjectsCard {
-                    boundary: project_boundary,
-                    projects: space_projects.clone(),
-                    pane_id: pane.id,
-                    expanded: pane.projects_expanded,
-                }
-                KnowledgeCard {
-                    pane_id: pane.id,
-                    knowledge,
-                    search: knowledge_search,
-                    loaded: knowledge_loaded,
-                    expanded: pane.knowledge_expanded,
-                }
-                ToolsCard {
-                    pane_id: pane.id,
-                    tools: tools.clone(),
-                    loaded: tools_loaded,
-                    expanded: pane.tools_expanded,
-                }
-                VaultCard { pane_id: pane.id, vault: tools.vault.clone(), loaded: tools_loaded }
             }
             if let Some(err) = pane_tree_error {
                 div { class: "flex shrink-0 items-center px-2 py-1",
@@ -714,150 +684,6 @@ fn SideSheetSpaceRow(space: vmux_core::event::space::SpaceRow) -> Element {
     }
 }
 
-#[component]
-fn ProjectsCard(
-    boundary: Option<crate::event::TabBoundary>,
-    projects: Vec<vmux_core::event::ProjectRow>,
-    pane_id: u64,
-    expanded: bool,
-) -> Element {
-    let title = translate("layout-projects");
-    let empty = translate("layout-no-project-selected");
-    let fold_title = if expanded {
-        translate("common-collapse")
-    } else {
-        translate("common-expand")
-    };
-    let project_name = match projects.iter().find(|project| project.is_active) {
-        Some(project) => project.label.clone(),
-        None => empty.clone(),
-    };
-    rsx! {
-        div { class: "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
-            div { class: "flex items-center transition-colors hover:bg-glass-hover",
-                div { class: "flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2",
-                    div { class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/10",
-                        Icon { class: "h-3.5 w-3.5",
-                            path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
-                        }
-                    }
-                    div { class: "min-w-0 flex-1",
-                        div { class: "text-ui font-semibold text-foreground", "{title}" }
-                        div { class: "truncate text-[10px] text-muted-foreground", "{project_name}" }
-                    }
-                }
-                button {
-                    r#type: "button",
-                    aria_label: "{fold_title}",
-                    title: "{fold_title}",
-                    class: if expanded {
-                        "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground"
-                    } else {
-                        "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm bg-foreground/10 text-foreground"
-                    },
-                    onclick: move |_| set_side_sheet_section(pane_id, "projects", !expanded),
-                    Icon {
-                        class: if expanded { SIDEBAR_CARD_CHEVRON_OPEN } else { SIDEBAR_CARD_CHEVRON_CLOSED },
-                        path { d: "m9 18 6-6-6-6" }
-                    }
-                }
-            }
-            div { class: if expanded {
-                    "grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                } else {
-                    "grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                },
-                div { class: "overflow-hidden",
-                    if !projects.is_empty() {
-                        div { class: "border-t border-foreground/10 p-1.5",
-                            div { class: SIDEBAR_TREE_SCROLLER,
-                                div { class: "{SIDEBAR_TREE_COLUMN} gap-0.5",
-                                    for project in projects.iter().cloned() {
-                                        ProjectListRow { project, pane_id }
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Some(boundary) = boundary {
-                        TabBoundaryPanel { boundary }
-                    } else {
-                        div { class: "border-t border-foreground/10 px-2.5 py-2 text-ui-xs text-muted-foreground", "{empty}" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn emit_project_command(command: &str, path: Option<String>) {
-    let _ = send(&vmux_wire::space::ProjectCommandEvent {
-        command: command.to_string(),
-        path,
-    });
-}
-
-#[component]
-fn ProjectListRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Element {
-    let tree = project.kind.opens_a_tree();
-    let root = matches!(project.kind, vmux_core::event::ProjectRowKind::Project);
-    let activate = project.path.clone();
-    let forget = project.path.clone();
-    let forget_title = translate("layout-project-forget");
-    let activate_title = translate("layout-project-activate");
-    rsx! {
-        SidebarTreeRowGroup {
-            SidebarTreeRow {
-                path: project.path.clone(),
-                label: project.label.clone(),
-                is_dir: tree,
-                expanded: project.expanded,
-                depth: project.depth,
-                emphasis: root,
-                title: project.display_path.clone(),
-                on_activate: move |()| match tree {
-                    true => {
-                        let _ = send(
-                            &vmux_core::event::ProjectTreeToggle {
-                                path: activate.clone(),
-                                pane_id: pane_id.to_string(),
-                            },
-                        );
-                    }
-                    false => open_project_path(pane_id, activate.clone()),
-                },
-                label_suffix: rsx! {
-                    if !project.branch.is_empty() {
-                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
-                    }
-                },
-            }
-            if root {
-                if project.is_active {
-                    span {
-                        aria_label: "{activate_title}",
-                        title: "{activate_title}",
-                        class: "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground",
-                        Icon { class: "h-3.5 w-3.5 pointer-events-none",
-                            path { d: "M12 17v5" }
-                            path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
-                        }
-                    }
-                }
-                button {
-                    r#type: "button",
-                    aria_label: "{forget_title}",
-                    title: "{forget_title}",
-                    class: "mr-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground",
-                    onclick: move |_| emit_project_command("forget", Some(forget.clone())),
-                    Icon { class: "h-3 w-3 pointer-events-none",
-                        path { d: "M18 6 6 18M6 6l12 12" }
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn dir_truncate_class(title: &str) -> &'static str {
     if title.contains('/') {
         "truncate-start"
@@ -1053,17 +879,56 @@ fn pairing_qr_svg(value: &str) -> Option<String> {
     )
 }
 
+#[derive(Clone, PartialEq)]
+struct SmartBookmarkContent {
+    pane_id: u64,
+    projects: Vec<vmux_core::event::ProjectRow>,
+    knowledge: KnowledgeTreeEvent,
+    knowledge_loaded: bool,
+    tools: ToolsSnapshot,
+    tools_loaded: bool,
+}
+
+impl SmartBookmarkContent {
+    fn count(&self, kind: vmux_core::SmartBookmarkFolder) -> usize {
+        match kind {
+            vmux_core::SmartBookmarkFolder::Projects => self.projects.len(),
+            vmux_core::SmartBookmarkFolder::Knowledge => self.knowledge.entries.len(),
+            vmux_core::SmartBookmarkFolder::Tools => self
+                .tools
+                .categories
+                .iter()
+                .map(|category| category.items.len())
+                .sum(),
+        }
+    }
+}
+
 #[component]
 fn BookmarksSection(
     bookmarks: BookmarksHostEvent,
     active_page: Option<StackNode>,
     pane_id: u64,
     expanded: bool,
+    smart: SmartBookmarkContent,
 ) -> Element {
     let BookmarksHostEvent { pins, roots } = bookmarks;
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let mut creating_folder = use_signal(|| false);
     let new_folder_draft = use_signal(|| translate("layout-new-folder"));
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.action == "new_folder" && action.uuid.is_none() {
+            begin_new_folder(creating_folder, new_folder_draft);
+        }
+    });
     let folders = bookmark_folder_choices(&roots);
     let folder_rows = bookmark_folder_rows(&roots);
     let root_targeted = bookmark_drop_targeted(drag_state, &BookmarkDropTarget::Root);
@@ -1084,7 +949,7 @@ fn BookmarksSection(
             class: "glass group relative z-30 mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
             oncontextmenu: move |e: Event<MouseData>| {
                 e.prevent_default();
-                request_bookmark_menu();
+                request_bookmark_menu("menu_root", None, None);
             },
             div {
                 "data-bookmark-drop": "root",
@@ -1185,6 +1050,7 @@ fn BookmarksSection(
                                                 folders: folders.clone(),
                                                 folder_rows: folder_rows.clone(),
                                                 active_page: active_page.clone(),
+                                                smart: smart.clone(),
                                             }
                                         },
                                         BookmarkNode::Folder(_) => rsx! {},
@@ -1199,351 +1065,6 @@ fn BookmarksSection(
                                     }
                                 }
                             }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn VaultCard(pane_id: u64, vault: vmux_core::vault::VaultSnapshot, loaded: bool) -> Element {
-    let pending = vault
-        .dirty
-        .saturating_add(vault.ahead)
-        .saturating_add(vault.behind);
-    let detail = if !loaded {
-        translate("common-loading")
-    } else if !vault.initialized || vault.remote.is_empty() {
-        translate("vault-not-connected")
-    } else if vault.sync_failed {
-        translate("vault-backup-failed")
-    } else if pending > 0 {
-        translate_with(
-            "vault-change-count",
-            &[("count", TranslationValue::Number(pending as i64))],
-        )
-    } else {
-        translate("vault-clean")
-    };
-    rsx! {
-        button {
-            r#type: "button",
-            title: translate("vault-open"),
-            class: "glass mb-2 flex shrink-0 cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-glass-hover",
-            onclick: move |_| open_vault(pane_id),
-            div { class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-violet-500/10 text-violet-300 ring-1 ring-inset ring-violet-500/20",
-                Icon { class: "h-4 w-4",
-                    path { d: "M12 3 4.5 6v5.5c0 4.7 3.2 8.1 7.5 9.5 4.3-1.4 7.5-4.8 7.5-9.5V6Z" }
-                    path { d: "m9 12 2 2 4-4" }
-                }
-            }
-            div { class: "min-w-0 flex-1",
-                div { class: "text-ui font-semibold text-foreground", {translate("vault-title")} }
-                div { class: "truncate text-[10px] text-foreground/65", "{detail}" }
-            }
-            if loaded && vault.initialized && !vault.remote.is_empty() {
-                span { class: if vault.sync_failed {
-                        "size-1.5 rounded-full bg-ansi-1"
-                    } else if pending > 0 {
-                        "size-1.5 rounded-full bg-amber-500"
-                    } else {
-                        "size-1.5 rounded-full bg-success"
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn KnowledgeCard(
-    pane_id: u64,
-    knowledge: KnowledgeTreeEvent,
-    search: KnowledgeSearchEvent,
-    loaded: bool,
-    expanded: bool,
-) -> Element {
-    let mut query = use_signal(String::new);
-    let create_prompt = use_signal(|| None::<KnowledgeCreatePrompt>);
-    let create_draft = use_signal(String::new);
-    let mut create_error = use_signal(String::new);
-    let _create_listener =
-        use_listener::<KnowledgeCreateResult, _>(KNOWLEDGE_CREATE_RESULT_EVENT, move |result| {
-            if result.ok {
-                create_error.set(String::new());
-                if !result.is_directory {
-                    open_knowledge_path(pane_id, result.path);
-                }
-            } else {
-                create_error.set(result.error);
-            }
-        });
-    let root = knowledge.root.clone();
-    let landing_path = knowledge
-        .entries
-        .iter()
-        .find(|entry| {
-            !entry.is_directory
-                && entry.parent == knowledge.root
-                && entry.name.eq_ignore_ascii_case("welcome.md")
-        })
-        .map(|entry| entry.path.clone())
-        .unwrap_or_else(|| root.clone());
-    let root_title = compact_knowledge_path(&root);
-    let root_action_title = if landing_path != root {
-        translate("layout-open-welcome-knowledge")
-    } else if root.is_empty() {
-        translate("layout-knowledge")
-    } else {
-        translate_with(
-            "layout-open-path",
-            &[("path", TranslationValue::String(&root))],
-        )
-    };
-    let knowledge_title = translate("layout-knowledge");
-    let entries_by_parent = Rc::new(knowledge.entries.iter().cloned().fold(
-        HashMap::<String, Vec<KnowledgeEntry>>::new(),
-        |mut grouped, entry| {
-            grouped.entry(entry.parent.clone()).or_default().push(entry);
-            grouped
-        },
-    ));
-    let fold_title = if expanded {
-        translate("layout-fold-knowledge")
-    } else {
-        translate("layout-unfold-knowledge")
-    };
-    rsx! {
-        div { class: "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
-            LayoutContextMenu {
-                ContextMenuTrigger { attributes: vec![],
-                    div { class: "flex items-center transition-colors hover:bg-glass-hover",
-                        button {
-                            r#type: "button",
-                            disabled: !loaded || root.is_empty(),
-                            title: "{root_action_title}",
-                            class: "flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2 text-left enabled:cursor-pointer disabled:cursor-default",
-                            onclick: move |_| open_knowledge_path(pane_id, landing_path.clone()),
-                            div { class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/10",
-                                Icon { class: "h-3.5 w-3.5",
-                                    path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
-                                }
-                            }
-                            div { class: "min-w-0 flex-1",
-                                div { class: "text-ui font-semibold text-foreground", "{knowledge_title}" }
-                                div { class: "truncate text-[10px] text-muted-foreground", "{root_title}" }
-                            }
-                        }
-                        button {
-                            r#type: "button",
-                            aria_label: "{fold_title}",
-                            title: "{fold_title}",
-                            class: if expanded {
-                                "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground"
-                            } else {
-                                "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm bg-foreground/10 text-foreground"
-                            },
-                            onclick: move |_| set_side_sheet_section(pane_id, "knowledge", !expanded),
-                            Icon {
-                                class: if expanded { SIDEBAR_CARD_CHEVRON_OPEN } else { SIDEBAR_CARD_CHEVRON_CLOSED },
-                                path { d: "m9 18 6-6-6-6" }
-                            }
-                        }
-                    }
-                }
-                KnowledgeCreateMenu {
-                    parent: root.clone(),
-                    prompt: create_prompt,
-                    draft: create_draft,
-                    error: create_error,
-                    expand: None,
-                    expand_section_for_pane: Some(pane_id),
-                    disabled: !loaded || root.is_empty(),
-                }
-            }
-            div { class: if expanded {
-                    "grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                } else {
-                    "grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                },
-                div { class: "overflow-hidden",
-                    div { class: "border-t border-foreground/10 p-1.5",
-                        if !loaded {
-                            div { class: "px-2 py-2 text-ui-xs text-muted-foreground", {translate("layout-loading")} }
-                        } else if !knowledge.error.is_empty() {
-                            div { class: "px-2 py-2 text-ui-xs text-destructive", "{knowledge.error}" }
-                        } else {
-                            if !create_error().is_empty() {
-                                div { class: "px-2 py-2 text-ui-xs text-destructive", "{create_error}" }
-                            }
-                            if let Some(current) = create_prompt().filter(|current| current.parent == root) {
-                                KnowledgeCreateInput {
-                                    kind: current.kind,
-                                    draft: create_draft,
-                                    prompt: create_prompt,
-                                }
-                            }
-                            if knowledge.entries.is_empty() {
-                                div { class: "px-2 py-2 text-ui-xs text-muted-foreground", {translate("layout-no-markdown-files")} }
-                            } else {
-                                div { class: "mb-1.5 flex h-8 items-center gap-1.5 rounded-md bg-foreground/[0.05] px-2 ring-1 ring-inset ring-foreground/10",
-                                    Icon { class: "h-3.5 w-3.5 shrink-0 text-muted-foreground",
-                                        circle { cx: "11", cy: "11", r: "8" }
-                                        path { d: "m21 21-4.35-4.35" }
-                                    }
-                                    input {
-                                        r#type: "search",
-                                        value: "{query}",
-                                        placeholder: translate("knowledge-search"),
-                                        class: "min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none placeholder:text-muted-foreground",
-                                        oninput: move |event| {
-                                            let value = event.value();
-                                            query.set(value.clone());
-                                            let _ = send(&KnowledgeSearchRequest { query: value });
-                                        },
-                                    }
-                                }
-                                if !query().is_empty() {
-                                    div { class: "flex max-h-64 flex-col gap-0.5 overflow-y-auto",
-                                        if search.matches.is_empty() {
-                                            div { class: "px-2 py-2 text-ui-xs text-muted-foreground", {translate("knowledge-no-match")} }
-                                        }
-                                        for result in search.matches.iter() {
-                                            {
-                                                let path = result.path.clone();
-                                                let line = result.line;
-                                                rsx! {
-                                                    button {
-                                                        key: "{result.path}:{result.line}",
-                                                        r#type: "button",
-                                                        title: "{result.path}:{result.line}",
-                                                        class: "rounded-md px-2 py-1.5 text-left hover:bg-glass-hover",
-                                                        onclick: move |_| open_knowledge_result(pane_id, path.clone(), line),
-                                                        div { class: "truncate text-ui font-medium text-foreground", "{result.title}" }
-                                                        if !result.preview.is_empty() {
-                                                            div { class: "line-clamp-2 text-[10px] text-muted-foreground", "{result.preview}" }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    div { class: SIDEBAR_TREE_SCROLLER,
-                                        div { class: "{SIDEBAR_TREE_COLUMN} gap-0.5",
-                                            for entry in entries_by_parent.get(&knowledge.root).into_iter().flatten() {
-                                                KnowledgeEntryRow {
-                                                    key: "{entry.path}",
-                                                    entry: entry.clone(),
-                                                    entries_by_parent: entries_by_parent.clone(),
-                                                    pane_id,
-                                                    prompt: create_prompt,
-                                                    draft: create_draft,
-                                                    error: create_error,
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ToolsCard(pane_id: u64, tools: ToolsSnapshot, loaded: bool, expanded: bool) -> Element {
-    let tools_title = translate("tools-title");
-    let fold_title = if expanded {
-        translate("tools-fold")
-    } else {
-        translate("tools-unfold")
-    };
-    rsx! {
-        div { class: "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
-            div { class: "flex items-center transition-colors hover:bg-glass-hover",
-                button {
-                    r#type: "button",
-                    title: translate("tools-open"),
-                    class: "flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2.5 py-2 text-left",
-                    onclick: move |_| open_tools(pane_id),
-                    div { class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/10",
-                        {rsx! { BuiltinIconView { icon: vmux_core::BuiltinIcon::Hammer, class: "h-4 w-4" } }}
-                    }
-                    div { class: "min-w-0 flex-1",
-                        div { class: "flex items-baseline gap-1.5",
-                            span { class: "text-ui font-semibold text-foreground", "{tools_title}" }
-                            if loaded {
-                                span { class: "text-[10px] tabular-nums text-muted-foreground/70", "{tools.installed}" }
-                            }
-                        }
-                        div { class: "mt-0.5 flex min-w-0 flex-nowrap items-center gap-x-2 overflow-hidden text-[10px] text-foreground/65",
-                            if loaded {
-                                if tools.updates == 0 && tools.conflicts == 0 {
-                                    span { class: "whitespace-nowrap", {translate("common-installed")} }
-                                }
-                                if tools.updates > 0 {
-                                    span { class: "flex whitespace-nowrap items-center gap-1",
-                                        span { class: "size-1.5 rounded-full bg-amber-500" }
-                                        {translate_with(
-                                            "tools-update-count",
-                                            &[("count", TranslationValue::Number(tools.updates as i64))],
-                                        )}
-                                    }
-                                }
-                                if tools.conflicts > 0 {
-                                    span { class: "flex whitespace-nowrap items-center gap-1",
-                                        span { class: "size-1.5 rounded-full bg-rose-500" }
-                                        {translate_with(
-                                            "tools-conflict-count",
-                                            &[("count", TranslationValue::Number(tools.conflicts as i64))],
-                                        )}
-                                    }
-                                }
-                            } else {
-                                {translate("tools-scanning")}
-                            }
-                        }
-                    }
-                }
-                button {
-                    r#type: "button",
-                    aria_label: "{fold_title}",
-                    title: "{fold_title}",
-                    class: if expanded {
-                        "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground"
-                    } else {
-                        "mr-2 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm bg-foreground/10 text-foreground"
-                    },
-                    onclick: move |_| set_side_sheet_section(pane_id, "tools", !expanded),
-                    Icon {
-                        class: if expanded { SIDEBAR_CARD_CHEVRON_OPEN } else { SIDEBAR_CARD_CHEVRON_CLOSED },
-                        path { d: "m9 18 6-6-6-6" }
-                    }
-                }
-            }
-            div { class: if expanded {
-                    "grid grid-rows-[1fr] opacity-100 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                } else {
-                    "grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-200 ease-out"
-                },
-                div { class: "overflow-hidden",
-                    div { class: "border-t border-foreground/10 p-1.5",
-                        if !loaded {
-                            div { class: "px-2 py-2 text-ui-xs text-muted-foreground", {translate("tools-scanning")} }
-                        } else if tools.categories.iter().all(|category| category.items.is_empty()) {
-                            div { class: "px-2 py-2 text-ui-xs text-muted-foreground", {translate("tools-no-installed")} }
-                        } else {
-                            div { class: "flex flex-col gap-0.5",
-                                for category in tools.categories.iter().filter(|category| !category.items.is_empty()) {
-                                    ToolCategoryRow { key: "{category.provider.id()}", category: category.clone(), pane_id }
-                                }
                             }
                         }
                     }
@@ -1778,83 +1299,6 @@ fn bookmark_folder_choices(nodes: &[BookmarkNode]) -> Vec<BookmarkFolderChoice> 
         &mut output,
     );
     output
-}
-
-fn toggle_knowledge_dir(pane_id: u64, path: String) {
-    let _ = send(&vmux_core::knowledge::KnowledgeTreeToggle {
-        path,
-        pane_id: pane_id.to_string(),
-    });
-}
-
-fn open_project_path(pane_id: u64, path: String) {
-    let _ = send(&crate::event::SideSheetCommandEvent {
-        command: "open_project_path".to_string(),
-        pane_id: pane_id.to_string(),
-        stack_id: 0,
-        line: 0,
-        path,
-    });
-}
-
-fn open_knowledge_path(pane_id: u64, path: String) {
-    open_knowledge_result(pane_id, path, 0);
-}
-
-fn open_knowledge_result(pane_id: u64, path: String, line: u32) {
-    let _ = send(&crate::event::SideSheetCommandEvent {
-        command: "open_knowledge_path".to_string(),
-        pane_id: pane_id.to_string(),
-        stack_id: 0,
-        line,
-        path,
-    });
-}
-
-fn compact_knowledge_path(path: &str) -> String {
-    path.rfind("/.vmux/")
-        .map(|index| format!("~{}", &path[index..]))
-        .unwrap_or_else(|| path.to_string())
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum KnowledgeCreateKind {
-    File,
-    Folder,
-}
-
-#[derive(Clone, PartialEq, Eq)]
-struct KnowledgeCreatePrompt {
-    parent: String,
-    kind: KnowledgeCreateKind,
-}
-
-fn begin_knowledge_create(
-    mut prompt: Signal<Option<KnowledgeCreatePrompt>>,
-    mut draft: Signal<String>,
-    mut error: Signal<String>,
-    parent: String,
-    kind: KnowledgeCreateKind,
-) {
-    draft.set(String::new());
-    error.set(String::new());
-    prompt.set(Some(KnowledgeCreatePrompt { parent, kind }));
-}
-
-fn submit_knowledge_create(mut prompt: Signal<Option<KnowledgeCreatePrompt>>, name: String) {
-    let Some(current) = prompt() else {
-        return;
-    };
-    let name = name.trim().to_string();
-    prompt.set(None);
-    if name.is_empty() {
-        return;
-    }
-    let _ = send(&KnowledgeCreateRequest {
-        parent: current.parent,
-        name,
-        is_directory: current.kind == KnowledgeCreateKind::Folder,
-    });
 }
 
 #[component]
@@ -2124,42 +1568,6 @@ fn NavButton(
 }
 
 #[component]
-fn KnowledgeGitIndicator(status: KnowledgeGitStatus) -> Element {
-    let (class, title) = match status {
-        KnowledgeGitStatus::Clean => return rsx! {},
-        KnowledgeGitStatus::Added => ("bg-ansi-2", translate("git-status-untracked")),
-        KnowledgeGitStatus::Modified => ("bg-ansi-3", translate("git-status-modified")),
-        KnowledgeGitStatus::Deleted => ("bg-ansi-1", translate("git-status-deleted")),
-    };
-    rsx! {
-        span {
-            class: "h-2 w-2 shrink-0 rounded-full {class}",
-            title: "{title}",
-        }
-    }
-}
-
-fn open_tools(pane_id: u64) {
-    let _ = send(&crate::event::SideSheetCommandEvent {
-        command: "open_tools".to_string(),
-        pane_id: pane_id.to_string(),
-        stack_id: 0,
-        line: 0,
-        path: String::new(),
-    });
-}
-
-fn open_vault(pane_id: u64) {
-    let _ = send(&crate::event::SideSheetCommandEvent {
-        command: "open_vault".to_string(),
-        pane_id: pane_id.to_string(),
-        stack_id: 0,
-        line: 0,
-        path: String::new(),
-    });
-}
-
-#[component]
 fn HeaderAddressBar(active_row: Option<StackRow>, bg_color: Option<String>) -> Element {
     let has_content = active_row.as_ref().is_some_and(|row| !row.url.is_empty());
     let address = active_row.map(|row| row.address).unwrap_or_default();
@@ -2309,64 +1717,6 @@ fn ExtensionBar(extensions: Vec<ExtRow>) -> Element {
 }
 
 #[component]
-fn TabBoundaryPanel(boundary: crate::event::TabBoundary) -> Element {
-    let b = boundary;
-    rsx! {
-        div { class: "flex flex-col gap-1.5 border-t border-foreground/10 px-2.5 py-2",
-            div { class: "flex items-center gap-1.5 text-muted-foreground",
-                Icon { class: "h-3.5 w-3.5 shrink-0",
-                    path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
-                }
-                span {
-                    class: "min-w-0 flex-1 truncate text-xs [direction:rtl]",
-                    title: "{b.effective_dir}",
-                    bdi { class: "[direction:ltr] [unicode-bidi:isolate]", "{b.effective_dir}" }
-                }
-            }
-            if b.is_git_repo {
-                div { class: "flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground",
-                    span { class: "flex min-w-0 items-center gap-1",
-                        Icon { class: "h-3 w-3 shrink-0 opacity-80",
-                            path { d: "M6 3v12" }
-                            path { d: "M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" }
-                            path { d: "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" }
-                            path { d: "M18 9a9 9 0 0 1-9 9" }
-                        }
-                        span { class: "min-w-0 truncate text-foreground/90", "{b.branch}" }
-                    }
-                    if b.is_worktree {
-                        span { class: "shrink-0 rounded bg-foreground/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
-                            {translate("layout-worktree")}
-                        }
-                    }
-                    if b.uncommitted > 0 {
-                        span { class: "shrink-0 text-amber-400/90", "● {b.uncommitted}" }
-                    }
-                    if b.ahead > 0 {
-                        span { class: "shrink-0", "↑ {b.ahead}" }
-                    }
-                    if b.is_worktree && !b.base_ref.is_empty() {
-                        span { class: "shrink-0 opacity-60", "← {b.base_ref}" }
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn tools_provider_title(provider: vmux_core::tools::ToolProvider) -> String {
-    translate(match provider {
-        vmux_core::tools::ToolProvider::HomebrewFormula => "tools-provider-homebrew-formulae",
-        vmux_core::tools::ToolProvider::HomebrewCask => "tools-provider-homebrew-casks",
-        vmux_core::tools::ToolProvider::Npm => "tools-provider-npm",
-        vmux_core::tools::ToolProvider::Acp => "tools-provider-acp-agents",
-        vmux_core::tools::ToolProvider::Lsp => "tools-provider-lsp-servers",
-        vmux_core::tools::ToolProvider::Mcp => "tools-provider-mcp-servers",
-        vmux_core::tools::ToolProvider::Dotfiles => "tools-provider-dotfiles",
-    })
-}
-
-#[component]
 fn PinTile(row: BookmarkRow) -> Element {
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let url_open = row.metadata.url.clone();
@@ -2376,8 +1726,11 @@ fn PinTile(row: BookmarkRow) -> Element {
         uuid: row.uuid.clone(),
     };
     rsx! {
-        LayoutContextMenu {
-            ContextMenuTrigger { attributes: vec![],
+        BookmarkContextMenu {
+            command: "menu_pin".to_string(),
+            uuid: Some(row.uuid.clone()),
+            metadata: None,
+            trigger: rsx! {
                 div {
                     "data-bookmark-drag-source": "true",
                     onpointerdown: {
@@ -2404,32 +1757,34 @@ fn PinTile(row: BookmarkRow) -> Element {
                         icon_class: "h-5 w-5 shrink-0 text-muted-foreground".to_string(),
                     }
                 }
-            }
-            SideSheetContextMenuContent {
-                ContextMenuItem {
-                    index: 0usize,
-                    value: Into::<ReadSignal<String>>::into(menu_val),
-                    on_select: { let u = url_open.clone(); move |_: String| open_bookmark(u.clone()) },
-                    attributes: vec![],
-                    {translate("common-open")}
-                }
-                ContextMenuItem {
-                    index: 1usize,
-                    value: Into::<ReadSignal<String>>::into(menu_val),
-                    on_select: { let id = uuid_unpin.clone(); move |_: String| bookmark_cmd("unpin", Some(id.clone())) },
-                    attributes: vec![],
-                    {translate("layout-unpin-page")}
-                }
-                if row.bookmarked {
+            },
+            menu: rsx! {
+                SideSheetContextMenuContent {
                     ContextMenuItem {
-                        index: 2usize,
+                        index: 0usize,
                         value: Into::<ReadSignal<String>>::into(menu_val),
-                        on_select: { let id = row.uuid.clone(); move |_: String| bookmark_cmd("remove", Some(id.clone())) },
+                        on_select: { let u = url_open.clone(); move |_: String| open_bookmark(u.clone()) },
                         attributes: vec![],
-                        {translate("layout-remove-bookmark")}
+                        {translate("common-open")}
+                    }
+                    ContextMenuItem {
+                        index: 1usize,
+                        value: Into::<ReadSignal<String>>::into(menu_val),
+                        on_select: { let id = uuid_unpin.clone(); move |_: String| bookmark_cmd("unpin", Some(id.clone())) },
+                        attributes: vec![],
+                        {translate("layout-unpin-page")}
+                    }
+                    if row.bookmarked {
+                        ContextMenuItem {
+                            index: 2usize,
+                            value: Into::<ReadSignal<String>>::into(menu_val),
+                            on_select: { let id = row.uuid.clone(); move |_: String| bookmark_cmd("remove", Some(id.clone())) },
+                            attributes: vec![],
+                            {translate("layout-remove-bookmark")}
+                        }
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -2758,6 +2113,7 @@ fn BookmarkFolder(
     folders: Vec<BookmarkFolderChoice>,
     folder_rows: Vec<FolderRow>,
     active_page: Option<StackNode>,
+    smart: SmartBookmarkContent,
 ) -> Element {
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let uuid = folder.uuid.clone();
@@ -2768,6 +2124,26 @@ fn BookmarkFolder(
     let child_draft = use_signal(|| translate("layout-new-folder"));
     let menu_val = use_signal(|| folder.uuid.clone());
     let new_folder_uuid = uuid.clone();
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    let menu_action_uuid = uuid.clone();
+    let menu_action_name = folder.name.clone();
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.uuid.as_deref() != Some(menu_action_uuid.as_str()) {
+            return;
+        }
+        match action.action.as_str() {
+            "new_folder" => begin_new_folder(creating_child, child_draft),
+            "rename" => begin_inline_rename(editing, draft, menu_action_name.clone()),
+            _ => {}
+        }
+    });
     let mut move_targets = Vec::new();
     if parent_uuid.is_some() {
         move_targets.push((None, translate("layout-move-to-bookmarks")));
@@ -2796,8 +2172,15 @@ fn BookmarkFolder(
             child_folders += 1;
         }
     }
-    let child_count = child_folders + folder.children.len();
-    let folder_is_empty = child_count == 0;
+    let smart_count = folder.smart.map_or(0, |kind| smart.count(kind));
+    let child_count = child_folders + folder.children.len() + smart_count;
+    let folder_is_empty = child_count == 0 && folder.smart.is_none();
+    let active_metadata = active_page.clone().map(|page| PageMetadata {
+        title: page.title,
+        url: page.url,
+        icon: page.icon,
+        bg_color: page.bg_color,
+    });
 
     rsx! {
         div {
@@ -2828,9 +2211,11 @@ fn BookmarkFolder(
                     }
                 }
             } else {
-                LayoutContextMenu {
-                    ContextMenuTrigger {
-                        attributes: vec![],
+                BookmarkContextMenu {
+                    command: "menu_folder".to_string(),
+                    uuid: Some(folder.uuid.clone()),
+                    metadata: active_metadata,
+                    trigger: rsx! {
                         div {
                             "data-bookmark-drag-source": "true",
                             class: if folder_targeted { "rounded-md ring-2 ring-ring" } else { "rounded-md" },
@@ -2865,8 +2250,9 @@ fn BookmarkFolder(
                                 }
                             }
                         }
-                    }
-                    SideSheetContextMenuContent {
+                    },
+                    menu: rsx! {
+                        SideSheetContextMenuContent {
                         ContextMenuItem {
                             index: 0usize,
                             value: Into::<ReadSignal<String>>::into(menu_val),
@@ -2942,7 +2328,8 @@ fn BookmarkFolder(
                             attributes: vec![],
                             {translate("layout-remove-folder")}
                         }
-                    }
+                        }
+                    },
                 }
             }
             if creating_child() {
@@ -2978,7 +2365,11 @@ fn BookmarkFolder(
                             folders: folders.clone(),
                             folder_rows: folder_rows.clone(),
                             active_page: active_page.clone(),
+                            smart: smart.clone(),
                         }
+                    }
+                    if let Some(kind) = folder.smart {
+                        SmartBookmarkRows { kind, smart: smart.clone() }
                     }
                     for bookmark in folder.children.iter() {
                         BookmarkEntry {
@@ -2992,6 +2383,366 @@ fn BookmarkFolder(
                         div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-empty-folder")} }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartBookmarkRows(kind: vmux_core::SmartBookmarkFolder, smart: SmartBookmarkContent) -> Element {
+    match kind {
+        vmux_core::SmartBookmarkFolder::Projects => rsx! {
+            if smart.projects.is_empty() {
+                div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-no-project-selected")} }
+            } else {
+                for project in smart.projects.iter().cloned() {
+                    SmartProjectRow { project, pane_id: smart.pane_id }
+                }
+            }
+        },
+        vmux_core::SmartBookmarkFolder::Knowledge => rsx! {
+            SmartKnowledgeRows {
+                knowledge: smart.knowledge.clone(),
+                loaded: smart.knowledge_loaded,
+                pane_id: smart.pane_id,
+            }
+        },
+        vmux_core::SmartBookmarkFolder::Tools => rsx! {
+            SmartToolsRows {
+                tools: smart.tools.clone(),
+                loaded: smart.tools_loaded,
+                pane_id: smart.pane_id,
+            }
+        },
+    }
+}
+
+fn emit_project_command(command: &str, path: Option<String>) {
+    let _ = send(&vmux_wire::space::ProjectCommandEvent {
+        command: command.to_string(),
+        path,
+    });
+}
+
+fn open_project_path(pane_id: u64, path: String) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_project_path".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path,
+    });
+}
+
+#[component]
+fn SmartProjectRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Element {
+    let tree = project.kind.opens_a_tree();
+    let root = matches!(project.kind, vmux_core::event::ProjectRowKind::Project);
+    let activate = project.path.clone();
+    let forget = project.path.clone();
+    let forget_title = translate("layout-project-forget");
+    let activate_title = translate("layout-project-activate");
+    rsx! {
+        SidebarTreeRowGroup {
+            SidebarTreeRow {
+                path: project.path.clone(),
+                label: project.label.clone(),
+                is_dir: tree,
+                expanded: project.expanded,
+                depth: project.depth,
+                emphasis: root,
+                title: project.display_path.clone(),
+                on_activate: move |()| match tree {
+                    true => {
+                        let _ = send(&vmux_core::event::ProjectTreeToggle {
+                            path: activate.clone(),
+                            pane_id: pane_id.to_string(),
+                        });
+                    }
+                    false => open_project_path(pane_id, activate.clone()),
+                },
+                label_suffix: rsx! {
+                    if !project.branch.is_empty() {
+                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
+                    }
+                },
+            }
+            if root {
+                if project.is_active {
+                    span {
+                        aria_label: "{activate_title}",
+                        title: "{activate_title}",
+                        class: "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground",
+                        Icon { class: "h-3.5 w-3.5 pointer-events-none",
+                            path { d: "M12 17v5" }
+                            path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
+                        }
+                    }
+                }
+                button {
+                    r#type: "button",
+                    aria_label: "{forget_title}",
+                    title: "{forget_title}",
+                    class: "mr-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground",
+                    onclick: move |_| emit_project_command("forget", Some(forget.clone())),
+                    Icon { class: "h-3 w-3 pointer-events-none",
+                        path { d: "M18 6 6 18M6 6l12 12" }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn toggle_knowledge_dir(pane_id: u64, path: String) {
+    let _ = send(&vmux_core::knowledge::KnowledgeTreeToggle {
+        path,
+        pane_id: pane_id.to_string(),
+    });
+}
+
+fn open_knowledge_path(pane_id: u64, path: String) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_knowledge_path".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path,
+    });
+}
+
+#[component]
+fn SmartKnowledgeRows(knowledge: KnowledgeTreeEvent, loaded: bool, pane_id: u64) -> Element {
+    if !loaded {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-loading")} }
+        };
+    }
+    if !knowledge.error.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-destructive", "{knowledge.error}" }
+        };
+    }
+    if knowledge.entries.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-no-markdown-files")} }
+        };
+    }
+    let entries_by_parent = Rc::new(knowledge.entries.iter().cloned().fold(
+        HashMap::<String, Vec<KnowledgeEntry>>::new(),
+        |mut grouped, entry| {
+            grouped.entry(entry.parent.clone()).or_default().push(entry);
+            grouped
+        },
+    ));
+    rsx! {
+        for entry in entries_by_parent.get(&knowledge.root).into_iter().flatten() {
+            SmartKnowledgeRow {
+                key: "{entry.path}",
+                entry: entry.clone(),
+                entries_by_parent: entries_by_parent.clone(),
+                pane_id,
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartKnowledgeRow(
+    entry: KnowledgeEntry,
+    entries_by_parent: Rc<HashMap<String, Vec<KnowledgeEntry>>>,
+    pane_id: u64,
+) -> Element {
+    if entry.is_directory {
+        let children = entries_by_parent.get(&entry.path);
+        let toggle_path = entry.path.clone();
+        return rsx! {
+            div { class: "flex flex-col",
+                SidebarTreeRowGroup {
+                    SidebarTreeRow {
+                        path: entry.path.clone(),
+                        label: entry.name.clone(),
+                        is_dir: true,
+                        expanded: entry.expanded,
+                        emphasis: true,
+                        on_activate: move |()| toggle_knowledge_dir(pane_id, toggle_path.clone()),
+                        trailing: rsx! { KnowledgeGitIndicator { status: entry.git_status } },
+                    }
+                }
+                SidebarTreeChildren { expanded: entry.expanded,
+                    div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
+                        if let Some(children) = children {
+                            for child in children {
+                                SmartKnowledgeRow {
+                                    key: "{child.path}",
+                                    entry: child.clone(),
+                                    entries_by_parent: entries_by_parent.clone(),
+                                    pane_id,
+                                }
+                            }
+                        } else {
+                            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-empty-folder")} }
+                        }
+                    }
+                }
+            }
+        };
+    }
+    let path = entry.path.clone();
+    let title = if entry.title.is_empty() {
+        entry.name.clone()
+    } else {
+        entry.title.clone()
+    };
+    rsx! {
+        SidebarTreeRowGroup {
+            SidebarTreeRow {
+                path: entry.path.clone(),
+                label: title,
+                is_dir: false,
+                on_activate: move |()| open_knowledge_path(pane_id, path.clone()),
+                trailing: rsx! { KnowledgeGitIndicator { status: entry.git_status } },
+            }
+        }
+    }
+}
+
+#[component]
+fn KnowledgeGitIndicator(status: KnowledgeGitStatus) -> Element {
+    let (class, title) = match status {
+        KnowledgeGitStatus::Clean => return rsx! {},
+        KnowledgeGitStatus::Added => ("bg-ansi-2", translate("git-status-untracked")),
+        KnowledgeGitStatus::Modified => ("bg-ansi-3", translate("git-status-modified")),
+        KnowledgeGitStatus::Deleted => ("bg-ansi-1", translate("git-status-deleted")),
+    };
+    rsx! {
+        span { class: "h-2 w-2 shrink-0 rounded-full {class}", title: "{title}" }
+    }
+}
+
+fn open_tools(pane_id: u64) {
+    let _ = send(&crate::event::SideSheetCommandEvent {
+        command: "open_tools".to_string(),
+        pane_id: pane_id.to_string(),
+        stack_id: 0,
+        line: 0,
+        path: String::new(),
+    });
+}
+
+#[component]
+fn SmartToolsRows(tools: ToolsSnapshot, loaded: bool, pane_id: u64) -> Element {
+    if !loaded {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("tools-scanning")} }
+        };
+    }
+    if !tools.error.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-destructive", "{tools.error}" }
+        };
+    }
+    let categories = tools
+        .categories
+        .iter()
+        .filter(|category| !category.items.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    if categories.is_empty() {
+        return rsx! {
+            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("tools-no-installed")} }
+        };
+    }
+    rsx! {
+        for category in categories {
+            SmartToolCategoryRow { key: "{category.provider.id()}", category, pane_id }
+        }
+    }
+}
+
+fn tools_provider_title(provider: vmux_core::tools::ToolProvider) -> String {
+    translate(match provider {
+        vmux_core::tools::ToolProvider::HomebrewFormula => "tools-provider-homebrew-formulae",
+        vmux_core::tools::ToolProvider::HomebrewCask => "tools-provider-homebrew-casks",
+        vmux_core::tools::ToolProvider::Npm => "tools-provider-npm",
+        vmux_core::tools::ToolProvider::Acp => "tools-provider-acp-agents",
+        vmux_core::tools::ToolProvider::Lsp => "tools-provider-lsp-servers",
+        vmux_core::tools::ToolProvider::Mcp => "tools-provider-mcp-servers",
+        vmux_core::tools::ToolProvider::Dotfiles => "tools-provider-dotfiles",
+    })
+}
+
+#[component]
+fn SmartToolCategoryRow(category: ToolCategory, pane_id: u64) -> Element {
+    let mut expanded = use_signal(|| false);
+    let updates = category
+        .items
+        .iter()
+        .filter(|item| item.status == ToolStatus::Outdated)
+        .count();
+    let conflicts = category
+        .items
+        .iter()
+        .filter(|item| item.status == ToolStatus::Conflict)
+        .count();
+    rsx! {
+        div { class: "flex flex-col gap-0.5",
+            button {
+                r#type: "button",
+                class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
+                onclick: move |_| expanded.set(!expanded()),
+                Icon {
+                    class: if expanded() { SIDEBAR_TREE_CHEVRON_OPEN } else { SIDEBAR_TREE_CHEVRON_CLOSED },
+                    path { d: "m9 18 6-6-6-6" }
+                }
+                span { class: "min-w-0 flex-1 truncate text-ui font-medium", {tools_provider_title(category.provider)} }
+                if updates > 0 {
+                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
+                        span { class: "size-1 rounded-full bg-amber-500" }
+                        "{updates}"
+                    }
+                }
+                if conflicts > 0 {
+                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
+                        span { class: "size-1 rounded-full bg-rose-500" }
+                        "{conflicts}"
+                    }
+                }
+                span { class: "text-[10px] tabular-nums text-muted-foreground/70", "{category.items.len()}" }
+            }
+            if expanded() {
+                div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
+                    for item in category.items.iter() {
+                        SmartToolItemRow { key: "{item.id}", item: item.clone(), pane_id }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn SmartToolItemRow(item: ToolItem, pane_id: u64) -> Element {
+    let status_class = match item.status {
+        ToolStatus::Installed => "bg-success",
+        ToolStatus::Outdated => "bg-amber-400",
+        ToolStatus::Conflict | ToolStatus::Failed => "bg-ansi-1",
+        ToolStatus::Missing => "bg-muted-foreground/40",
+        ToolStatus::Available => "bg-cyan-400/60",
+    };
+    rsx! {
+        button {
+            r#type: "button",
+            title: tools_provider_title(item.provider),
+            class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 pl-5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
+            onclick: move |_| open_tools(pane_id),
+            span { class: "size-1.5 shrink-0 rounded-full {status_class}" }
+            span { class: "min-w-0 flex-1 truncate text-ui", "{item.name}" }
+            if item.managed {
+                span { class: "text-[9px] text-cyan-300/80", {translate("tools-managed")} }
+            }
+            if let Some(version) = item.version.as_ref() {
+                span { class: "max-w-20 truncate text-[9px] text-muted-foreground/60", "{version}" }
             }
         }
     }
@@ -3021,6 +2772,21 @@ fn BookmarkEntry(
     };
     let mut editing = use_signal(|| false);
     let draft = use_signal(|| title.clone());
+    let bookmark_menu_action: Signal<BookmarkMenuActionEvent> = use_context();
+    let initial_menu_action = bookmark_menu_action.peek().sequence;
+    let mut handled_menu_action = use_signal(|| initial_menu_action);
+    let menu_action_uuid = row.uuid.clone();
+    let menu_action_name = title.clone();
+    use_effect(move || {
+        let action = bookmark_menu_action();
+        if action.sequence == handled_menu_action() {
+            return;
+        }
+        handled_menu_action.set(action.sequence);
+        if action.action == "rename" && action.uuid.as_deref() == Some(menu_action_uuid.as_str()) {
+            begin_inline_rename(editing, draft, menu_action_name.clone());
+        }
+    });
     let mut move_targets: Vec<(Option<String>, String)> = Vec::new();
     if folder_uuid.is_some() {
         move_targets.push((None, translate("layout-move-to-bookmarks")));
@@ -3067,9 +2833,11 @@ fn BookmarkEntry(
                 }
             }
         } else {
-            LayoutContextMenu {
-                ContextMenuTrigger {
-                    attributes: vec![],
+            BookmarkContextMenu {
+                command: "menu_bookmark".to_string(),
+                uuid: Some(row.uuid.clone()),
+                metadata: None,
+                trigger: rsx! {
                     div {
                         "data-bookmark-drag-source": "true",
                         onpointerdown: {
@@ -3102,8 +2870,9 @@ fn BookmarkEntry(
                             }
                         }
                     }
-                }
-                SideSheetContextMenuContent {
+                },
+                menu: rsx! {
+                    SideSheetContextMenuContent {
                     ContextMenuItem {
                         index: 0usize,
                         value: Into::<ReadSignal<String>>::into(menu_val),
@@ -3153,19 +2922,20 @@ fn BookmarkEntry(
                         attributes: vec![],
                         {translate("common-remove")}
                     }
-                }
+                    }
+                },
             }
         }
     }
 }
 
-fn request_bookmark_menu() {
+fn request_bookmark_menu(command: &str, uuid: Option<String>, metadata: Option<PageMetadata>) {
     let _ = send(&BookmarksCommandEvent {
-        command: "menu_new_folder".into(),
-        uuid: None,
+        command: command.to_string(),
+        uuid,
         name: None,
         url: None,
-        metadata: None,
+        metadata,
         folder: None,
     });
 }
@@ -3203,253 +2973,39 @@ fn LayoutContextMenu(children: Element) -> Element {
 }
 
 #[component]
-fn KnowledgeCreateMenu(
-    parent: String,
-    prompt: Signal<Option<KnowledgeCreatePrompt>>,
-    draft: Signal<String>,
-    error: Signal<String>,
-    expand: Option<EventHandler<()>>,
-    expand_section_for_pane: Option<u64>,
-    disabled: bool,
+fn BookmarkContextMenu(
+    command: String,
+    uuid: Option<String>,
+    metadata: Option<PageMetadata>,
+    trigger: Element,
+    menu: Element,
 ) -> Element {
-    let menu_value = use_signal(|| parent.clone());
-    rsx! {
-        SideSheetContextMenuContent {
-            ContextMenuItem {
-                index: 0usize,
-                value: Into::<ReadSignal<String>>::into(menu_value),
-                disabled,
-                on_select: {
-                    let parent = parent.clone();
-                    move |_: String| {
-                        if let Some(expand) = expand {
-                            expand.call(());
-                        }
-                        if let Some(pane_id) = expand_section_for_pane {
-                            set_side_sheet_section(pane_id, "knowledge", true);
-                        }
-                        begin_knowledge_create(
-                            prompt,
-                            draft,
-                            error,
-                            parent.clone(),
-                            KnowledgeCreateKind::File,
-                        );
-                    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = menu;
+        return rsx! {
+            div {
+                role: "button",
+                aria_haspopup: "menu",
+                user_select: "none",
+                oncontextmenu: move |event: Event<MouseData>| {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    request_bookmark_menu(&command, uuid.clone(), metadata.clone());
                 },
-                attributes: vec![],
-                {translate("editor-new-file")}
+                {trigger}
             }
-            ContextMenuItem {
-                index: 1usize,
-                value: Into::<ReadSignal<String>>::into(menu_value),
-                disabled,
-                on_select: {
-                    let parent = parent.clone();
-                    move |_: String| {
-                        if let Some(expand) = expand {
-                            expand.call(());
-                        }
-                        if let Some(pane_id) = expand_section_for_pane {
-                            set_side_sheet_section(pane_id, "knowledge", true);
-                        }
-                        begin_knowledge_create(
-                            prompt,
-                            draft,
-                            error,
-                            parent.clone(),
-                            KnowledgeCreateKind::Folder,
-                        );
-                    }
-                },
-                attributes: vec![],
-                {translate("editor-new-folder")}
-            }
-        }
-    }
-}
-
-#[component]
-fn KnowledgeCreateInput(
-    kind: KnowledgeCreateKind,
-    draft: Signal<String>,
-    prompt: Signal<Option<KnowledgeCreatePrompt>>,
-) -> Element {
-    let placeholder = match kind {
-        KnowledgeCreateKind::File => translate("editor-new-file"),
-        KnowledgeCreateKind::Folder => translate("editor-new-folder"),
-    };
-    rsx! {
-        div { class: "flex h-9 items-center gap-2 rounded-md border border-transparent px-2",
-            {rsx! { TypeIcon { path: "untitled.md", is_dir: kind == KnowledgeCreateKind::Folder, class: "h-4 w-4 shrink-0 text-muted-foreground" } }}
-            BookmarkNameInput {
-                draft,
-                class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
-                placeholder,
-                on_commit: move |name| submit_knowledge_create(prompt, name),
-                on_cancel: move |_| prompt.set(None),
-            }
-        }
-    }
-}
-
-#[component]
-fn KnowledgeEntryRow(
-    entry: KnowledgeEntry,
-    entries_by_parent: Rc<HashMap<String, Vec<KnowledgeEntry>>>,
-    pane_id: u64,
-    prompt: Signal<Option<KnowledgeCreatePrompt>>,
-    draft: Signal<String>,
-    error: Signal<String>,
-) -> Element {
-    let expanded = entry.expanded;
-    if entry.is_directory {
-        let children = entries_by_parent.get(&entry.path);
-        let has_children = children.is_some_and(|children| !children.is_empty());
-        let toggle_path = entry.path.clone();
-        let open_path = entry.path.clone();
-        rsx! {
-            div { class: "flex flex-col",
-                LayoutContextMenu {
-                    ContextMenuTrigger { attributes: vec![],
-                        SidebarTreeRowGroup {
-                            SidebarTreeRow {
-                                path: entry.path.clone(),
-                                label: entry.name.clone(),
-                                is_dir: true,
-                                expanded,
-                                emphasis: true,
-                                on_activate: move |()| toggle_knowledge_dir(pane_id, toggle_path.clone()),
-                                trailing: rsx! {
-                                    KnowledgeGitIndicator { status: entry.git_status }
-                                },
-                            }
-                        }
-                    }
-                    KnowledgeCreateMenu {
-                        parent: entry.path.clone(),
-                        prompt,
-                        draft,
-                        error,
-                        expand: Some(
-                            EventHandler::new(move |()| {
-                                if !expanded {
-                                    toggle_knowledge_dir(pane_id, open_path.clone());
-                                }
-                            }),
-                        ),
-                        expand_section_for_pane: None,
-                        disabled: false,
-                    }
-                }
-                SidebarTreeChildren { expanded,
-                    div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
-                        if let Some(current) = prompt().filter(|current| current.parent == entry.path) {
-                            KnowledgeCreateInput {
-                                kind: current.kind,
-                                draft,
-                                prompt,
-                            }
-                        }
-                        if has_children {
-                            for child in children.into_iter().flatten() {
-                                KnowledgeEntryRow {
-                                    key: "{child.path}",
-                                    entry: child.clone(),
-                                    entries_by_parent: entries_by_parent.clone(),
-                                    pane_id,
-                                    prompt,
-                                    draft,
-                                    error,
-                                }
-                            }
-                        } else if prompt().is_none_or(|current| current.parent != entry.path) {
-                            div { class: "px-2 py-1.5 text-ui-xs text-muted-foreground", {translate("layout-empty-folder")} }
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        let path = entry.path.clone();
-        let title = if entry.title.is_empty() {
-            entry.name.clone()
-        } else {
-            entry.title.clone()
         };
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = command;
+        let _ = uuid;
+        let _ = metadata;
         rsx! {
             LayoutContextMenu {
-                ContextMenuTrigger { attributes: vec![],
-                    SidebarTreeRowGroup {
-                        SidebarTreeRow {
-                            path: entry.path.clone(),
-                            label: title.clone(),
-                            is_dir: false,
-                            on_activate: move |()| open_knowledge_path(pane_id, path.clone()),
-                            trailing: rsx! {
-                                KnowledgeGitIndicator { status: entry.git_status }
-                            },
-                        }
-                    }
-                }
-                KnowledgeCreateMenu {
-                    parent: entry.parent.clone(),
-                    prompt,
-                    draft,
-                    error,
-                    expand: None,
-                    expand_section_for_pane: None,
-                    disabled: false,
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ToolCategoryRow(category: ToolCategory, pane_id: u64) -> Element {
-    let mut expanded = use_signal(|| false);
-    let updates = category
-        .items
-        .iter()
-        .filter(|item| item.status == ToolStatus::Outdated)
-        .count();
-    let conflicts = category
-        .items
-        .iter()
-        .filter(|item| item.status == ToolStatus::Conflict)
-        .count();
-    rsx! {
-        div { class: "flex flex-col gap-0.5",
-            button {
-                r#type: "button",
-                class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
-                onclick: move |_| expanded.set(!expanded()),
-                Icon {
-                    class: if expanded() { SIDEBAR_TREE_CHEVRON_OPEN } else { SIDEBAR_TREE_CHEVRON_CLOSED },
-                    path { d: "m9 18 6-6-6-6" }
-                }
-                span { class: "min-w-0 flex-1 truncate text-ui font-medium", {tools_provider_title(category.provider)} }
-                if updates > 0 {
-                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
-                        span { class: "size-1 rounded-full bg-amber-500" }
-                        "{updates}"
-                    }
-                }
-                if conflicts > 0 {
-                    span { class: "flex items-center gap-1 whitespace-nowrap text-[9px] text-muted-foreground",
-                        span { class: "size-1 rounded-full bg-rose-500" }
-                        "{conflicts}"
-                    }
-                }
-                span { class: "text-[10px] tabular-nums text-muted-foreground/70", "{category.items.len()}" }
-            }
-            if expanded() {
-                div { class: "ml-3 flex flex-col gap-0.5 border-l border-foreground/10 pl-1.5",
-                    for item in category.items.iter() {
-                        ToolItemRow { key: "{item.id}", item: item.clone(), pane_id }
-                    }
-                }
+                ContextMenuTrigger { attributes: vec![], {trigger} }
+                {menu}
             }
         }
     }
@@ -3734,33 +3290,6 @@ enum UpdatePhase {
     Ready {
         version: String,
     },
-}
-
-#[component]
-fn ToolItemRow(item: ToolItem, pane_id: u64) -> Element {
-    let status_class = match item.status {
-        ToolStatus::Installed => "bg-success",
-        ToolStatus::Outdated => "bg-amber-400",
-        ToolStatus::Conflict | ToolStatus::Failed => "bg-ansi-1",
-        ToolStatus::Missing => "bg-muted-foreground/40",
-        ToolStatus::Available => "bg-cyan-400/60",
-    };
-    rsx! {
-        button {
-            r#type: "button",
-            title: tools_provider_title(item.provider),
-            class: "flex h-8 cursor-pointer items-center gap-1.5 rounded-md px-1.5 pl-5 text-left text-muted-foreground hover:bg-glass-hover hover:text-foreground",
-            onclick: move |_| open_tools(pane_id),
-            span { class: "size-1.5 shrink-0 rounded-full {status_class}" }
-            span { class: "min-w-0 flex-1 truncate text-ui", "{item.name}" }
-            if item.managed {
-                span { class: "text-[9px] text-cyan-300/80", {translate("tools-managed")} }
-            }
-            if let Some(version) = item.version.as_ref() {
-                span { class: "max-w-20 truncate text-[9px] text-muted-foreground/60", "{version}" }
-            }
-        }
-    }
 }
 
 #[component]

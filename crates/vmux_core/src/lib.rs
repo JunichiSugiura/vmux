@@ -10,6 +10,7 @@ pub mod media;
 pub mod page_metadata;
 pub mod process_id;
 pub mod scroll;
+pub mod smart_bookmark_folder;
 pub mod tools;
 pub mod vault;
 pub use editor::{CursorPos, EditMode, KeymapKind, SelSpan};
@@ -17,6 +18,7 @@ pub use icon::{BuiltinIcon, PageIcon};
 pub use input::{KeyModifiers, KeyStroke};
 pub use page_metadata::PageMetadata;
 pub use process_id::ProcessId;
+pub use smart_bookmark_folder::SmartBookmarkFolder;
 
 #[cfg(host)]
 pub mod host;

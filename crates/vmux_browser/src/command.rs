@@ -4,7 +4,6 @@ use bevy::{
     winit::{EventLoopProxyWrapper, WinitUserEvent},
 };
 use bevy_cef::prelude::*;
-use std::path::Path;
 use vmux_command::{
     AppCommand, BrowserBarCommand, BrowserCommand, BrowserNavigationCommand, BrowserViewCommand,
     ReadAppCommands, open::OpenCommand,
@@ -29,7 +28,7 @@ use vmux_layout::{
 
 use vmux_terminal::{RestartPty, Terminal};
 
-use crate::{knowledge_path_url, normalize_vmux_url, project_path_url};
+use crate::normalize_vmux_url;
 pub(crate) struct CommandPlugin;
 
 impl Plugin for CommandPlugin {
@@ -289,7 +288,6 @@ fn on_side_sheet_command_emit(
     proxy: Option<Res<EventLoopProxyWrapper>>,
     mut messages: ResMut<Messages<AppCommand>>,
     mut issued: MessageWriter<vmux_command::CommandIssued>,
-    mut open_beside: MessageWriter<vmux_layout::OpenBesideRequest>,
     mut close_stack_requests: MessageWriter<CloseStackRequest>,
     user_q: Query<Entity, With<vmux_core::team::User>>,
     mut commands: Commands,
@@ -377,58 +375,6 @@ fn on_side_sheet_command_emit(
             } else {
                 commands.entity(space).insert(state);
             }
-        }
-        "open_project_path" => {
-            let Some(url) = project_path_url(Path::new(&evt.path)) else {
-                return;
-            };
-            open_beside.write(vmux_layout::OpenBesideRequest {
-                pane: target_pane,
-                direction: None,
-                url,
-                request_id: [0; 16],
-                focus: true,
-            });
-        }
-        "open_knowledge_path" => {
-            let Some(mut url) = knowledge_path_url(
-                &vmux_core::knowledge::KnowledgeVault::user().into_root(),
-                Path::new(&evt.path),
-            ) else {
-                return;
-            };
-            if evt.line > 0 && !Path::new(&evt.path).is_dir() {
-                url.push_str(&format!("#L{}", evt.line));
-            }
-            open_beside.write(vmux_layout::OpenBesideRequest {
-                pane: target_pane,
-                direction: None,
-                url,
-                request_id: [0; 16],
-                focus: true,
-            });
-        }
-        "open_tools" => {
-            commands.entity(target_pane).insert(LastActivatedAt::now());
-            let cmd = AppCommand::Browser(BrowserCommand::Open(OpenCommand::InNewStack {
-                url: Some("vmux://tools/".to_string()),
-            }));
-            issued.write(vmux_command::CommandIssued {
-                caller,
-                command: cmd.clone(),
-            });
-            messages.write(cmd);
-        }
-        "open_vault" => {
-            commands.entity(target_pane).insert(LastActivatedAt::now());
-            let cmd = AppCommand::Browser(BrowserCommand::Open(OpenCommand::InNewStack {
-                url: Some("vmux://vault/".to_string()),
-            }));
-            issued.write(vmux_command::CommandIssued {
-                caller,
-                command: cmd.clone(),
-            });
-            messages.write(cmd);
         }
         _ => {}
     }
@@ -688,11 +634,11 @@ mod tests {
     #[test]
     fn an_expanded_card_stays_expanded_on_another_tab_of_the_same_space() {
         let mut spaces = SideSheetSpaces::start();
-        spaces.expand("projects");
+        spaces.expand("bookmarks");
 
         let second_tab = spaces.second_tab;
         assert!(
-            spaces.sections_under(second_tab).projects,
+            spaces.sections_under(second_tab).bookmarks,
             "a card is expanded for the whole space, so switching tab must not fold it"
         );
     }
@@ -700,9 +646,9 @@ mod tests {
     #[test]
     fn expanding_a_card_leaves_the_other_spaces_alone() {
         let mut spaces = SideSheetSpaces::start();
-        spaces.expand("projects");
+        spaces.expand("bookmarks");
 
         let elsewhere = spaces.tab_in_other_space;
-        assert!(!spaces.sections_under(elsewhere).projects);
+        assert!(!spaces.sections_under(elsewhere).bookmarks);
     }
 }

@@ -67,6 +67,7 @@ fn build_stylesheet_bundle() {
 
     println!("cargo:rerun-if-changed=assets/index.css");
     println!("cargo:rerun-if-changed=assets/theme.css");
+    println!("cargo:rerun-if-changed=assets/favicons");
     println!("cargo:rerun-if-changed=../page/vmux_terminal/assets/fonts");
     for scanned in SCANNED {
         println!(
@@ -88,6 +89,10 @@ fn build_stylesheet_bundle() {
     copy_file(
         &manifest_dir.join("assets/theme.css"),
         &assets.join("theme.css"),
+    );
+    copy_dir(
+        &manifest_dir.join("assets/favicons"),
+        &assets.join("favicons"),
     );
     copy_dir(
         &manifest_dir.join("../page/vmux_terminal/assets/fonts"),

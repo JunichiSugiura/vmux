@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_world_serialization::WorldFilter;
 use moonshine_save::prelude::*;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use vmux_core::{Bookmark, BookmarkOrder, Collapsed, Folder, Order, PageMetadata, Pin, Uuid};
 use vmux_layout::LayoutStartupSet;
@@ -9,9 +10,12 @@ pub(crate) struct BookmarkPersistencePlugin;
 
 impl Plugin for BookmarkPersistencePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BookmarkAutoSave>()
+        app.register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
+            .init_resource::<BookmarkAutoSave>()
             .add_observer(save_on::<SaveWorld<BookmarkFilter>>)
             .add_observer(load_on::<LoadWorld<BookmarkFilter>>)
+            .add_observer(seed_default_bookmarks_after_load)
             .add_systems(
                 Startup,
                 load_bookmarks_on_startup.after(LayoutStartupSet::Persistence),
@@ -42,10 +46,15 @@ fn bookmark_scene_filter() -> WorldFilter {
         .allow::<Pin>()
         .allow::<Bookmark>()
         .allow::<Folder>()
+        .allow::<vmux_core::SmartBookmarkFolder>()
         .allow::<Collapsed>()
         .allow::<Uuid>()
         .allow::<BookmarkOrder>()
         .allow::<PageMetadata>()
+}
+
+fn bookmark_resource_filter() -> WorldFilter {
+    WorldFilter::deny_all().allow::<OfferedBookmarkDefaults>()
 }
 
 fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
@@ -57,18 +66,260 @@ fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
     }
     let mut save = SaveWorld::<BookmarkFilter>::into_file(path);
     save.components = bookmark_scene_filter();
+    save.resources = bookmark_resource_filter();
     commands.trigger_save(save);
 }
 
-fn load_bookmarks_on_startup(mut commands: Commands) {
+fn load_bookmarks_on_startup(
+    settings: Res<vmux_setting::AppSettings>,
+    pins: Query<&PageMetadata, With<Pin>>,
+    bookmarks: Query<(Entity, &PageMetadata, Has<Pin>, Option<&ChildOf>), With<Bookmark>>,
+    folders: Query<(Entity, &Name, Option<&vmux_core::SmartBookmarkFolder>), With<Folder>>,
+    orders: Query<&BookmarkOrder, BookmarkFilter>,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
     if vmux_core::profile::is_test_session() {
         return;
     }
     let path = bookmarks_path();
     if !path.exists() {
+        BookmarkDefaults::of(
+            &settings.browser.bookmarks,
+            &settings.browser.bookmark_folders,
+        )
+        .seed(
+            &pins,
+            &bookmarks,
+            &folders,
+            &orders,
+            &mut offered,
+            &mut auto,
+            &mut commands,
+        );
         return;
     }
+    commands.insert_resource(BookmarkLoadPending);
     commands.trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));
+}
+
+fn seed_default_bookmarks_after_load(
+    _trigger: On<Loaded>,
+    pending: Option<Res<BookmarkLoadPending>>,
+    settings: Res<vmux_setting::AppSettings>,
+    pins: Query<&PageMetadata, With<Pin>>,
+    bookmarks: Query<(Entity, &PageMetadata, Has<Pin>, Option<&ChildOf>), With<Bookmark>>,
+    folders: Query<(Entity, &Name, Option<&vmux_core::SmartBookmarkFolder>), With<Folder>>,
+    orders: Query<&BookmarkOrder, BookmarkFilter>,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
+    if pending.is_none() {
+        return;
+    }
+    BookmarkDefaults::of(
+        &settings.browser.bookmarks,
+        &settings.browser.bookmark_folders,
+    )
+    .seed(
+        &pins,
+        &bookmarks,
+        &folders,
+        &orders,
+        &mut offered,
+        &mut auto,
+        &mut commands,
+    );
+    commands.remove_resource::<BookmarkLoadPending>();
+}
+
+#[derive(Resource)]
+struct BookmarkLoadPending;
+
+#[derive(Resource, Reflect, Default, Clone, Debug, PartialEq, Eq)]
+#[reflect(Resource)]
+struct OfferedBookmarkDefaults {
+    urls: Vec<String>,
+    #[reflect(default)]
+    folders: Vec<String>,
+    #[reflect(default)]
+    folder_bookmarks: Vec<String>,
+}
+
+impl OfferedBookmarkDefaults {
+    fn claim_new_urls(&mut self, defaults: &[String]) -> Vec<String> {
+        let mut offered = self
+            .urls
+            .iter()
+            .map(|url| BookmarkDefaults::key(url))
+            .collect::<HashSet<_>>();
+        let mut claimed = Vec::new();
+        for url in defaults {
+            let key = BookmarkDefaults::key(url);
+            if key.is_empty() || !offered.insert(key) {
+                continue;
+            }
+            self.urls.push(url.clone());
+            claimed.push(url.clone());
+        }
+        claimed
+    }
+
+    fn claim_new_folders(
+        &mut self,
+        defaults: &[vmux_setting::BookmarkFolderSettings],
+    ) -> Vec<String> {
+        let mut offered = self
+            .folders
+            .iter()
+            .map(|name| BookmarkDefaults::key(name))
+            .collect::<HashSet<_>>();
+        let mut claimed = Vec::new();
+        for folder in defaults {
+            let key = BookmarkDefaults::key(&folder.name);
+            if key.is_empty() || !offered.insert(key) {
+                continue;
+            }
+            self.folders.push(folder.name.clone());
+            claimed.push(folder.name.clone());
+        }
+        claimed
+    }
+}
+
+struct BookmarkDefaults<'a> {
+    urls: &'a [String],
+    folders: &'a [vmux_setting::BookmarkFolderSettings],
+}
+
+impl<'a> BookmarkDefaults<'a> {
+    fn of(urls: &'a [String], folders: &'a [vmux_setting::BookmarkFolderSettings]) -> Self {
+        Self { urls, folders }
+    }
+
+    fn key(url: &str) -> String {
+        url.trim().trim_end_matches('/').to_ascii_lowercase()
+    }
+
+    fn seed(
+        self,
+        pins: &Query<&PageMetadata, With<Pin>>,
+        bookmarks: &Query<(Entity, &PageMetadata, Has<Pin>, Option<&ChildOf>), With<Bookmark>>,
+        folders: &Query<(Entity, &Name, Option<&vmux_core::SmartBookmarkFolder>), With<Folder>>,
+        orders: &Query<&BookmarkOrder, BookmarkFilter>,
+        offered: &mut OfferedBookmarkDefaults,
+        auto: &mut BookmarkAutoSave,
+        commands: &mut Commands,
+    ) {
+        let claimed_urls = offered.claim_new_urls(self.urls);
+        let claimed_folders = offered.claim_new_folders(self.folders);
+        let mut changed = !claimed_urls.is_empty() || !claimed_folders.is_empty();
+        let mut pinned = pins
+            .iter()
+            .map(|metadata| Self::key(&metadata.url))
+            .collect::<HashSet<_>>();
+        let mut next_order = orders
+            .iter()
+            .map(|order| order.0)
+            .max()
+            .map_or(0, |order| order.saturating_add(1));
+        for url in claimed_urls {
+            if !pinned.insert(Self::key(&url)) {
+                continue;
+            }
+            commands.spawn((
+                Pin,
+                Uuid(uuid::Uuid::new_v4().to_string()),
+                PageMetadata {
+                    title: url.clone(),
+                    url,
+                    icon: vmux_core::PageIcon::None,
+                    bg_color: None,
+                },
+                BookmarkOrder(next_order),
+            ));
+            next_order = next_order.saturating_add(1);
+        }
+        let mut existing_folders = folders
+            .iter()
+            .map(|(entity, name, smart)| (Self::key(name.as_str()), (entity, smart.copied())))
+            .collect::<HashMap<_, _>>();
+        for name in claimed_folders {
+            let key = Self::key(&name);
+            if existing_folders.contains_key(&key) {
+                continue;
+            }
+            let setting = self
+                .folders
+                .iter()
+                .find(|folder| Self::key(&folder.name) == key);
+            let mut entity = commands.spawn((
+                Folder,
+                Uuid(uuid::Uuid::new_v4().to_string()),
+                Name::new(name),
+                BookmarkOrder(next_order),
+            ));
+            if let Some(smart) = setting.and_then(|folder| folder.smart) {
+                entity.insert(smart);
+            }
+            let entity = entity.id();
+            existing_folders.insert(key, (entity, setting.and_then(|folder| folder.smart)));
+            next_order = next_order.saturating_add(1);
+        }
+        for setting in self.folders {
+            let Some(smart) = setting.smart else {
+                continue;
+            };
+            let Some((entity, current)) = existing_folders.get(&Self::key(&setting.name)) else {
+                continue;
+            };
+            if *current != Some(smart) {
+                commands.entity(*entity).insert(smart);
+                changed = true;
+            }
+        }
+        if !offered.folder_bookmarks.is_empty() {
+            let legacy = std::mem::take(&mut offered.folder_bookmarks);
+            for encoded in legacy {
+                let Some((folder_key, url_key)) = encoded.split_once('\n') else {
+                    continue;
+                };
+                let is_smart = self
+                    .folders
+                    .iter()
+                    .any(|folder| folder.smart.is_some() && Self::key(&folder.name) == folder_key);
+                if !is_smart {
+                    offered.folder_bookmarks.push(encoded);
+                    continue;
+                }
+                let Some((folder, _)) = existing_folders.get(folder_key) else {
+                    changed = true;
+                    continue;
+                };
+                for (entity, metadata, pinned, parent) in bookmarks.iter() {
+                    if Self::key(&metadata.url) != url_key
+                        || parent.is_none_or(|parent| parent.parent() != *folder)
+                    {
+                        continue;
+                    }
+                    if pinned {
+                        commands
+                            .entity(entity)
+                            .remove::<Bookmark>()
+                            .remove::<ChildOf>();
+                    } else {
+                        commands.entity(entity).despawn();
+                    }
+                }
+                changed = true;
+            }
+        }
+        if changed {
+            auto.dirty = true;
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -151,6 +402,11 @@ mod tests {
             .add_plugins(MinimalPlugins)
             .add_plugins(bevy::asset::AssetPlugin::default())
             .add_plugins(vmux_core::CorePlugin)
+            .register_type::<OfferedBookmarkDefaults>()
+            .insert_resource(OfferedBookmarkDefaults {
+                urls: vec!["vmux://start/".into()],
+                ..default()
+            })
             .add_observer(save_on::<SaveWorld<BookmarkFilter>>);
         save_app.world_mut().spawn((
             Folder,
@@ -176,6 +432,7 @@ mod tests {
         save_app.add_systems(Update, move |mut c: Commands| {
             let mut s = SaveWorld::<BookmarkFilter>::into_file(p.clone());
             s.components = bookmark_scene_filter();
+            s.resources = bookmark_resource_filter();
             c.trigger_save(s);
         });
         save_app.update();
@@ -191,6 +448,8 @@ mod tests {
             .add_plugins(MinimalPlugins)
             .add_plugins(bevy::asset::AssetPlugin::default())
             .add_plugins(vmux_core::CorePlugin)
+            .register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
             .add_observer(load_on::<LoadWorld<BookmarkFilter>>);
         let p2 = path.clone();
         load_app.add_systems(Update, move |mut c: Commands| {
@@ -217,8 +476,251 @@ mod tests {
             .iter(load_app.world())
             .any(|name| name.as_str() == "excluded-save-entity");
         assert!(!excluded, "Save-only entity excluded");
+        assert_eq!(
+            load_app.world().resource::<OfferedBookmarkDefaults>().urls,
+            ["vmux://start/"]
+        );
+        assert!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folders
+                .is_empty()
+        );
+        assert!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folder_bookmarks
+                .is_empty()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn removed_default_bookmarks_are_not_offered_again() {
+        let defaults = vec!["vmux://start/".into(), "vmux://terminal/".into()];
+        let mut offered = OfferedBookmarkDefaults::default();
+
+        assert_eq!(offered.claim_new_urls(&defaults), defaults);
+        assert!(offered.claim_new_urls(&defaults).is_empty());
+    }
+
+    #[test]
+    fn removed_default_folders_are_not_offered_again() {
+        let defaults = vec![
+            vmux_setting::BookmarkFolderSettings {
+                name: "Projects".into(),
+                smart: Some(vmux_core::SmartBookmarkFolder::Projects),
+            },
+            vmux_setting::BookmarkFolderSettings {
+                name: "Knowledge".into(),
+                smart: Some(vmux_core::SmartBookmarkFolder::Knowledge),
+            },
+        ];
+        let mut offered = OfferedBookmarkDefaults::default();
+
+        assert_eq!(
+            offered.claim_new_folders(&defaults),
+            ["Projects", "Knowledge"]
+        );
+        assert!(offered.claim_new_folders(&defaults).is_empty());
+    }
+
+    #[test]
+    fn existing_bookmark_store_receives_missing_defaults() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("bookmarks.ron");
+        let mut save_app = App::new();
+        save_app
+            .add_plugins(MinimalPlugins)
+            .add_plugins(bevy::asset::AssetPlugin::default())
+            .add_plugins(vmux_core::CorePlugin)
+            .add_observer(save_on::<SaveWorld<BookmarkFilter>>);
+        save_app.world_mut().spawn((
+            Pin,
+            Uuid("existing".into()),
+            PageMetadata {
+                title: "Existing".into(),
+                url: "https://example.com".into(),
+                icon: vmux_core::PageIcon::None,
+                bg_color: None,
+            },
+            BookmarkOrder(4),
+        ));
+        let save_path = path.clone();
+        save_app.add_systems(Update, move |mut commands: Commands| {
+            let mut save = SaveWorld::<BookmarkFilter>::into_file(save_path.clone());
+            save.components = bookmark_scene_filter();
+            commands.trigger_save(save);
+        });
+        save_app.update();
+        save_app.update();
+
+        let mut settings = vmux_setting::AppSettings::embedded();
+        settings.browser.bookmarks = vec!["vmux://start/".into(), "vmux://terminal/".into()];
+        settings.browser.bookmark_folders = vec![
+            vmux_setting::BookmarkFolderSettings {
+                name: "Projects".into(),
+                smart: Some(vmux_core::SmartBookmarkFolder::Projects),
+            },
+            vmux_setting::BookmarkFolderSettings {
+                name: "Knowledge".into(),
+                smart: Some(vmux_core::SmartBookmarkFolder::Knowledge),
+            },
+        ];
+        let mut load_app = App::new();
+        load_app
+            .add_plugins(MinimalPlugins)
+            .add_plugins(bevy::asset::AssetPlugin::default())
+            .add_plugins(vmux_core::CorePlugin)
+            .insert_resource(settings)
+            .register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
+            .init_resource::<BookmarkAutoSave>()
+            .add_observer(load_on::<LoadWorld<BookmarkFilter>>)
+            .add_observer(seed_default_bookmarks_after_load);
+        load_app.world_mut().insert_resource(BookmarkLoadPending);
+        load_app
+            .world_mut()
+            .commands()
+            .trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));
+        load_app.update();
+        load_app.update();
+
+        let mut pins = load_app
+            .world_mut()
+            .query_filtered::<(&PageMetadata, &BookmarkOrder), With<Pin>>()
+            .iter(load_app.world())
+            .map(|(metadata, order)| (metadata.url.clone(), order.0))
+            .collect::<Vec<_>>();
+        pins.sort();
+        assert_eq!(
+            pins,
+            [
+                ("https://example.com".into(), 4),
+                ("vmux://start/".into(), 5),
+                ("vmux://terminal/".into(), 6),
+            ]
+        );
+        assert_eq!(
+            load_app.world().resource::<OfferedBookmarkDefaults>().urls,
+            ["vmux://start/", "vmux://terminal/"]
+        );
+        let mut folders = load_app
+            .world_mut()
+            .query_filtered::<&Name, With<Folder>>()
+            .iter(load_app.world())
+            .map(|name| name.as_str().to_string())
+            .collect::<Vec<_>>();
+        folders.sort();
+        assert_eq!(folders, ["Knowledge", "Projects"]);
+        assert_eq!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folders,
+            ["Projects", "Knowledge"]
+        );
+        let mut smart_folders = load_app
+            .world_mut()
+            .query::<(&Name, &vmux_core::SmartBookmarkFolder)>()
+            .iter(load_app.world())
+            .map(|(name, smart)| (name.as_str().to_string(), *smart))
+            .collect::<Vec<_>>();
+        smart_folders.sort_by(|left, right| left.0.cmp(&right.0));
+        assert_eq!(
+            smart_folders,
+            [
+                (
+                    "Knowledge".into(),
+                    vmux_core::SmartBookmarkFolder::Knowledge
+                ),
+                ("Projects".into(), vmux_core::SmartBookmarkFolder::Projects),
+            ]
+        );
+        assert!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folder_bookmarks
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn legacy_default_folder_bookmark_becomes_smart_content_without_removing_its_pin() {
+        let mut settings = vmux_setting::AppSettings::embedded();
+        settings.browser.bookmarks.clear();
+        settings.browser.bookmark_folders = vec![vmux_setting::BookmarkFolderSettings {
+            name: "Projects".into(),
+            smart: Some(vmux_core::SmartBookmarkFolder::Projects),
+        }];
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_plugins(vmux_core::CorePlugin)
+            .insert_resource(settings)
+            .insert_resource(OfferedBookmarkDefaults {
+                urls: vec!["vmux://projects/".into()],
+                folders: vec!["Projects".into()],
+                folder_bookmarks: vec!["projects\nvmux://projects".into()],
+            })
+            .init_resource::<BookmarkAutoSave>()
+            .add_observer(seed_default_bookmarks_after_load);
+        app.world_mut().insert_resource(BookmarkLoadPending);
+        app.world_mut().spawn(vmux_core::page::PageManifest {
+            host: "projects",
+            title: "Projects",
+            title_message_id: None,
+            replaces_command: None,
+            keywords: &[],
+            icon: None,
+            command_bar: true,
+        });
+        let pin = app
+            .world_mut()
+            .spawn((
+                Pin,
+                Uuid("project-pin".into()),
+                PageMetadata {
+                    title: "Projects".into(),
+                    url: "vmux://projects/".into(),
+                    ..default()
+                },
+                Bookmark,
+                BookmarkOrder(0),
+            ))
+            .id();
+        let folder = app
+            .world_mut()
+            .spawn((
+                Folder,
+                Uuid("projects-folder".into()),
+                Name::new("Projects"),
+                BookmarkOrder(1),
+            ))
+            .id();
+        app.world_mut().entity_mut(pin).insert(ChildOf(folder));
+
+        app.world_mut().trigger(Loaded {
+            entity_map: bevy::ecs::entity::EntityHashMap::default(),
+        });
+        app.update();
+
+        assert!(app.world().entity(pin).contains::<Pin>());
+        assert!(!app.world().entity(pin).contains::<Bookmark>());
+        assert!(!app.world().entity(pin).contains::<ChildOf>());
+        assert_eq!(
+            app.world().get::<vmux_core::SmartBookmarkFolder>(folder),
+            Some(&vmux_core::SmartBookmarkFolder::Projects)
+        );
+        assert!(
+            app.world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folder_bookmarks
+                .is_empty()
+        );
     }
 
     #[test]

@@ -1,4 +1,5 @@
 pub const SPACES_PAGE_URL: &str = "vmux://spaces/";
+pub const PROJECTS_PAGE_URL: &str = "vmux://projects/";
 pub const SPACES_LIST_EVENT: &str = "spaces_list";
 pub const SPACE_KEY_EVENT: &str = "space-key";
 

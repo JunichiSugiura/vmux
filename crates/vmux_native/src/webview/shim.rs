@@ -286,8 +286,21 @@ pub(crate) const WRY_HOST_SHIM: &str = r#"
       window.ipc.postMessage('link:' + href);
     });
   };
+  const reportFavicon = () => {
+    const icon = document.querySelector('link[rel~="icon"][href]');
+    window.ipc.postMessage('favicon:' + (icon ? icon.href : ''));
+  };
+  const watchFavicon = () => {
+    reportFavicon();
+    window.__vmuxFaviconObserver = new MutationObserver(reportFavicon);
+    window.__vmuxFaviconObserver.observe(document.head, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+    });
+  };
   window.vmuxWry = {
-    start() { holdLinks(); pumpEdits(); },
+    start() { holdLinks(); watchFavicon(); pumpEdits(); },
     binEmit(buffer) { window.ipc.postMessage(toBase64(buffer)); },
     binListen(id, callback) {
       const existing = listeners.get(id) || [];

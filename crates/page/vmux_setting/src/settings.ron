@@ -18,6 +18,11 @@
             "vmux://lsp/",
             "vmux://settings/",
         ],
+        bookmark_folders: [
+            "Projects",
+            "Knowledge",
+            "Tools",
+        ],
     ),
     layout: (
         window: (

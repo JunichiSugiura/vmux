@@ -72,6 +72,7 @@ fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
 fn load_bookmarks_on_startup(
     settings: Res<vmux_setting::AppSettings>,
     pins: Query<&PageMetadata, With<Pin>>,
+    folders: Query<&Name, With<Folder>>,
     orders: Query<&BookmarkOrder, BookmarkFilter>,
     mut offered: ResMut<OfferedBookmarkDefaults>,
     mut auto: ResMut<BookmarkAutoSave>,
@@ -82,8 +83,13 @@ fn load_bookmarks_on_startup(
     }
     let path = bookmarks_path();
     if !path.exists() {
-        BookmarkDefaults::of(&settings.browser.bookmarks).seed(
+        BookmarkDefaults::of(
+            &settings.browser.bookmarks,
+            &settings.browser.bookmark_folders,
+        )
+        .seed(
             &pins,
+            &folders,
             &orders,
             &mut offered,
             &mut auto,
@@ -100,6 +106,7 @@ fn seed_default_bookmarks_after_load(
     pending: Option<Res<BookmarkLoadPending>>,
     settings: Res<vmux_setting::AppSettings>,
     pins: Query<&PageMetadata, With<Pin>>,
+    folders: Query<&Name, With<Folder>>,
     orders: Query<&BookmarkOrder, BookmarkFilter>,
     mut offered: ResMut<OfferedBookmarkDefaults>,
     mut auto: ResMut<BookmarkAutoSave>,
@@ -108,8 +115,13 @@ fn seed_default_bookmarks_after_load(
     if pending.is_none() {
         return;
     }
-    BookmarkDefaults::of(&settings.browser.bookmarks).seed(
+    BookmarkDefaults::of(
+        &settings.browser.bookmarks,
+        &settings.browser.bookmark_folders,
+    )
+    .seed(
         &pins,
+        &folders,
         &orders,
         &mut offered,
         &mut auto,
@@ -125,10 +137,12 @@ struct BookmarkLoadPending;
 #[reflect(Resource)]
 struct OfferedBookmarkDefaults {
     urls: Vec<String>,
+    #[reflect(default)]
+    folders: Vec<String>,
 }
 
 impl OfferedBookmarkDefaults {
-    fn claim_new(&mut self, defaults: &[String]) -> Vec<String> {
+    fn claim_new_urls(&mut self, defaults: &[String]) -> Vec<String> {
         let mut offered = self
             .urls
             .iter()
@@ -145,15 +159,34 @@ impl OfferedBookmarkDefaults {
         }
         claimed
     }
+
+    fn claim_new_folders(&mut self, defaults: &[String]) -> Vec<String> {
+        let mut offered = self
+            .folders
+            .iter()
+            .map(|name| BookmarkDefaults::key(name))
+            .collect::<HashSet<_>>();
+        let mut claimed = Vec::new();
+        for name in defaults {
+            let key = BookmarkDefaults::key(name);
+            if key.is_empty() || !offered.insert(key) {
+                continue;
+            }
+            self.folders.push(name.clone());
+            claimed.push(name.clone());
+        }
+        claimed
+    }
 }
 
 struct BookmarkDefaults<'a> {
     urls: &'a [String],
+    folders: &'a [String],
 }
 
 impl<'a> BookmarkDefaults<'a> {
-    fn of(urls: &'a [String]) -> Self {
-        Self { urls }
+    fn of(urls: &'a [String], folders: &'a [String]) -> Self {
+        Self { urls, folders }
     }
 
     fn key(url: &str) -> String {
@@ -163,13 +196,15 @@ impl<'a> BookmarkDefaults<'a> {
     fn seed(
         self,
         pins: &Query<&PageMetadata, With<Pin>>,
+        folders: &Query<&Name, With<Folder>>,
         orders: &Query<&BookmarkOrder, BookmarkFilter>,
         offered: &mut OfferedBookmarkDefaults,
         auto: &mut BookmarkAutoSave,
         commands: &mut Commands,
     ) {
-        let claimed = offered.claim_new(self.urls);
-        if claimed.is_empty() {
+        let claimed_urls = offered.claim_new_urls(self.urls);
+        let claimed_folders = offered.claim_new_folders(self.folders);
+        if claimed_urls.is_empty() && claimed_folders.is_empty() {
             return;
         }
         let mut pinned = pins
@@ -181,7 +216,7 @@ impl<'a> BookmarkDefaults<'a> {
             .map(|order| order.0)
             .max()
             .map_or(0, |order| order.saturating_add(1));
-        for url in claimed {
+        for url in claimed_urls {
             if !pinned.insert(Self::key(&url)) {
                 continue;
             }
@@ -194,6 +229,22 @@ impl<'a> BookmarkDefaults<'a> {
                     icon: vmux_core::PageIcon::None,
                     bg_color: None,
                 },
+                BookmarkOrder(next_order),
+            ));
+            next_order = next_order.saturating_add(1);
+        }
+        let mut existing_folders = folders
+            .iter()
+            .map(|name| Self::key(name.as_str()))
+            .collect::<HashSet<_>>();
+        for name in claimed_folders {
+            if !existing_folders.insert(Self::key(&name)) {
+                continue;
+            }
+            commands.spawn((
+                Folder,
+                Uuid(uuid::Uuid::new_v4().to_string()),
+                Name::new(name),
                 BookmarkOrder(next_order),
             ));
             next_order = next_order.saturating_add(1);
@@ -285,6 +336,7 @@ mod tests {
             .register_type::<OfferedBookmarkDefaults>()
             .insert_resource(OfferedBookmarkDefaults {
                 urls: vec!["vmux://start/".into()],
+                ..default()
             })
             .add_observer(save_on::<SaveWorld<BookmarkFilter>>);
         save_app.world_mut().spawn((
@@ -359,6 +411,13 @@ mod tests {
             load_app.world().resource::<OfferedBookmarkDefaults>().urls,
             ["vmux://start/"]
         );
+        assert!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folders
+                .is_empty()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -368,8 +427,20 @@ mod tests {
         let defaults = vec!["vmux://start/".into(), "vmux://terminal/".into()];
         let mut offered = OfferedBookmarkDefaults::default();
 
-        assert_eq!(offered.claim_new(&defaults), defaults);
-        assert!(offered.claim_new(&defaults).is_empty());
+        assert_eq!(offered.claim_new_urls(&defaults), defaults);
+        assert!(offered.claim_new_urls(&defaults).is_empty());
+    }
+
+    #[test]
+    fn removed_default_folders_are_not_offered_again() {
+        let defaults = vec!["Projects".into(), "Knowledge".into()];
+        let mut offered = OfferedBookmarkDefaults::default();
+
+        assert_eq!(
+            offered.claim_new_folders(&defaults),
+            ["Projects", "Knowledge"]
+        );
+        assert!(offered.claim_new_folders(&defaults).is_empty());
     }
 
     #[test]
@@ -404,6 +475,7 @@ mod tests {
 
         let mut settings = vmux_setting::AppSettings::embedded();
         settings.browser.bookmarks = vec!["vmux://start/".into(), "vmux://terminal/".into()];
+        settings.browser.bookmark_folders = vec!["Projects".into(), "Knowledge".into()];
         let mut load_app = App::new();
         load_app
             .add_plugins(MinimalPlugins)
@@ -441,6 +513,21 @@ mod tests {
         assert_eq!(
             load_app.world().resource::<OfferedBookmarkDefaults>().urls,
             ["vmux://start/", "vmux://terminal/"]
+        );
+        let mut folders = load_app
+            .world_mut()
+            .query_filtered::<&Name, With<Folder>>()
+            .iter(load_app.world())
+            .map(|name| name.as_str().to_string())
+            .collect::<Vec<_>>();
+        folders.sort();
+        assert_eq!(folders, ["Knowledge", "Projects"]);
+        assert_eq!(
+            load_app
+                .world()
+                .resource::<OfferedBookmarkDefaults>()
+                .folders,
+            ["Projects", "Knowledge"]
         );
     }
 

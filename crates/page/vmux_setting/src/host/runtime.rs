@@ -855,6 +855,8 @@ pub struct BrowserSettings {
     pub search_engine: SearchEngine,
     #[serde(default)]
     pub bookmarks: Vec<String>,
+    #[serde(default)]
+    pub bookmark_folders: Vec<String>,
 }
 
 fn default_browser_settings() -> BrowserSettings {
@@ -862,6 +864,7 @@ fn default_browser_settings() -> BrowserSettings {
         startup_url: default_browser_startup_url(),
         search_engine: SearchEngine::default(),
         bookmarks: Vec::new(),
+        bookmark_folders: Vec::new(),
     }
 }
 
@@ -1722,6 +1725,7 @@ mod tests {
                 startup_url: default_browser_startup_url(),
                 search_engine: SearchEngine::default(),
                 bookmarks: Default::default(),
+                bookmark_folders: Default::default(),
             },
             layout: LayoutSettings {
                 radius: 0.0,
@@ -1870,6 +1874,19 @@ mod tests {
                 "vmux://settings/",
             ]
         );
+    }
+
+    #[test]
+    fn embedded_settings_offer_starter_bookmark_folders() {
+        let settings = load_embedded_settings();
+        let folders = settings
+            .browser
+            .bookmark_folders
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+
+        assert_eq!(folders, ["Projects", "Knowledge", "Tools"]);
     }
 
     #[test]

@@ -730,6 +730,43 @@ mod tests {
     }
 
     #[test]
+    fn add_accepts_any_page_url() {
+        let mut app = test_app();
+        for url in [
+            "vmux://projects/",
+            "https://example.com/docs",
+            "file:///tmp/readme.md",
+        ] {
+            send(
+                &mut app,
+                BookmarkOp::Add {
+                    metadata: PageMetadata {
+                        title: url.into(),
+                        url: url.into(),
+                        ..default()
+                    },
+                    folder: None,
+                },
+            );
+        }
+        let mut urls = app
+            .world_mut()
+            .query_filtered::<&PageMetadata, With<Bookmark>>()
+            .iter(app.world())
+            .map(|metadata| metadata.url.clone())
+            .collect::<Vec<_>>();
+        urls.sort();
+        assert_eq!(
+            urls,
+            [
+                "file:///tmp/readme.md",
+                "https://example.com/docs",
+                "vmux://projects/",
+            ]
+        );
+    }
+
+    #[test]
     fn bookmark_entities_are_not_space_save_entities() {
         let mut app = test_app();
         send(

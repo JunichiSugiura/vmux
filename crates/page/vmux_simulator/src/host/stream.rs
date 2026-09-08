@@ -7,6 +7,7 @@ use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 #[derive(Resource)]
 pub struct StreamServer {
@@ -27,9 +28,10 @@ impl StreamServer {
         let axe = axe.path().to_path_buf();
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
         let port = listener.local_addr()?.port();
+        let stream = Self::shared_stream(&axe, &device, pixels);
         std::thread::Builder::new()
             .name("vmux-simulator-stream".into())
-            .spawn(move || Self::accept_loop(listener, axe, device, pixels))?;
+            .spawn(move || Self::accept_loop(listener, axe, device, stream))?;
         Ok(Self { port })
     }
 
@@ -41,7 +43,7 @@ impl StreamServer {
         listener: TcpListener,
         axe: PathBuf,
         device: SimulatorDevice,
-        pixels: Option<(u32, u32)>,
+        stream: Option<SharedStream>,
     ) {
         for connection in listener.incoming() {
             let Ok(socket) = connection else {
@@ -49,31 +51,45 @@ impl StreamServer {
             };
             let device = device.clone();
             let axe = axe.clone();
+            let stream = stream.clone();
             let spawned = std::thread::Builder::new()
                 .name("vmux-simulator-pipe".into())
-                .spawn(move || Self::pipe(socket, axe, device, pixels));
+                .spawn(move || Self::pipe(socket, axe, device, stream));
             if spawned.is_err() {
                 warn!("could not spawn a stream thread");
             }
         }
     }
 
-    fn pipe(socket: TcpStream, axe: PathBuf, device: SimulatorDevice, pixels: Option<(u32, u32)>) {
-        let Some((pixel_width, pixel_height)) = pixels else {
+    fn pipe(
+        mut socket: TcpStream,
+        axe: PathBuf,
+        device: SimulatorDevice,
+        stream: Option<SharedStream>,
+    ) {
+        if Self::read_request(&mut socket).is_err() {
+            return;
+        }
+        let Some(stream) = stream else {
             Self::pipe_screenshots(socket, axe, device);
             return;
         };
+        Self::write_mjpeg(socket, stream);
+    }
+
+    fn shared_stream(
+        axe: &PathBuf,
+        device: &SimulatorDevice,
+        pixels: Option<(u32, u32)>,
+    ) -> Option<SharedStream> {
+        let (pixel_width, pixel_height) = pixels?;
         let width = ((pixel_width as f32) * Self::SCALE).floor() as u32;
         let height = ((pixel_height as f32) * Self::SCALE).floor() as u32;
         if width == 0 || height == 0 {
-            Self::pipe_screenshots(socket, axe, device);
-            return;
+            return None;
         }
         let stride = (width as usize * 4).next_multiple_of(Self::ROW_ALIGNMENT);
-        let Some((mut child, stdout)) = Self::spawn_bgra(&axe, &device) else {
-            Self::pipe_screenshots(socket, axe, device);
-            return;
-        };
+        let (mut child, stdout) = Self::spawn_bgra(axe, device)?;
         let frames = Arc::new(FrameExchange::default());
         let captured = frames.clone();
         let reader = std::thread::Builder::new()
@@ -85,9 +101,18 @@ impl StreamServer {
             });
         if reader.is_err() {
             frames.close();
-            return;
+            return None;
         }
-        Self::write_mjpeg(socket, width, height, frames);
+        let encoded = Arc::new(EncodedFrameExchange::default());
+        let published = encoded.clone();
+        let encoder = std::thread::Builder::new()
+            .name("vmux-simulator-encode".into())
+            .spawn(move || Self::encode_frames(frames, published, width, height));
+        if encoder.is_err() {
+            encoded.close();
+            return None;
+        }
+        Some(SharedStream { frames: encoded })
     }
 
     fn spawn_bgra(axe: &PathBuf, device: &SimulatorDevice) -> Option<(Child, ChildStdout)> {
@@ -120,7 +145,24 @@ impl StreamServer {
         }
     }
 
-    fn write_mjpeg(mut socket: TcpStream, width: u32, height: u32, frames: Arc<FrameExchange>) {
+    fn encode_frames(
+        frames: Arc<FrameExchange>,
+        encoded: Arc<EncodedFrameExchange>,
+        width: u32,
+        height: u32,
+    ) {
+        while let Some(frame) = frames.take() {
+            let result = Self::encode_bgra(&frame, width, height);
+            frames.recycle(frame);
+            let Ok(frame) = result else {
+                continue;
+            };
+            encoded.replace(frame);
+        }
+        encoded.close();
+    }
+
+    fn write_mjpeg(mut socket: TcpStream, stream: SharedStream) {
         let _ = socket.set_nodelay(true);
         if socket
             .write_all(
@@ -128,27 +170,51 @@ impl StreamServer {
             )
             .is_err()
         {
-            frames.close();
             return;
         }
-        while let Some(frame) = frames.take() {
-            let encoded = Self::encode_bgra(&frame, width, height);
-            frames.recycle(frame);
-            let Ok(encoded) = encoded else {
-                continue;
-            };
+        let mut generation = 0;
+        while let Some((next_generation, encoded)) = stream.frames.after(generation) {
+            generation = next_generation;
             let header = format!(
                 "--vmuxframe\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
                 encoded.len()
             );
             if socket.write_all(header.as_bytes()).is_err()
-                || socket.write_all(&encoded).is_err()
+                || socket.write_all(encoded.as_ref()).is_err()
                 || socket.write_all(b"\r\n").is_err()
             {
-                frames.close();
                 return;
             }
         }
+    }
+
+    fn read_request(socket: &mut TcpStream) -> io::Result<()> {
+        socket.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut request = Vec::with_capacity(1024);
+        let mut chunk = [0; 1024];
+        while request.len() < 8192 {
+            let count = socket.read(&mut chunk)?;
+            if count == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "simulator stream request ended early",
+                ));
+            }
+            request.extend_from_slice(&chunk[..count]);
+            if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        socket.set_read_timeout(None)?;
+        if !request.starts_with(b"GET / HTTP/1.1\r\n")
+            && !request.starts_with(b"GET / HTTP/1.0\r\n")
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "simulator stream expected GET /",
+            ));
+        }
+        Ok(())
     }
 
     fn encode_bgra(bytes: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
@@ -198,6 +264,56 @@ impl StreamServer {
         let _ = child.kill();
         let _ = child.wait();
     }
+}
+
+#[derive(Clone)]
+struct SharedStream {
+    frames: Arc<EncodedFrameExchange>,
+}
+
+#[derive(Default)]
+struct EncodedFrameExchange {
+    state: Mutex<EncodedFrameState>,
+    ready: Condvar,
+}
+
+impl EncodedFrameExchange {
+    fn replace(&self, frame: Vec<u8>) {
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if state.closed {
+            return;
+        }
+        state.latest = Some(Arc::from(frame));
+        state.generation = state.generation.wrapping_add(1).max(1);
+        self.ready.notify_all();
+    }
+
+    fn after(&self, generation: u64) -> Option<(u64, Arc<[u8]>)> {
+        let mut state = self.state.lock().ok()?;
+        while state.generation == generation && !state.closed {
+            state = self.ready.wait(state).ok()?;
+        }
+        if state.closed {
+            return None;
+        }
+        Some((state.generation, state.latest.as_ref()?.clone()))
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+            self.ready.notify_all();
+        }
+    }
+}
+
+#[derive(Default)]
+struct EncodedFrameState {
+    latest: Option<Arc<[u8]>>,
+    generation: u64,
+    closed: bool,
 }
 
 #[derive(Default)]
@@ -294,5 +410,16 @@ mod tests {
 
         assert_eq!(second_buffer, vec![1]);
         assert_eq!(frames.take(), Some(vec![2]));
+    }
+
+    #[test]
+    fn encoded_frames_are_shared_between_stream_clients() {
+        let frames = EncodedFrameExchange::default();
+        frames.replace(vec![1, 2, 3]);
+
+        let (_, first) = frames.after(0).expect("first client");
+        let (_, second) = frames.after(0).expect("second client");
+
+        assert!(Arc::ptr_eq(&first, &second));
     }
 }

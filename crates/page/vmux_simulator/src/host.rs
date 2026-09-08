@@ -11,7 +11,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
-use hid::{HidBroker, HidRequest};
+use hid::HidBroker;
 use input::{DeviceGesture, DeviceKey};
 use std::sync::{Arc, Mutex};
 use stream::StreamServer;
@@ -199,35 +199,34 @@ impl SimulatorPlugin {
 
     fn on_gesture(
         trigger: On<BinReceive<SimulatorGesture>>,
+        device: Option<Res<SimulatorDevice>>,
         points: Option<Res<DevicePoints>>,
+        axe: Option<Res<Axe>>,
         hid: Option<Res<HidBroker>>,
     ) {
-        let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref()) else {
+        let (Some(device), Some(points), Some(axe), Some(hid)) = (
+            device.as_deref(),
+            points.as_deref(),
+            axe.as_deref(),
+            hid.as_deref(),
+        ) else {
             return;
         };
         let Some(gesture) = DeviceGesture::resolve(&trigger.event().payload, (points.0, points.1))
         else {
             return;
         };
-        gesture.dispatch(hid);
+        gesture.dispatch(device, axe, hid);
     }
 
     fn on_key(
         trigger: On<BinReceive<SimulatorKey>>,
         device: Option<Res<SimulatorDevice>>,
         axe: Option<Res<Axe>>,
-        points: Option<Res<DevicePoints>>,
-        hid: Option<Res<HidBroker>>,
     ) {
         let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
             return;
         };
-        if trigger.event().payload == SimulatorKey::Button(HardwareButton::Home)
-            && let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref())
-        {
-            hid.dispatch(HidRequest::bottom_edge((points.0, points.1)));
-            return;
-        }
         DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
     }
 
@@ -235,19 +234,11 @@ impl SimulatorPlugin {
         mut requests: MessageReader<HardwareButtonRequest>,
         device: Option<Res<SimulatorDevice>>,
         axe: Option<Res<Axe>>,
-        points: Option<Res<DevicePoints>>,
-        hid: Option<Res<HidBroker>>,
     ) {
         let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
             return;
         };
         for request in requests.read() {
-            if request.0 == HardwareButton::Home
-                && let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref())
-            {
-                hid.dispatch(HidRequest::bottom_edge((points.0, points.1)));
-                continue;
-            }
             DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
         }
     }

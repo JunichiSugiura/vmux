@@ -3,7 +3,6 @@ use super::hid::{HidBroker, HidRequest};
 use crate::event::{SimulatorGesture, SimulatorKey};
 
 pub struct DeviceGesture {
-    points: (f32, f32),
     from: (f32, f32),
     to: (f32, f32),
     tap: bool,
@@ -21,7 +20,6 @@ impl DeviceGesture {
         let dx = gesture.to_x - gesture.from_x;
         let dy = gesture.to_y - gesture.from_y;
         Some(Self {
-            points,
             from: on_device(gesture.from_x, gesture.from_y),
             to: on_device(gesture.to_x, gesture.to_y),
             tap: gesture.is_tap(),
@@ -29,15 +27,20 @@ impl DeviceGesture {
         })
     }
 
-    pub fn dispatch(self, hid: &HidBroker) {
-        let request = if self.tap {
-            HidRequest::tap(self.to)
-        } else if self.from_bottom_edge {
-            HidRequest::bottom_edge(self.points)
-        } else {
-            HidRequest::swipe(self.from, self.to)
-        };
-        hid.dispatch(request);
+    pub fn dispatch(self, device: &SimulatorDevice, axe: &Axe, hid: &HidBroker) {
+        if self.from_bottom_edge {
+            DeviceKey::resolve(
+                &SimulatorKey::Button(crate::event::HardwareButton::Home),
+                device,
+            )
+            .dispatch(axe);
+            return;
+        }
+        if self.tap {
+            hid.dispatch(HidRequest::tap(self.to));
+            return;
+        }
+        hid.dispatch(HidRequest::swipe(self.from, self.to));
     }
 }
 
@@ -138,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn an_upward_drag_from_the_home_indicator_uses_the_bottom_edge_gesture() {
+    fn an_upward_drag_from_the_home_indicator_becomes_home() {
         let gesture = SimulatorGesture {
             from_x: 0.5,
             from_y: 0.98,

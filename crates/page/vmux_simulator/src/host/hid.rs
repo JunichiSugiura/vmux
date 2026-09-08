@@ -59,7 +59,7 @@ impl HidRequest {
 
     pub fn swipe(from: (f32, f32), to: (f32, f32)) -> Self {
         Self {
-            primitives: Self::swipe_primitives(from, to),
+            primitives: Self::swipe_primitives(from, to, 0.25, 20.0),
             fallback: vec![
                 "swipe".into(),
                 "--start-x".into(),
@@ -76,35 +76,24 @@ impl HidRequest {
         }
     }
 
-    pub fn bottom_edge(points: (f32, f32)) -> Self {
-        let from = (points.0 * 0.5, (points.1 - 2.0).max(0.0));
-        let to = (points.0 * 0.5, points.1 * 0.55);
-        Self {
-            primitives: Self::swipe_primitives(from, to),
-            fallback: vec![
-                "gesture".into(),
-                "swipe-from-bottom-edge".into(),
-                "--screen-width".into(),
-                format!("{:.0}", points.0),
-                "--screen-height".into(),
-                format!("{:.0}", points.1),
-                "--duration".into(),
-                "0.25".into(),
-            ],
-        }
-    }
-
-    fn swipe_primitives(from: (f32, f32), to: (f32, f32)) -> Vec<HidPrimitive> {
-        const STEPS: usize = 6;
-        let mut primitives = Vec::with_capacity(STEPS * 2 + 2);
+    fn swipe_primitives(
+        from: (f32, f32),
+        to: (f32, f32),
+        duration: f64,
+        delta: f32,
+    ) -> Vec<HidPrimitive> {
+        let distance = ((to.0 - from.0).powi(2) + (to.1 - from.1).powi(2)).sqrt();
+        let steps = (distance / delta).ceil().max(1.0) as usize;
+        let step_delay = duration / steps as f64;
+        let mut primitives = Vec::with_capacity(steps * 2 + 2);
         primitives.push(HidPrimitive::touch(HidKind::Down, from));
-        for step in 1..=STEPS {
-            let progress = step as f32 / STEPS as f32;
+        for step in 1..=steps {
+            let progress = step as f32 / steps as f32;
             let point = (
                 from.0 + (to.0 - from.0) * progress,
                 from.1 + (to.1 - from.1) * progress,
             );
-            primitives.push(HidPrimitive::delay(0.012));
+            primitives.push(HidPrimitive::delay(step_delay));
             primitives.push(HidPrimitive::touch(HidKind::Down, point));
         }
         primitives.push(HidPrimitive::touch(HidKind::Up, to));

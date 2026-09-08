@@ -15,7 +15,7 @@ pub struct StreamServer {
 
 impl StreamServer {
     const FPS: &'static str = "30";
-    const JPEG_QUALITY: u8 = 80;
+    const JPEG_QUALITY: u8 = 95;
     const ROW_ALIGNMENT: usize = 64;
     const SCALE: f32 = 0.5;
 

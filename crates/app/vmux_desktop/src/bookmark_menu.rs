@@ -541,7 +541,7 @@ mod macos {
         mut bookmark_ops: MessageWriter<BookmarkOp>,
         mut app_commands: MessageWriter<AppCommand>,
         mut sequence: ResMut<BookmarkMenuActionSequence>,
-        browsers: NonSend<Browsers>,
+        browsers: Option<NonSend<Browsers>>,
         mut commands: Commands,
     ) {
         for selection in reader.read() {
@@ -560,23 +560,29 @@ mod macos {
                     if *expand && let Some(uuid) = parent {
                         bookmark_ops.write(BookmarkOp::ToggleFolder { uuid: uuid.clone() });
                     }
-                    emit_ui_action(
-                        &mut sequence,
-                        &browsers,
-                        &mut commands,
-                        selection.webview,
-                        "new_folder",
-                        parent.clone(),
-                    );
+                    if let Some(browsers) = browsers.as_deref() {
+                        emit_ui_action(
+                            &mut sequence,
+                            browsers,
+                            &mut commands,
+                            selection.webview,
+                            "new_folder",
+                            parent.clone(),
+                        );
+                    }
                 }
-                BookmarkMenuAction::BeginRename(uuid) => emit_ui_action(
-                    &mut sequence,
-                    &browsers,
-                    &mut commands,
-                    selection.webview,
-                    "rename",
-                    Some(uuid.clone()),
-                ),
+                BookmarkMenuAction::BeginRename(uuid) => {
+                    if let Some(browsers) = browsers.as_deref() {
+                        emit_ui_action(
+                            &mut sequence,
+                            browsers,
+                            &mut commands,
+                            selection.webview,
+                            "rename",
+                            Some(uuid.clone()),
+                        );
+                    }
+                }
             }
         }
     }

@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_world_serialization::WorldFilter;
 use moonshine_save::prelude::*;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use vmux_core::{Bookmark, BookmarkOrder, Collapsed, Folder, Order, PageMetadata, Pin, Uuid};
 use vmux_layout::LayoutStartupSet;
@@ -9,9 +10,12 @@ pub(crate) struct BookmarkPersistencePlugin;
 
 impl Plugin for BookmarkPersistencePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<BookmarkAutoSave>()
+        app.register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
+            .init_resource::<BookmarkAutoSave>()
             .add_observer(save_on::<SaveWorld<BookmarkFilter>>)
             .add_observer(load_on::<LoadWorld<BookmarkFilter>>)
+            .add_observer(seed_default_bookmarks_after_load)
             .add_systems(
                 Startup,
                 load_bookmarks_on_startup.after(LayoutStartupSet::Persistence),
@@ -48,6 +52,10 @@ fn bookmark_scene_filter() -> WorldFilter {
         .allow::<PageMetadata>()
 }
 
+fn bookmark_resource_filter() -> WorldFilter {
+    WorldFilter::deny_all().allow::<OfferedBookmarkDefaults>()
+}
+
 fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
     if vmux_core::profile::is_test_session() {
         return;
@@ -57,31 +65,141 @@ fn save_bookmarks_to_path(commands: &mut Commands, path: PathBuf) {
     }
     let mut save = SaveWorld::<BookmarkFilter>::into_file(path);
     save.components = bookmark_scene_filter();
+    save.resources = bookmark_resource_filter();
     commands.trigger_save(save);
 }
 
-fn load_bookmarks_on_startup(settings: Res<vmux_setting::AppSettings>, mut commands: Commands) {
+fn load_bookmarks_on_startup(
+    settings: Res<vmux_setting::AppSettings>,
+    pins: Query<&PageMetadata, With<Pin>>,
+    orders: Query<&BookmarkOrder, BookmarkFilter>,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
     if vmux_core::profile::is_test_session() {
         return;
     }
     let path = bookmarks_path();
     if !path.exists() {
-        for (order, url) in settings.browser.bookmarks.iter().enumerate() {
+        BookmarkDefaults::of(&settings.browser.bookmarks).seed(
+            &pins,
+            &orders,
+            &mut offered,
+            &mut auto,
+            &mut commands,
+        );
+        return;
+    }
+    commands.insert_resource(BookmarkLoadPending);
+    commands.trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));
+}
+
+fn seed_default_bookmarks_after_load(
+    _trigger: On<Loaded>,
+    pending: Option<Res<BookmarkLoadPending>>,
+    settings: Res<vmux_setting::AppSettings>,
+    pins: Query<&PageMetadata, With<Pin>>,
+    orders: Query<&BookmarkOrder, BookmarkFilter>,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
+    if pending.is_none() {
+        return;
+    }
+    BookmarkDefaults::of(&settings.browser.bookmarks).seed(
+        &pins,
+        &orders,
+        &mut offered,
+        &mut auto,
+        &mut commands,
+    );
+    commands.remove_resource::<BookmarkLoadPending>();
+}
+
+#[derive(Resource)]
+struct BookmarkLoadPending;
+
+#[derive(Resource, Reflect, Default, Clone, Debug, PartialEq, Eq)]
+#[reflect(Resource)]
+struct OfferedBookmarkDefaults {
+    urls: Vec<String>,
+}
+
+impl OfferedBookmarkDefaults {
+    fn claim_new(&mut self, defaults: &[String]) -> Vec<String> {
+        let mut offered = self
+            .urls
+            .iter()
+            .map(|url| BookmarkDefaults::key(url))
+            .collect::<HashSet<_>>();
+        let mut claimed = Vec::new();
+        for url in defaults {
+            let key = BookmarkDefaults::key(url);
+            if key.is_empty() || !offered.insert(key) {
+                continue;
+            }
+            self.urls.push(url.clone());
+            claimed.push(url.clone());
+        }
+        claimed
+    }
+}
+
+struct BookmarkDefaults<'a> {
+    urls: &'a [String],
+}
+
+impl<'a> BookmarkDefaults<'a> {
+    fn of(urls: &'a [String]) -> Self {
+        Self { urls }
+    }
+
+    fn key(url: &str) -> String {
+        url.trim().trim_end_matches('/').to_ascii_lowercase()
+    }
+
+    fn seed(
+        self,
+        pins: &Query<&PageMetadata, With<Pin>>,
+        orders: &Query<&BookmarkOrder, BookmarkFilter>,
+        offered: &mut OfferedBookmarkDefaults,
+        auto: &mut BookmarkAutoSave,
+        commands: &mut Commands,
+    ) {
+        let claimed = offered.claim_new(self.urls);
+        if claimed.is_empty() {
+            return;
+        }
+        let mut pinned = pins
+            .iter()
+            .map(|metadata| Self::key(&metadata.url))
+            .collect::<HashSet<_>>();
+        let mut next_order = orders
+            .iter()
+            .map(|order| order.0)
+            .max()
+            .map_or(0, |order| order.saturating_add(1));
+        for url in claimed {
+            if !pinned.insert(Self::key(&url)) {
+                continue;
+            }
             commands.spawn((
                 Pin,
                 Uuid(uuid::Uuid::new_v4().to_string()),
                 PageMetadata {
                     title: url.clone(),
-                    url: url.clone(),
+                    url,
                     icon: vmux_core::PageIcon::None,
                     bg_color: None,
                 },
-                BookmarkOrder(order as u32),
+                BookmarkOrder(next_order),
             ));
+            next_order = next_order.saturating_add(1);
         }
-        return;
+        auto.dirty = true;
     }
-    commands.trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));
 }
 
 #[derive(Resource, Default)]
@@ -164,6 +282,10 @@ mod tests {
             .add_plugins(MinimalPlugins)
             .add_plugins(bevy::asset::AssetPlugin::default())
             .add_plugins(vmux_core::CorePlugin)
+            .register_type::<OfferedBookmarkDefaults>()
+            .insert_resource(OfferedBookmarkDefaults {
+                urls: vec!["vmux://start/".into()],
+            })
             .add_observer(save_on::<SaveWorld<BookmarkFilter>>);
         save_app.world_mut().spawn((
             Folder,
@@ -189,6 +311,7 @@ mod tests {
         save_app.add_systems(Update, move |mut c: Commands| {
             let mut s = SaveWorld::<BookmarkFilter>::into_file(p.clone());
             s.components = bookmark_scene_filter();
+            s.resources = bookmark_resource_filter();
             c.trigger_save(s);
         });
         save_app.update();
@@ -204,6 +327,8 @@ mod tests {
             .add_plugins(MinimalPlugins)
             .add_plugins(bevy::asset::AssetPlugin::default())
             .add_plugins(vmux_core::CorePlugin)
+            .register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
             .add_observer(load_on::<LoadWorld<BookmarkFilter>>);
         let p2 = path.clone();
         load_app.add_systems(Update, move |mut c: Commands| {
@@ -230,8 +355,93 @@ mod tests {
             .iter(load_app.world())
             .any(|name| name.as_str() == "excluded-save-entity");
         assert!(!excluded, "Save-only entity excluded");
+        assert_eq!(
+            load_app.world().resource::<OfferedBookmarkDefaults>().urls,
+            ["vmux://start/"]
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn removed_default_bookmarks_are_not_offered_again() {
+        let defaults = vec!["vmux://start/".into(), "vmux://terminal/".into()];
+        let mut offered = OfferedBookmarkDefaults::default();
+
+        assert_eq!(offered.claim_new(&defaults), defaults);
+        assert!(offered.claim_new(&defaults).is_empty());
+    }
+
+    #[test]
+    fn existing_bookmark_store_receives_missing_defaults() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("bookmarks.ron");
+        let mut save_app = App::new();
+        save_app
+            .add_plugins(MinimalPlugins)
+            .add_plugins(bevy::asset::AssetPlugin::default())
+            .add_plugins(vmux_core::CorePlugin)
+            .add_observer(save_on::<SaveWorld<BookmarkFilter>>);
+        save_app.world_mut().spawn((
+            Pin,
+            Uuid("existing".into()),
+            PageMetadata {
+                title: "Existing".into(),
+                url: "https://example.com".into(),
+                icon: vmux_core::PageIcon::None,
+                bg_color: None,
+            },
+            BookmarkOrder(4),
+        ));
+        let save_path = path.clone();
+        save_app.add_systems(Update, move |mut commands: Commands| {
+            let mut save = SaveWorld::<BookmarkFilter>::into_file(save_path.clone());
+            save.components = bookmark_scene_filter();
+            commands.trigger_save(save);
+        });
+        save_app.update();
+        save_app.update();
+
+        let mut settings = vmux_setting::AppSettings::embedded();
+        settings.browser.bookmarks = vec!["vmux://start/".into(), "vmux://terminal/".into()];
+        let mut load_app = App::new();
+        load_app
+            .add_plugins(MinimalPlugins)
+            .add_plugins(bevy::asset::AssetPlugin::default())
+            .add_plugins(vmux_core::CorePlugin)
+            .insert_resource(settings)
+            .register_type::<OfferedBookmarkDefaults>()
+            .init_resource::<OfferedBookmarkDefaults>()
+            .init_resource::<BookmarkAutoSave>()
+            .add_observer(load_on::<LoadWorld<BookmarkFilter>>)
+            .add_observer(seed_default_bookmarks_after_load);
+        load_app.world_mut().insert_resource(BookmarkLoadPending);
+        load_app
+            .world_mut()
+            .commands()
+            .trigger_load(LoadWorld::<BookmarkFilter>::from_file(path));
+        load_app.update();
+        load_app.update();
+
+        let mut pins = load_app
+            .world_mut()
+            .query_filtered::<(&PageMetadata, &BookmarkOrder), With<Pin>>()
+            .iter(load_app.world())
+            .map(|(metadata, order)| (metadata.url.clone(), order.0))
+            .collect::<Vec<_>>();
+        pins.sort();
+        assert_eq!(
+            pins,
+            [
+                ("https://example.com".into(), 4),
+                ("vmux://start/".into(), 5),
+                ("vmux://terminal/".into(), 6),
+            ]
+        );
+        assert_eq!(
+            load_app.world().resource::<OfferedBookmarkDefaults>().urls,
+            ["vmux://start/", "vmux://terminal/"]
+        );
     }
 
     #[test]

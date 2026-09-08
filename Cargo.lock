@@ -10184,6 +10184,7 @@ dependencies = [
  "vmux_service",
  "vmux_session",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_terminal",
@@ -10791,6 +10792,7 @@ dependencies = [
  "serde_json",
  "vmux_core",
  "vmux_ui",
+ "vmux_wire",
 ]
 
 [[package]]

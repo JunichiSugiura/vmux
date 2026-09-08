@@ -38,6 +38,8 @@ impl Plugin for QueryPlugin {
                 forward_snapshot_responses,
                 forward_record_start_responses,
                 forward_record_stop_responses,
+                forward_simulator_control_responses,
+                forward_simulator_screenshot_responses,
             ),
         );
     }
@@ -96,6 +98,10 @@ pub(super) fn handle_agent_queries(
     mut browser_scroll_writer: MessageWriter<BrowserScrollRequest>,
     mut record_start_writer: MessageWriter<RecordStartRequest>,
     mut record_stop_writer: MessageWriter<RecordStopRequest>,
+    mut simulator_writers: (
+        MessageWriter<vmux_simulator::SimulatorControlRequest>,
+        MessageWriter<vmux_simulator::SimulatorScreenshotRequest>,
+    ),
     mut browse: AgentBrowserResolve,
 ) {
     let Some(service) = service else { return };
@@ -238,6 +244,21 @@ pub(super) fn handle_agent_queries(
                     name: name.clone(),
                 });
             }
+            AgentQuery::SimulatorScreenshot => {
+                simulator_writers
+                    .1
+                    .write(vmux_simulator::SimulatorScreenshotRequest {
+                        request_id: request.request_id.0,
+                    });
+            }
+            AgentQuery::SimulatorControl { ref action } => {
+                simulator_writers
+                    .0
+                    .write(vmux_simulator::SimulatorControlRequest {
+                        request_id: request.request_id.0,
+                        action: action.clone(),
+                    });
+            }
             AgentQuery::ReadTerminal { .. }
             | AgentQuery::ReadTerminalFull { .. }
             | AgentQuery::CommandExit { .. }
@@ -372,6 +393,45 @@ fn forward_record_stop_responses(
         service.0.send(ClientMessage::AgentQueryResponse {
             request_id: AgentRequestId(response.request_id),
             result: record_stop_response_to_query_result(&response.result),
+        });
+    }
+}
+
+fn forward_simulator_control_responses(
+    mut reader: MessageReader<vmux_simulator::SimulatorControlResponse>,
+    service: Option<Res<ServiceClient>>,
+) {
+    let Some(service) = service else { return };
+    for response in reader.read() {
+        let result = match &response.result {
+            Ok(message) => AgentQueryResult::Text(message.clone()),
+            Err(message) => AgentQueryResult::Error(message.clone()),
+        };
+        service.0.send(ClientMessage::AgentQueryResponse {
+            request_id: AgentRequestId(response.request_id),
+            result,
+        });
+    }
+}
+
+fn forward_simulator_screenshot_responses(
+    mut reader: MessageReader<vmux_simulator::SimulatorScreenshotResponse>,
+    service: Option<Res<ServiceClient>>,
+) {
+    let Some(service) = service else { return };
+    for response in reader.read() {
+        let result = match &response.result {
+            Ok(image) => AgentQueryResult::Image {
+                path: image.path.clone(),
+                png: image.png.clone(),
+                width: image.width,
+                height: image.height,
+            },
+            Err(message) => AgentQueryResult::Error(message.clone()),
+        };
+        service.0.send(ClientMessage::AgentQueryResponse {
+            request_id: AgentRequestId(response.request_id),
+            result,
         });
     }
 }

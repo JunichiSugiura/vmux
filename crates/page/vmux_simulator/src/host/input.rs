@@ -8,6 +8,31 @@ pub struct DeviceTouch {
     phase: SimulatorTouchPhase,
 }
 
+pub struct DeviceCoordinates {
+    points: (f32, f32),
+    pixels: (u32, u32),
+}
+
+impl DeviceCoordinates {
+    pub fn new(points: (f32, f32), pixels: (u32, u32)) -> Option<Self> {
+        if points.0 <= 0.0 || points.1 <= 0.0 || pixels.0 == 0 || pixels.1 == 0 {
+            return None;
+        }
+        Some(Self { points, pixels })
+    }
+
+    pub fn point(&self, pixel: (u32, u32)) -> (f32, f32) {
+        let max_pixel_x = self.pixels.0.saturating_sub(1).max(1) as f32;
+        let max_pixel_y = self.pixels.1.saturating_sub(1).max(1) as f32;
+        let max_point_x = (self.points.0 - 1.0).max(0.0);
+        let max_point_y = (self.points.1 - 1.0).max(0.0);
+        (
+            pixel.0.min(self.pixels.0.saturating_sub(1)) as f32 / max_pixel_x * max_point_x,
+            pixel.1.min(self.pixels.1.saturating_sub(1)) as f32 / max_pixel_y * max_point_y,
+        )
+    }
+}
+
 impl DeviceTouch {
     const DRAG_THRESHOLD: f32 = 6.0;
 
@@ -174,5 +199,15 @@ mod tests {
         };
 
         assert!(DeviceTouch::resolve(&touch, (0.0, 0.0)).is_none());
+    }
+
+    #[test]
+    fn screenshot_pixels_map_to_simulator_points() {
+        let coordinates = DeviceCoordinates::new((402.0, 874.0), (1206, 2622)).expect("mapping");
+
+        let point = coordinates.point((603, 1311));
+
+        assert!((point.0 - 200.67).abs() < 0.01);
+        assert!((point.1 - 436.67).abs() < 0.01);
     }
 }

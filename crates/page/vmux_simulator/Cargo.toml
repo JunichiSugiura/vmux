@@ -17,12 +17,13 @@ percent-encoding = "2"
 rkyv = { workspace = true }
 serde = { workspace = true }
 vmux_core = { path = "../../vmux_core" }
+vmux_wire = { path = "../../vmux_wire" }
 
 [target.'cfg(not(target_os = "ios"))'.dependencies]
 bevy = { workspace = true }
 bevy_cef = { workspace = true }
 bevy_ecs = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 libc = "0.2"
 serde_json = { workspace = true }
 

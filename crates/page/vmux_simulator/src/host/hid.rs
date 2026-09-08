@@ -105,6 +105,40 @@ impl HidRequest {
             coalescible: false,
         }
     }
+
+    pub fn swipe(from: (f32, f32), to: (f32, f32), duration_ms: u32) -> Self {
+        let steps = (duration_ms / 16).clamp(2, 60);
+        let delay = f64::from(duration_ms) / f64::from(steps) / 1_000.0;
+        let mut primitives = Vec::with_capacity((steps as usize * 2) + 2);
+        primitives.push(HidPrimitive::touch(HidKind::Down, from));
+        for step in 1..=steps {
+            let progress = step as f32 / steps as f32;
+            let point = (
+                from.0 + (to.0 - from.0) * progress,
+                from.1 + (to.1 - from.1) * progress,
+            );
+            primitives.push(HidPrimitive::delay(delay));
+            primitives.push(HidPrimitive::touch(HidKind::Down, point));
+        }
+        primitives.push(HidPrimitive::touch(HidKind::Up, to));
+        Self {
+            primitives,
+            fallback: vec![
+                "swipe".into(),
+                "--start-x".into(),
+                format!("{:.0}", from.0),
+                "--start-y".into(),
+                format!("{:.0}", from.1),
+                "--end-x".into(),
+                format!("{:.0}", to.0),
+                "--end-y".into(),
+                format!("{:.0}", to.1),
+                "--duration".into(),
+                format!("{:.3}", f64::from(duration_ms) / 1_000.0),
+            ],
+            coalescible: false,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -494,5 +528,25 @@ mod tests {
         assert_eq!(primitives[1]["kind"], "delay");
         assert_eq!(primitives[1]["duration"], 0.1);
         assert_eq!(primitives[2]["kind"], "up");
+    }
+
+    #[test]
+    fn a_swipe_starts_and_ends_at_the_requested_points() {
+        let request = HidRequest::swipe((12.0, 34.0), (56.0, 78.0), 300);
+        let json = serde_json::to_value(HidBrokerRequest {
+            primitives: request.primitives,
+        })
+        .expect("request");
+        let primitives = json["primitives"].as_array().expect("primitives");
+
+        assert_eq!(primitives.first().expect("first")["kind"], "down");
+        assert_eq!(primitives.first().expect("first")["x"], 12.0);
+        assert_eq!(primitives.last().expect("last")["kind"], "up");
+        assert_eq!(primitives.last().expect("last")["x"], 56.0);
+        assert!(
+            primitives
+                .iter()
+                .any(|primitive| primitive["kind"] == "delay")
+        );
     }
 }

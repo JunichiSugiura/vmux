@@ -11,12 +11,13 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
-use hid::HidBroker;
-use input::{DeviceKey, DeviceTouch, DeviceTouchSession};
+use hid::{HidBroker, HidRequest};
+use input::{DeviceCoordinates, DeviceKey, DeviceTouch, DeviceTouchSession};
 use std::sync::{Arc, Mutex};
 use stream::StreamServer;
 use vmux_core::PageMetadata;
 use vmux_core::host::page::{NativelyHosted, PageReady};
+use vmux_wire::protocol::{SimulatorAction, SimulatorButton};
 
 pub use device::{Axe, SimulatorDevice};
 
@@ -33,10 +34,19 @@ impl Plugin for SimulatorPlugin {
             .init_resource::<Announced>()
             .init_resource::<DeviceTouchSession>()
             .add_message::<HardwareButtonRequest>()
+            .add_message::<SimulatorControlRequest>()
+            .add_message::<SimulatorControlResponse>()
+            .add_message::<SimulatorScreenshotRequest>()
+            .add_message::<SimulatorScreenshotResponse>()
             .add_systems(Update, (Self::attach_device, Self::announce).chain())
             .add_systems(
                 Update,
-                Self::handle_button_requests.in_set(SimulatorInputSet),
+                (
+                    Self::handle_button_requests,
+                    Self::handle_control_requests,
+                    Self::handle_screenshot_requests,
+                )
+                    .in_set(SimulatorInputSet),
             )
             .add_plugins(
                 BinEventEmitterPlugin::<(SimulatorTouch, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
@@ -49,6 +59,37 @@ impl Plugin for SimulatorPlugin {
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HardwareButtonRequest(pub HardwareButton);
+
+#[derive(Message, Clone)]
+pub struct SimulatorControlRequest {
+    pub request_id: [u8; 16],
+    pub action: SimulatorAction,
+}
+
+#[derive(Message, Clone)]
+pub struct SimulatorControlResponse {
+    pub request_id: [u8; 16],
+    pub result: Result<String, String>,
+}
+
+#[derive(Message, Clone)]
+pub struct SimulatorScreenshotRequest {
+    pub request_id: [u8; 16],
+}
+
+#[derive(Clone)]
+pub struct SimulatorScreenshot {
+    pub path: String,
+    pub png: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Message, Clone)]
+pub struct SimulatorScreenshotResponse {
+    pub request_id: [u8; 16],
+    pub result: Result<SimulatorScreenshot, String>,
+}
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SimulatorInputSet;
@@ -65,6 +106,9 @@ pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageMa
 
 #[derive(Resource)]
 struct DevicePoints(f32, f32);
+
+#[derive(Resource)]
+struct DevicePixels(u32, u32);
 
 #[derive(Resource, Default)]
 struct Announced(HashMap<Entity, SimulatorReady>);
@@ -87,6 +131,7 @@ struct AttachedDevice {
     hid: HidBroker,
     device: SimulatorDevice,
     points: Option<(f32, f32)>,
+    pixels: Option<(u32, u32)>,
     server: StreamServer,
 }
 
@@ -132,6 +177,9 @@ impl SimulatorPlugin {
         );
         if let Some((width, height)) = attached.points {
             commands.insert_resource(DevicePoints(width, height));
+        }
+        if let Some((width, height)) = attached.pixels {
+            commands.insert_resource(DevicePixels(width, height));
         }
         commands.insert_resource(attached.server);
         commands.insert_resource(attached.device);
@@ -235,6 +283,141 @@ impl SimulatorPlugin {
             DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
         }
     }
+
+    fn handle_control_requests(
+        mut requests: MessageReader<SimulatorControlRequest>,
+        mut responses: MessageWriter<SimulatorControlResponse>,
+        points: Option<Res<DevicePoints>>,
+        pixels: Option<Res<DevicePixels>>,
+        hid: Option<Res<HidBroker>>,
+        device: Option<Res<SimulatorDevice>>,
+        axe: Option<Res<Axe>>,
+    ) {
+        for request in requests.read() {
+            let result = request.dispatch(
+                points.as_deref(),
+                pixels.as_deref(),
+                hid.as_deref(),
+                device.as_deref(),
+                axe.as_deref(),
+            );
+            responses.write(SimulatorControlResponse {
+                request_id: request.request_id,
+                result,
+            });
+        }
+    }
+
+    fn handle_screenshot_requests(
+        mut requests: MessageReader<SimulatorScreenshotRequest>,
+        mut responses: MessageWriter<SimulatorScreenshotResponse>,
+        device: Option<Res<SimulatorDevice>>,
+        axe: Option<Res<Axe>>,
+    ) {
+        for request in requests.read() {
+            let result = match (device.as_deref(), axe.as_deref()) {
+                (Some(device), Some(axe)) => {
+                    SimulatorScreenshot::capture(request.request_id, device, axe)
+                }
+                _ => Err("no iOS Simulator is attached".to_string()),
+            };
+            responses.write(SimulatorScreenshotResponse {
+                request_id: request.request_id,
+                result,
+            });
+        }
+    }
+}
+
+impl SimulatorControlRequest {
+    fn dispatch(
+        &self,
+        points: Option<&DevicePoints>,
+        pixels: Option<&DevicePixels>,
+        hid: Option<&HidBroker>,
+        device: Option<&SimulatorDevice>,
+        axe: Option<&Axe>,
+    ) -> Result<String, String> {
+        match &self.action {
+            SimulatorAction::Tap { x, y } => {
+                let coordinates = Self::coordinates(points, pixels)?;
+                let hid = hid.ok_or("simulator input is unavailable")?;
+                hid.dispatch(HidRequest::tap(coordinates.point((*x, *y))));
+                Ok(format!("tapped simulator at ({x}, {y})"))
+            }
+            SimulatorAction::Swipe {
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                duration_ms,
+            } => {
+                let coordinates = Self::coordinates(points, pixels)?;
+                let hid = hid.ok_or("simulator input is unavailable")?;
+                let from = coordinates.point((*start_x, *start_y));
+                let to = coordinates.point((*end_x, *end_y));
+                hid.dispatch(HidRequest::swipe(from, to, *duration_ms));
+                Ok(format!(
+                    "swiped simulator from ({start_x}, {start_y}) to ({end_x}, {end_y})"
+                ))
+            }
+            SimulatorAction::TypeText(text) => {
+                let device = device.ok_or("no iOS Simulator is attached")?;
+                let axe = axe.ok_or("simulator input is unavailable")?;
+                DeviceKey::resolve(&SimulatorKey::Text(text.clone()), device).dispatch(axe);
+                Ok("typed text into simulator".to_string())
+            }
+            SimulatorAction::Key(keycode) => {
+                let device = device.ok_or("no iOS Simulator is attached")?;
+                let axe = axe.ok_or("simulator input is unavailable")?;
+                DeviceKey::resolve(&SimulatorKey::Code(u16::from(*keycode)), device).dispatch(axe);
+                Ok(format!("pressed simulator keycode {keycode}"))
+            }
+            SimulatorAction::Button(button) => {
+                let device = device.ok_or("no iOS Simulator is attached")?;
+                let axe = axe.ok_or("simulator input is unavailable")?;
+                let button = match button {
+                    SimulatorButton::Home => HardwareButton::Home,
+                    SimulatorButton::Lock => HardwareButton::Lock,
+                    SimulatorButton::Siri => HardwareButton::Siri,
+                };
+                DeviceKey::resolve(&SimulatorKey::Button(button), device).dispatch(axe);
+                Ok("pressed simulator hardware button".to_string())
+            }
+        }
+    }
+
+    fn coordinates(
+        points: Option<&DevicePoints>,
+        pixels: Option<&DevicePixels>,
+    ) -> Result<DeviceCoordinates, String> {
+        let points = points.ok_or("simulator point dimensions are unavailable")?;
+        let pixels = pixels.ok_or("simulator pixel dimensions are unavailable")?;
+        DeviceCoordinates::new((points.0, points.1), (pixels.0, pixels.1))
+            .ok_or_else(|| "simulator dimensions are invalid".to_string())
+    }
+}
+
+impl SimulatorScreenshot {
+    fn capture(request_id: [u8; 16], device: &SimulatorDevice, axe: &Axe) -> Result<Self, String> {
+        let path = std::env::temp_dir().join(format!(
+            "vmux-simulator-{}-{:02x}{:02x}{:02x}{:02x}.png",
+            std::process::id(),
+            request_id[0],
+            request_id[1],
+            request_id[2],
+            request_id[3]
+        ));
+        let png = device.screenshot(axe, &path)?;
+        let (width, height) = SimulatorDevice::png_size(&png)
+            .ok_or_else(|| "simulator screenshot is not a valid PNG".to_string())?;
+        Ok(Self {
+            path: path.to_string_lossy().into_owned(),
+            png,
+            width,
+            height,
+        })
+    }
 }
 
 impl DeviceAttachment {
@@ -302,6 +485,7 @@ impl AttachedDevice {
             hid,
             device,
             points,
+            pixels,
             server,
         })
     }

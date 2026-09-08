@@ -229,7 +229,23 @@ impl SimulatorDevice {
         Self::png_size(&bytes.ok()?)
     }
 
-    fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
+    pub fn screenshot(&self, axe: &Axe, path: &std::path::Path) -> Result<Vec<u8>, String> {
+        let output = axe
+            .command()
+            .args(["screenshot", "--udid", &self.udid, "--output"])
+            .arg(path)
+            .output()
+            .map_err(|error| format!("could not capture simulator screenshot: {error}"))?;
+        if !output.status.success() {
+            return Err(format!(
+                "could not capture simulator screenshot: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        fs::read(path).map_err(|error| format!("could not read simulator screenshot: {error}"))
+    }
+
+    pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
         if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
             return None;
         }

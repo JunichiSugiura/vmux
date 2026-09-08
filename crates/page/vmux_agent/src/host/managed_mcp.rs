@@ -101,7 +101,7 @@ pub fn claude_value(name: &str, server: &McpServerManifest) -> Value {
             insert_object(
                 &mut value,
                 "headers",
-                &McpAuthorization::headers(name, server),
+                &McpAuthorization::claude_headers(name, server),
             );
         }
     }
@@ -109,10 +109,7 @@ pub fn claude_value(name: &str, server: &McpServerManifest) -> Value {
 }
 
 pub fn vibe_value(name: &str, server: &McpServerManifest) -> Value {
-    let mut value = match claude_value(name, server) {
-        Value::Object(value) => value,
-        _ => Map::new(),
-    };
+    let mut value = Map::new();
     value.insert("name".to_string(), Value::String(name.to_string()));
     value.insert(
         "transport".to_string(),
@@ -125,7 +122,39 @@ pub fn vibe_value(name: &str, server: &McpServerManifest) -> Value {
             .to_string(),
         ),
     );
-    value.remove("type");
+    match server.transport {
+        McpTransport::Stdio => {
+            if let Some(command) = &server.command {
+                value.insert("command".to_string(), Value::String(command.clone()));
+            }
+            insert_array(&mut value, "args", &server.args);
+            insert_object(&mut value, "env", &server.env);
+            if let Some(cwd) = &server.cwd {
+                value.insert("cwd".to_string(), Value::String(cwd.clone()));
+            }
+        }
+        McpTransport::Http | McpTransport::Sse => {
+            if let Some(url) = &server.url {
+                value.insert("url".to_string(), Value::String(url.clone()));
+            }
+            insert_object(
+                &mut value,
+                "headers",
+                &McpAuthorization::vibe_headers(server),
+            );
+            if let Some(variable) = McpAuthorization::bearer_environment_variable(name, server) {
+                value.insert("api_key_env".to_string(), Value::String(variable));
+                value.insert(
+                    "api_key_header".to_string(),
+                    Value::String("Authorization".to_string()),
+                );
+                value.insert(
+                    "api_key_format".to_string(),
+                    Value::String("Bearer {token}".to_string()),
+                );
+            }
+        }
+    }
     Value::Object(value)
 }
 
@@ -166,6 +195,37 @@ impl McpAuthorization {
         encoded
     }
 
+    fn bearer_environment_variable(name: &str, server: &McpServerManifest) -> Option<String> {
+        server
+            .bearer_token_env_var
+            .clone()
+            .or_else(|| Self::environment_variable(name, server))
+    }
+
+    fn claude_headers(name: &str, server: &McpServerManifest) -> BTreeMap<String, String> {
+        let mut headers = server.headers.clone();
+        for (header, variable) in &server.header_env {
+            headers.insert(header.clone(), format!("${{{variable}}}"));
+        }
+        if let Some(variable) = Self::bearer_environment_variable(name, server) {
+            headers.insert(
+                "Authorization".to_string(),
+                format!("Bearer ${{{variable}}}"),
+            );
+        }
+        headers
+    }
+
+    fn vibe_headers(server: &McpServerManifest) -> BTreeMap<String, String> {
+        let mut headers = server.headers.clone();
+        for (header, variable) in &server.header_env {
+            if let Ok(value) = std::env::var(variable) {
+                headers.insert(header.clone(), value);
+            }
+        }
+        headers
+    }
+
     fn headers(name: &str, server: &McpServerManifest) -> BTreeMap<String, String> {
         let mut headers = server.resolved_headers();
         if Self::environment_variable(name, server).is_none() {
@@ -185,6 +245,23 @@ impl McpAuthorization {
 
     pub(crate) fn is_environment_variable(name: &str) -> bool {
         name.starts_with("VMUX_MCP_OAUTH_")
+    }
+
+    pub(crate) fn environment() -> Vec<(String, String)> {
+        let mut env = Vec::new();
+        for (name, server) in load() {
+            let Some(variable) = Self::environment_variable(&name, &server) else {
+                continue;
+            };
+            match Self::access_token(&name, &server) {
+                Ok(Some(token)) => env.push((variable, token)),
+                Ok(None) => {}
+                Err(error) => {
+                    bevy::log::warn!("managed MCP authorization unavailable for {name}: {error}");
+                }
+            }
+        }
+        env
     }
 
     #[cfg(not(test))]
@@ -337,30 +414,6 @@ impl CodexMcp {
         });
         servers
     }
-
-    pub(crate) fn environment() -> Vec<(String, String)> {
-        let mut env = Vec::new();
-        for (name, server) in load() {
-            let Some(variable) = McpAuthorization::environment_variable(&name, &server) else {
-                continue;
-            };
-            if server
-                .bearer_token_env_var
-                .as_ref()
-                .is_some_and(|configured| configured != &variable)
-            {
-                continue;
-            }
-            match McpAuthorization::access_token(&name, &server) {
-                Ok(Some(token)) => env.push((variable, token)),
-                Ok(None) => {}
-                Err(error) => {
-                    bevy::log::warn!("managed MCP authorization unavailable for {name}: {error}");
-                }
-            }
-        }
-        env
-    }
 }
 
 #[cfg(not(test))]
@@ -511,6 +564,59 @@ mod tests {
         assert_eq!(
             McpAuthorization::environment_variable("linear", &server),
             None
+        );
+    }
+
+    #[test]
+    fn claude_projection_references_managed_oauth_environment() {
+        let server = McpServerManifest {
+            transport: McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            url: Some("https://mcp.linear.app/mcp".to_string()),
+            headers: BTreeMap::new(),
+            header_env: BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+
+        assert_eq!(
+            claude_value("linear", &server),
+            serde_json::json!({
+                "type": "http",
+                "url": "https://mcp.linear.app/mcp",
+                "headers": {
+                    "Authorization": "Bearer ${VMUX_MCP_OAUTH_6C696E656172}"
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn vibe_projection_references_managed_oauth_environment() {
+        let server = McpServerManifest {
+            transport: McpTransport::Http,
+            command: None,
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            cwd: None,
+            url: Some("https://mcp.linear.app/mcp".to_string()),
+            headers: BTreeMap::new(),
+            header_env: BTreeMap::new(),
+            bearer_token_env_var: None,
+        };
+
+        assert_eq!(
+            vibe_value("linear", &server),
+            serde_json::json!({
+                "name": "linear",
+                "transport": "http",
+                "url": "https://mcp.linear.app/mcp",
+                "api_key_env": "VMUX_MCP_OAUTH_6C696E656172",
+                "api_key_header": "Authorization",
+                "api_key_format": "Bearer {token}"
+            })
         );
     }
 }

@@ -131,7 +131,7 @@ impl CliAgentStrategy for CodexStrategy {
     }
 
     fn build_env(&self, _mcp: &McpServerConfig) -> Vec<(String, String)> {
-        crate::managed_mcp::CodexMcp::environment()
+        crate::managed_mcp::McpAuthorization::environment()
     }
 
     fn discover_session(

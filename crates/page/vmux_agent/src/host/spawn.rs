@@ -694,24 +694,36 @@ mod tests {
         update.initialize(app.world_mut()).unwrap();
         let graph = update.graph();
 
-        let restart = graph
-            .systems_in_set(handle_restart_agent_pty.into_system_set().intern())
-            .expect("handle_restart_agent_pty is registered")
-            .first()
-            .copied()
-            .expect("handle_restart_agent_pty is registered");
         let service_messages = graph
             .system_sets
             .get_key(ServiceMessageSet.intern())
             .expect("the ordering names ServiceMessageSet");
 
-        assert!(
-            graph
-                .dependency()
-                .graph()
-                .contains_edge(NodeId::System(restart), NodeId::Set(service_messages)),
-            "restart state commands must apply before terminal input flush"
-        );
+        for (system, message) in [
+            (
+                handle_restart_agent_pty.into_system_set().intern(),
+                "restart preparation must run before terminal input flush",
+            ),
+            (
+                drain_agent_restarts.into_system_set().intern(),
+                "restart process commands must run before terminal input flush",
+            ),
+        ] {
+            let restart = graph
+                .systems_in_set(system)
+                .expect("restart system is registered")
+                .first()
+                .copied()
+                .expect("restart system is registered");
+
+            assert!(
+                graph
+                    .dependency()
+                    .graph()
+                    .contains_edge(NodeId::System(restart), NodeId::Set(service_messages)),
+                "{message}"
+            );
+        }
     }
 
     #[test]

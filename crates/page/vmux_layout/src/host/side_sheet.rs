@@ -30,7 +30,10 @@ pub struct SideSheet;
 #[type_path = "vmux_desktop::layout::side_sheet"]
 #[require(moonshine_save::prelude::Save)]
 pub struct SideSheetSectionsExpanded {
+    pub projects: bool,
     pub bookmarks: bool,
+    pub knowledge: bool,
+    pub tools: bool,
 }
 
 impl SideSheetSectionsExpanded {

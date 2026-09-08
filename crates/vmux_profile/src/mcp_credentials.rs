@@ -182,7 +182,7 @@ impl McpOauthCredentials {
             Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
             Err(std::sync::TryLockError::Poisoned(error)) => return Err(error.to_string()),
         };
-        if Self::revision() != revision || revision % 2 != 0 {
+        if Self::revision() != revision || !revision.is_multiple_of(2) {
             return Ok(None);
         }
         Ok(Some(operation()))

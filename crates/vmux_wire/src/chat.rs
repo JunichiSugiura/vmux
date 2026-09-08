@@ -479,7 +479,7 @@ pub struct ResumeSession {
 }
 impl SlashCommands {
     pub fn for_start() -> Self {
-        let mut commands = vec![
+        let commands = vec![
             SlashCommandEntry {
                 name: "upload".into(),
                 description: "Attach files".into(),
@@ -490,10 +490,14 @@ impl SlashCommands {
             },
         ];
         #[cfg(host)]
-        commands.push(SlashCommandEntry {
-            name: "mcp".into(),
-            description: String::new(),
-        });
+        let commands = {
+            let mut commands = commands;
+            commands.push(SlashCommandEntry {
+                name: "mcp".into(),
+                description: String::new(),
+            });
+            commands
+        };
         Self { commands }
     }
 

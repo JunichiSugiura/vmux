@@ -59,7 +59,8 @@ fn activate_primary_window_on_startup(
 }
 
 fn grab_key_window_on_pane_hover(
-    primary_window: Query<(Entity, &Window), With<bevy::window::PrimaryWindow>>,
+    windows: Query<(Entity, &Window)>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     panes: Query<
         &ComputedNode,
         (
@@ -87,7 +88,10 @@ fn grab_key_window_on_pane_hover(
     if !over_pane {
         return;
     }
-    let Ok((window_entity, window)) = primary_window.single() else {
+    let Some(window_entity) = focused_window.0 else {
+        return;
+    };
+    let Ok((_, window)) = windows.get(window_entity) else {
         return;
     };
     if !window.visible {

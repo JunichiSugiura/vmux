@@ -59,14 +59,14 @@ impl Harness {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(bevy::asset::AssetPlugin::default())
-            .add_plugins(bevy::window::WindowPlugin {
-                primary_window: Some(Window {
-                    resolution,
-                    ..default()
-                }),
-                ..default()
-            })
             .add_plugins(FlexPlugin);
+        app.world_mut().spawn((
+            Window {
+                resolution,
+                ..default()
+            },
+            bevy::window::PrimaryWindow,
+        ));
 
         app
     }

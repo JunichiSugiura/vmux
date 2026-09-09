@@ -603,7 +603,8 @@ pub enum ToggleLayoutCommand {
 #[derive(OsSubMenu, DefaultShortcuts, CommandBar, Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum WindowCommand {
     #[default]
-    #[menu(id = "new_window", label = "New Window", hidden)]
+    #[menu(id = "new_window", label = "New Window", accel = "super+n", hidden)]
+    #[shortcut(direct = "Super+N")]
     NewWindow,
     #[menu(
         id = "close_window",

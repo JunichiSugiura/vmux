@@ -6,7 +6,7 @@ use bevy::{
         mouse::{MouseButtonInput, MouseWheel},
     },
     prelude::*,
-    window::{CursorMoved, PrimaryWindow},
+    window::CursorMoved,
 };
 use bevy_cef::prelude::*;
 use std::sync::atomic::Ordering;
@@ -54,19 +54,27 @@ fn log_command_bar_keyboard_input(
 }
 
 fn publish_layout_pointer_inside(
-    windows: Query<&Window, With<PrimaryWindow>>,
-    layout_q: Query<(), With<LayoutCef>>,
+    windows: Query<&Window>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
+    layout_q: Query<(Entity, &HostWindow), With<LayoutCef>>,
     pointer_capture_q: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     cef_regions: CefPointerRegionQuery<'_, '_>,
 ) {
-    if layout_q.single().is_err() {
+    let Some(window_entity) = focused_window.0 else {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         return;
-    }
+    };
+    let Some(layout) = layout_q
+        .iter()
+        .find_map(|(entity, host)| (host.0 == window_entity).then_some(entity))
+    else {
+        NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
+        return;
+    };
     #[cfg(target_os = "macos")]
-    let inside = !pointer_capture_q.is_empty()
+    let inside = pointer_capture_q.contains(layout)
         || windows
-            .single()
+            .get(window_entity)
             .ok()
             .and_then(|window| {
                 let scale = window.resolution.scale_factor();
@@ -77,9 +85,9 @@ fn publish_layout_pointer_inside(
             })
             .is_some_and(|position| cef_pointer_regions_contains(position, &cef_regions));
     #[cfg(not(target_os = "macos"))]
-    let inside = !pointer_capture_q.is_empty()
+    let inside = pointer_capture_q.contains(layout)
         || windows
-            .single()
+            .get(window_entity)
             .ok()
             .and_then(Window::cursor_position)
             .is_some_and(|pos| cef_pointer_regions_contains(pos, &cef_regions));
@@ -97,7 +105,7 @@ fn forward_layout_cef_cursor_move(
     buttons: Res<ButtonInput<MouseButton>>,
     suppress: Res<CefSuppressPointerInput>,
     browsers: NonSend<Browsers>,
-    layout_q: Query<Entity, With<LayoutCef>>,
+    layout_q: Query<(Entity, &HostWindow), With<LayoutCef>>,
     pointer_capture_q: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     cef_regions: CefPointerRegionQuery<'_, '_>,
     mut was_in_region: Local<bool>,
@@ -107,13 +115,15 @@ fn forward_layout_cef_cursor_move(
         *was_in_region = false;
         return;
     }
-    let Ok(layout) = layout_q.single() else {
-        for _ in events.read() {}
-        *was_in_region = false;
-        return;
-    };
     for event in events.read() {
-        let in_region = !pointer_capture_q.is_empty()
+        let Some(layout) = layout_q
+            .iter()
+            .find_map(|(entity, host)| (host.0 == event.window).then_some(entity))
+        else {
+            *was_in_region = false;
+            continue;
+        };
+        let in_region = pointer_capture_q.contains(layout)
             || cef_pointer_regions_contains(event.position, &cef_regions);
         if in_region {
             browsers.send_mouse_move(&layout, buttons.get_pressed(), event.position, false);
@@ -129,26 +139,27 @@ fn forward_layout_cef_mouse_button(
     windows: Query<&Window>,
     suppress: Res<CefSuppressPointerInput>,
     browsers: NonSend<Browsers>,
-    layout_q: Query<Entity, With<LayoutCef>>,
+    layout_q: Query<(Entity, &HostWindow), With<LayoutCef>>,
     pointer_capture_q: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     cef_regions: CefPointerRegionQuery<'_, '_>,
-    mut captured: Local<bool>,
+    mut captured: Local<Option<Entity>>,
 ) {
     if suppress.0 {
         for _ in events.read() {}
-        *captured = false;
+        *captured = None;
         return;
     }
-    let Ok(layout) = layout_q.single() else {
-        for _ in events.read() {}
-        *captured = false;
-        return;
-    };
     for event in events.read() {
         let Some(button) = pointer_button_from_mouse_button(event.button) else {
             continue;
         };
         let Ok(window) = windows.get(event.window) else {
+            continue;
+        };
+        let Some(layout) = layout_q
+            .iter()
+            .find_map(|(entity, host)| (host.0 == event.window).then_some(entity))
+        else {
             continue;
         };
         #[cfg(target_os = "macos")]
@@ -162,12 +173,12 @@ fn forward_layout_cef_mouse_button(
         let Some(position) = position else {
             continue;
         };
-        let inside =
-            !pointer_capture_q.is_empty() || cef_pointer_regions_contains(position, &cef_regions);
+        let inside = pointer_capture_q.contains(layout)
+            || cef_pointer_regions_contains(position, &cef_regions);
         if event.state == ButtonState::Pressed && inside {
-            *captured = true;
+            *captured = Some(layout);
         }
-        if inside || *captured {
+        if inside || *captured == Some(layout) {
             #[cfg(target_os = "macos")]
             if let Some(pointer) = native_pointer {
                 browsers.send_native_mouse_move(&layout, pointer.buttons, position, !inside);
@@ -180,7 +191,7 @@ fn forward_layout_cef_mouse_button(
             );
         }
         if event.state == ButtonState::Released {
-            *captured = false;
+            *captured = None;
         }
     }
 }

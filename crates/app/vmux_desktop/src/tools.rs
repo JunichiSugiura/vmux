@@ -681,22 +681,25 @@ fn emit_tools_snapshot(
     browsers: NonSend<Browsers>,
     layout: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
     entities: &bevy::ecs::entity::Entities,
-    mut layout_revision: Local<u64>,
+    mut layout_revisions: Local<HashMap<Entity, u64>>,
     mut commands: Commands,
 ) {
     if !state.loaded {
         return;
     }
-    if let Ok((entity, page_ready)) = layout.single()
-        && (*layout_revision != state.revision || page_ready.is_changed())
-        && browsers.can_emit_to(&entity)
-    {
+    for (entity, page_ready) in &layout {
+        if layout_revisions.get(&entity) == Some(&state.revision) && !page_ready.is_changed() {
+            continue;
+        }
+        if !browsers.can_emit_to(&entity) {
+            continue;
+        }
         commands.trigger(BinHostEmitEvent::from_rkyv(
             entity,
             TOOLS_SNAPSHOT_EVENT,
             &state.snapshot,
         ));
-        *layout_revision = state.revision;
+        layout_revisions.insert(entity, state.revision);
     }
     let revision = state.revision;
     let snapshot = state.snapshot.clone();

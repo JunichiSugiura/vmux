@@ -4,6 +4,7 @@ use bevy::window::PrimaryWindow;
 use bevy_cef::prelude::*;
 use bevy_world_serialization::WorldFilter;
 use moonshine_save::prelude::*;
+use moonshine_save::save::EntityFilter;
 use std::path::{Path, PathBuf};
 
 use vmux_browser::Browser;
@@ -67,10 +68,15 @@ impl Plugin for PersistencePlugin {
 
 fn handle_save_space_requests(
     mut requests: MessageReader<vmux_space::SaveSpaceRequest>,
+    save_entities: SpaceSaveEntities,
     mut commands: Commands,
 ) {
     for request in requests.read() {
-        save_space_to_path(&mut commands, request.path.clone());
+        save_space_to_path_excluding(
+            &mut commands,
+            request.path.clone(),
+            save_entities.excluded(),
+        );
     }
 }
 
@@ -94,6 +100,33 @@ struct AutoSave {
     debounce: Timer,
     periodic: Timer,
     dirty: bool,
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct SpaceSaveEntities<'w, 's> {
+    saved: Query<'w, 's, Entity, With<Save>>,
+    child_of: Query<'w, 's, &'static ChildOf>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
+    windows: Query<'w, 's, (), With<Window>>,
+    primary_window: Query<'w, 's, Entity, With<PrimaryWindow>>,
+}
+
+impl SpaceSaveEntities<'_, '_> {
+    fn excluded(&self) -> Vec<Entity> {
+        let Ok(primary_window) = self.primary_window.single() else {
+            return Vec::new();
+        };
+        self.saved
+            .iter()
+            .filter(|entity| {
+                if self.windows.contains(*entity) {
+                    return *entity != primary_window;
+                }
+                vmux_layout::window::host_window_of(*entity, &self.child_of, &self.host_windows)
+                    .is_some_and(|window| window != primary_window)
+            })
+            .collect()
+    }
 }
 
 #[derive(bevy::ecs::system::SystemParam)]
@@ -198,6 +231,7 @@ fn auto_save_system(
     time: Res<Time>,
     mut auto_save: ResMut<AutoSave>,
     spaces: Query<(), With<Space>>,
+    save_entities: SpaceSaveEntities,
     mut commands: Commands,
 ) {
     auto_save.periodic.tick(time.delta());
@@ -209,17 +243,26 @@ fn auto_save_system(
     if auto_save.dirty {
         auto_save.debounce.tick(time.delta());
         if auto_save.debounce.is_finished() {
-            save_space_to_path(&mut commands, store_path());
+            save_space_to_path_excluding(&mut commands, store_path(), save_entities.excluded());
             auto_save.dirty = false;
         }
     }
 
     if auto_save.periodic.just_finished() {
-        save_space_to_path(&mut commands, store_path());
+        save_space_to_path_excluding(&mut commands, store_path(), save_entities.excluded());
     }
 }
 
+#[cfg(test)]
 pub(crate) fn save_space_to_path(commands: &mut Commands, path: PathBuf) {
+    save_space_to_path_excluding(commands, path, std::iter::empty());
+}
+
+fn save_space_to_path_excluding(
+    commands: &mut Commands,
+    path: PathBuf,
+    excluded: impl IntoIterator<Item = Entity>,
+) {
     if vmux_core::profile::is_test_session() {
         return;
     }
@@ -228,6 +271,7 @@ pub(crate) fn save_space_to_path(commands: &mut Commands, path: PathBuf) {
     }
     write_store_schema_version(&path);
     let mut save = SaveWorld::default_into_file(path);
+    save.entities = EntityFilter::block(excluded);
     save.components = WorldFilter::deny_all()
         .allow::<Save>()
         .allow::<ChildOf>()
@@ -692,6 +736,7 @@ fn sync_launch_to_stack(
 mod tests {
     use super::*;
     use bevy::ecs::entity::EntityHashMap;
+    use bevy::ecs::system::RunSystemOnce;
     use vmux_layout::settings::{
         FocusRingSettings, LayoutSettings, PaneSettings, SideSheetSettings, WindowSettings,
     };
@@ -1384,6 +1429,38 @@ mod tests {
         assert!(geom.fullscreen);
         assert_eq!(geom.position, Some(IVec2::new(11, 22)));
         assert_eq!(geom.size, Some(Vec2::new(640.0, 480.0)));
+    }
+
+    #[test]
+    fn secondary_window_views_are_excluded_from_store() {
+        let mut app = App::new();
+        let primary_window = app
+            .world_mut()
+            .spawn((Window::default(), PrimaryWindow, Save))
+            .id();
+        let secondary_window = app.world_mut().spawn((Window::default(), Save)).id();
+        let primary_root = app.world_mut().spawn(HostWindow(primary_window)).id();
+        let secondary_root = app.world_mut().spawn(HostWindow(secondary_window)).id();
+        let primary_space = app
+            .world_mut()
+            .spawn((Save, Space, ChildOf(primary_root)))
+            .id();
+        let secondary_space = app
+            .world_mut()
+            .spawn((Save, Space, ChildOf(secondary_root)))
+            .id();
+        let global = app.world_mut().spawn(Save).id();
+
+        let excluded = app
+            .world_mut()
+            .run_system_once(|entities: SpaceSaveEntities| entities.excluded())
+            .unwrap();
+
+        assert!(excluded.contains(&secondary_window));
+        assert!(excluded.contains(&secondary_space));
+        assert!(!excluded.contains(&primary_window));
+        assert!(!excluded.contains(&primary_space));
+        assert!(!excluded.contains(&global));
     }
 
     #[test]

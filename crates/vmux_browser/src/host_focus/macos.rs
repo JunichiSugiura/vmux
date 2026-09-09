@@ -1,7 +1,6 @@
 use crate::host_focus::HostFocusIntent;
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 
 pub(crate) struct HostFocusPlatformPlugin;
 
@@ -14,7 +13,7 @@ impl Plugin for HostFocusPlatformPlugin {
 fn apply_winit_host_focus(
     _non_send: NonSendMarker,
     intent: Res<HostFocusIntent>,
-    primary: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut pending_key_window: Local<bool>,
 ) {
@@ -22,7 +21,7 @@ fn apply_winit_host_focus(
         *pending_key_window = false;
         return;
     }
-    let Ok(window_entity) = primary.single() else {
+    let Some(window_entity) = focused_window.0 else {
         return;
     };
     if should_release_keys(

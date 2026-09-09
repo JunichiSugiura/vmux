@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy::winit::{EventLoopProxy, EventLoopProxyWrapper, WINIT_WINDOWS, WinitUserEvent};
@@ -61,6 +62,7 @@ struct HostedPage {
     surface: WebView,
     placement: Placement,
     page: &'static NativePage,
+    window: Entity,
 }
 
 struct NativePageMetadata {
@@ -105,9 +107,11 @@ impl HostedPages {
         self.0.get(&page)
     }
 
-    fn layout(&self) -> Option<Entity> {
+    fn layout(&self, window: Option<Entity>) -> Option<Entity> {
         for (entity, hosted) in self.0.iter() {
-            if hosted.placement == Placement::Layout {
+            if hosted.placement == Placement::Layout
+                && window.is_none_or(|window| hosted.window == window)
+            {
                 return Some(*entity);
             }
         }
@@ -128,13 +132,10 @@ fn open_native_pages(world: &mut World) {
         return;
     }
 
-    let Ok(window_entity) = world
+    let primary_window = world
         .query_filtered::<Entity, With<PrimaryWindow>>()
         .single(world)
-    else {
-        report_waiting("no primary window entity");
-        return;
-    };
+        .ok();
     let embedder = match PageEmbedder::of(world) {
         Ok(embedder) => embedder,
         Err(reason) => {
@@ -148,18 +149,26 @@ fn open_native_pages(world: &mut World) {
     }
 
     for (entity, page, placement, read_instance) in wanted {
+        let Some(window_entity) = host_window_for(world, entity).or(primary_window) else {
+            report_waiting("page has no host window entity");
+            continue;
+        };
         let current = world
             .get_non_send::<HostedPages>()
             .and_then(|hosted| hosted.0.get(&entity))
-            .map(|hosted| hosted.page);
-        if current.is_some_and(|current| std::ptr::eq(current, page)) {
+            .map(|hosted| (hosted.page, hosted.window));
+        if current
+            .is_some_and(|(current, window)| std::ptr::eq(current, page) && window == window_entity)
+        {
             continue;
         }
         let instance = match read_instance {
             Some(read) => read(world, entity),
             None => vmux_native::Instance::default(),
         };
-        if current.is_some_and(|current| current.transparent == page.transparent) {
+        if current.is_some_and(|(current, window)| {
+            current.transparent == page.transparent && window == window_entity
+        }) {
             world
                 .entity_mut(entity)
                 .remove::<vmux_core::page::PageReady>();
@@ -215,6 +224,7 @@ fn open_native_pages(world: &mut World) {
                         surface,
                         placement,
                         page,
+                        window: window_entity,
                     },
                 );
             }
@@ -231,7 +241,7 @@ fn open_native_pages(world: &mut World) {
 fn place_native_pages(
     hosted: Option<NonSendMut<HostedPages>>,
     frames: Res<PaneFrames>,
-    window: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<&Window>,
     pages: Query<(), With<HostsPage>>,
     capturing: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     settings: Res<AppSettings>,
@@ -247,17 +257,16 @@ fn place_native_pages(
     {
         let _ = proxy.send_event(WinitUserEvent::WakeUp);
     }
-    let window = window.single().ok();
     let capturing = !capturing.is_empty();
-    let all_corners = frames.all_corners();
     for (entity, page) in hosted.0.iter() {
+        let window = windows.get(page.window).ok();
         let Some(bounds) = page.placement.bounds(*entity, window, &frames) else {
             page.surface.set_visible(false);
             continue;
         };
         page.surface.set_bounds(bounds);
         page.surface
-            .set_corner_radius(settings.layout.radius as f64, all_corners);
+            .set_corner_radius(settings.layout.radius as f64, frames.all_corners(*entity));
         let ring = frames.ring_of(*entity);
         page.surface.set_focus_ring(ring.width as f64, ring.rgb);
         page.surface.set_visible(true);
@@ -279,12 +288,13 @@ fn render_native_pages(hosted: Option<NonSend<HostedPages>>) {
 fn focus_native_page(
     hosted: Option<NonSend<HostedPages>>,
     intent: Res<crate::host_focus::HostFocusIntent>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
 ) {
     let Some(hosted) = hosted else {
         return;
     };
     let wanted = match *intent {
-        crate::host_focus::HostFocusIntent::LayoutView => hosted.layout(),
+        crate::host_focus::HostFocusIntent::LayoutView => hosted.layout(focused_window.0),
         crate::host_focus::HostFocusIntent::NativePane(page) => Some(page),
         _ => return,
     };
@@ -292,6 +302,16 @@ fn focus_native_page(
         return;
     };
     page.surface.take_first_responder();
+}
+
+fn host_window_for(world: &World, entity: Entity) -> Option<Entity> {
+    let mut current = entity;
+    loop {
+        if let Some(host) = world.get::<bevy_cef::prelude::HostWindow>(current) {
+            return Some(host.0);
+        }
+        current = world.get::<ChildOf>(current).map(Relationship::get)?;
+    }
 }
 
 fn forward_host_emit(host_emit: On<BinHostEmitEvent>, hosted: Option<NonSend<HostedPages>>) {

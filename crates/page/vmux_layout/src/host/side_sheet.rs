@@ -2,7 +2,8 @@ use super::Open;
 use crate::settings::LayoutSettings;
 use bevy::prelude::*;
 #[cfg(target_os = "macos")]
-use bevy::{ecs::system::NonSendMarker, window::PrimaryWindow, winit::WINIT_WINDOWS};
+use bevy::{ecs::system::NonSendMarker, winit::WINIT_WINDOWS};
+use bevy_cef::prelude::HostWindow;
 use vmux_flex::prelude::*;
 
 impl Plugin for SideSheetLayoutPlugin {
@@ -113,24 +114,6 @@ fn sync_side_sheet_visibility(
     added: Query<Entity, (With<SideSheet>, Added<Open>)>,
     mut removed: RemovedComponents<Open>,
 ) {
-    let mut left_open: Option<bool> = None;
-    for entity in &added {
-        if let Ok((_, pos, _, _)) = side_sheet_q.get(entity)
-            && *pos == SideSheetPosition::Left
-        {
-            left_open = Some(true);
-        }
-    }
-    for entity in removed.read() {
-        if let Ok((_, pos, _, _)) = side_sheet_q.get(entity)
-            && *pos == SideSheetPosition::Left
-        {
-            left_open = Some(false);
-        }
-    }
-
-    let Some(is_open) = left_open else { return };
-
     if width_res.0 <= 0.0 {
         width_res.0 = crate::event::SideSheetResizeEvent {
             width: settings.side_sheet.width,
@@ -139,16 +122,20 @@ fn sync_side_sheet_visibility(
     }
 
     let width = width_res.0;
-    for (_, pos, mut vis, mut node) in &mut side_sheet_q {
-        if *pos != SideSheetPosition::Left {
-            continue;
-        }
-        if is_open {
-            *vis = Visibility::Visible;
+    for entity in &added {
+        if let Ok((_, pos, mut visibility, mut node)) = side_sheet_q.get_mut(entity)
+            && *pos == SideSheetPosition::Left
+        {
+            *visibility = Visibility::Visible;
             node.display = Display::Flex;
             node.width = Val::Px(width);
-        } else {
-            *vis = Visibility::Hidden;
+        }
+    }
+    for entity in removed.read() {
+        if let Ok((_, pos, mut visibility, mut node)) = side_sheet_q.get_mut(entity)
+            && *pos == SideSheetPosition::Left
+        {
+            *visibility = Visibility::Hidden;
             node.display = Display::None;
         }
     }
@@ -156,75 +143,77 @@ fn sync_side_sheet_visibility(
 
 #[cfg(target_os = "macos")]
 fn sync_window_buttons_visibility(
-    side_sheet_q: Query<(&SideSheetPosition, Has<Open>), With<SideSheet>>,
-    window_q: Query<Entity, With<PrimaryWindow>>,
-    mut last_open: Local<Option<bool>>,
+    side_sheet_q: Query<(Entity, &SideSheetPosition, Has<Open>), With<SideSheet>>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
+    window_q: Query<Entity, With<Window>>,
+    mut last_open: Local<std::collections::HashMap<Entity, bool>>,
     _non_send: NonSendMarker,
 ) {
-    let is_open = side_sheet_q
-        .iter()
-        .any(|(pos, open)| *pos == SideSheetPosition::Left && open);
+    for entity in &window_q {
+        let is_open = side_sheet_q.iter().any(|(side_sheet, pos, open)| {
+            *pos == SideSheetPosition::Left
+                && open
+                && crate::window::host_window_of(side_sheet, &child_of, &host_windows)
+                    == Some(entity)
+        });
+        if last_open.get(&entity) == Some(&is_open) {
+            continue;
+        }
 
-    if *last_open == Some(is_open) {
-        return;
-    }
+        let updated = WINIT_WINDOWS.with_borrow(|winit_windows| {
+            let Some(winit_win) = winit_windows.get_window(entity) else {
+                return false;
+            };
 
-    *last_open = Some(is_open);
+            use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+            let Ok(handle) = winit_win.window_handle() else {
+                return false;
+            };
+            let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
+                return false;
+            };
 
-    let Ok(entity) = window_q.single() else {
-        warn!("sync_window_buttons: no PrimaryWindow entity");
-        return;
-    };
+            let ns_view = appkit.ns_view.as_ptr();
+            unsafe {
+                use objc_ffi::sel;
 
-    WINIT_WINDOWS.with_borrow(|winit_windows| {
-        let Some(winit_win) = winit_windows.get_window(entity) else {
-            warn!("sync_window_buttons: winit window not found, will retry");
-            *last_open = None;
-            return;
-        };
+                type MsgSendNoArgs = unsafe extern "C" fn(
+                    *mut libc::c_void,
+                    *const libc::c_void,
+                ) -> *mut libc::c_void;
+                type MsgSendU64 = unsafe extern "C" fn(
+                    *mut libc::c_void,
+                    *const libc::c_void,
+                    u64,
+                ) -> *mut libc::c_void;
+                type MsgSendBool =
+                    unsafe extern "C" fn(*mut libc::c_void, *const libc::c_void, libc::c_schar);
 
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        let Ok(handle) = winit_win.window_handle() else {
-            warn!("sync_window_buttons: no window handle");
-            return;
-        };
-        let RawWindowHandle::AppKit(appkit) = handle.as_raw() else {
-            warn!("sync_window_buttons: not AppKit handle");
-            return;
-        };
+                let send_no_args: MsgSendNoArgs =
+                    std::mem::transmute(objc_ffi::objc_msgSend as *const ());
+                let send_u64: MsgSendU64 = std::mem::transmute(objc_ffi::objc_msgSend as *const ());
+                let send_bool: MsgSendBool =
+                    std::mem::transmute(objc_ffi::objc_msgSend as *const ());
 
-        let ns_view = appkit.ns_view.as_ptr();
-        unsafe {
-            use objc_ffi::sel;
-
-            type MsgSendNoArgs =
-                unsafe extern "C" fn(*mut libc::c_void, *const libc::c_void) -> *mut libc::c_void;
-            type MsgSendU64 = unsafe extern "C" fn(
-                *mut libc::c_void,
-                *const libc::c_void,
-                u64,
-            ) -> *mut libc::c_void;
-            type MsgSendBool =
-                unsafe extern "C" fn(*mut libc::c_void, *const libc::c_void, libc::c_schar);
-
-            let send_no_args: MsgSendNoArgs =
-                std::mem::transmute(objc_ffi::objc_msgSend as *const ());
-            let send_u64: MsgSendU64 = std::mem::transmute(objc_ffi::objc_msgSend as *const ());
-            let send_bool: MsgSendBool = std::mem::transmute(objc_ffi::objc_msgSend as *const ());
-
-            let ns_window = send_no_args(ns_view, sel("window"));
-            if ns_window.is_null() {
-                return;
-            }
-            let hidden: libc::c_schar = if is_open { 0 } else { 1 };
-            for button_type in 0u64..=2 {
-                let button = send_u64(ns_window, sel("standardWindowButton:"), button_type);
-                if !button.is_null() {
-                    send_bool(button, sel("setHidden:"), hidden);
+                let ns_window = send_no_args(ns_view, sel("window"));
+                if ns_window.is_null() {
+                    return false;
+                }
+                let hidden: libc::c_schar = if is_open { 0 } else { 1 };
+                for button_type in 0u64..=2 {
+                    let button = send_u64(ns_window, sel("standardWindowButton:"), button_type);
+                    if !button.is_null() {
+                        send_bool(button, sel("setHidden:"), hidden);
+                    }
                 }
             }
+            true
+        });
+        if updated {
+            last_open.insert(entity, is_open);
         }
-    });
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -244,5 +233,68 @@ mod objc_ffi {
     pub fn sel(name: &str) -> *const libc::c_void {
         let c = std::ffi::CString::new(name).unwrap();
         unsafe { sel_registerName(c.as_ptr()) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visibility_changes_only_for_the_side_sheet_whose_open_state_changed() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(LayoutSettings::default())
+            .insert_resource(SideSheetWidth(0.0))
+            .add_systems(Update, sync_side_sheet_visibility);
+        let first = app
+            .world_mut()
+            .spawn((
+                SideSheet,
+                SideSheetPosition::Left,
+                Open,
+                Visibility::Hidden,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .id();
+        let second = app
+            .world_mut()
+            .spawn((
+                SideSheet,
+                SideSheetPosition::Left,
+                Visibility::Hidden,
+                Node {
+                    display: Display::None,
+                    ..default()
+                },
+            ))
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Visibility>(first),
+            Some(&Visibility::Visible)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(second),
+            Some(&Visibility::Hidden)
+        );
+
+        app.world_mut().entity_mut(first).remove::<Open>();
+        app.world_mut().entity_mut(second).insert(Open);
+        app.update();
+
+        assert_eq!(
+            app.world().get::<Visibility>(first),
+            Some(&Visibility::Hidden)
+        );
+        assert_eq!(
+            app.world().get::<Visibility>(second),
+            Some(&Visibility::Visible)
+        );
     }
 }

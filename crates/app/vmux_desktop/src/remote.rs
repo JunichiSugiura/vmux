@@ -200,14 +200,8 @@ fn push_remote_state_emit(
     browsers: NonSend<Browsers>,
     cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
     state: Res<RemoteState>,
-    mut last: Local<Option<RemoteStateEvent>>,
+    mut last: Local<std::collections::HashMap<Entity, RemoteStateEvent>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
-        return;
-    };
-    if !browsers.can_emit_to(&cef_e) {
-        return;
-    }
     let payload = RemoteStateEvent {
         enabled: state.enabled,
         phase: state.phase,
@@ -216,15 +210,20 @@ fn push_remote_state_emit(
         paired: state.paired,
         error: state.error.clone(),
     };
-    if last.as_ref() == Some(&payload) && !page_ready.is_changed() {
-        return;
+    for (cef_e, page_ready) in &cef_q {
+        if !browsers.can_emit_to(&cef_e) {
+            continue;
+        }
+        if last.get(&cef_e) == Some(&payload) && !page_ready.is_changed() {
+            continue;
+        }
+        commands.trigger(BinHostEmitEvent::from_rkyv(
+            cef_e,
+            REMOTE_STATE_EVENT,
+            &payload,
+        ));
+        last.insert(cef_e, payload.clone());
     }
-    commands.trigger(BinHostEmitEvent::from_rkyv(
-        cef_e,
-        REMOTE_STATE_EVENT,
-        &payload,
-    ));
-    *last = Some(payload);
 }
 
 fn remote_worker(command_rx: Receiver<bool>, result_tx: Sender<RemoteWorkerResult>) {

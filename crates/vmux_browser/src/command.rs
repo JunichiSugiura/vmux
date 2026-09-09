@@ -224,12 +224,18 @@ fn on_header_command_emit(
 
 fn on_reload_notify_header(
     _trigger: On<RequestReload>,
-    cef: Option<Single<Entity, (With<LayoutCef>, With<PageReady>)>>,
+    layouts: Query<(Entity, &HostWindow), (With<LayoutCef>, With<PageReady>)>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,
 ) {
-    let Some(cef) = cef else { return };
-    let cef_e = *cef;
+    let Some(cef_e) = focused_window.0.and_then(|window| {
+        layouts
+            .iter()
+            .find_map(|(entity, host)| (host.0 == window).then_some(entity))
+    }) else {
+        return;
+    };
     if browsers.can_emit_to(&cef_e) {
         commands.trigger(BinHostEmitEvent::from_rkyv(
             cef_e,
@@ -241,12 +247,18 @@ fn on_reload_notify_header(
 
 fn on_hard_reload_notify_header(
     _trigger: On<RequestReloadIgnoreCache>,
-    cef: Option<Single<Entity, (With<LayoutCef>, With<PageReady>)>>,
+    layouts: Query<(Entity, &HostWindow), (With<LayoutCef>, With<PageReady>)>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     browsers: NonSend<Browsers>,
     mut commands: Commands,
 ) {
-    let Some(cef) = cef else { return };
-    let cef_e = *cef;
+    let Some(cef_e) = focused_window.0.and_then(|window| {
+        layouts
+            .iter()
+            .find_map(|(entity, host)| (host.0 == window).then_some(entity))
+    }) else {
+        return;
+    };
     if browsers.can_emit_to(&cef_e) {
         commands.trigger(BinHostEmitEvent::from_rkyv(
             cef_e,

@@ -21,14 +21,19 @@ fn apply_active(entries: &[(Entity, i64, bool)], commands: &mut Commands) {
 }
 
 pub fn ensure_active_space(
+    mains: Query<&Children, With<crate::window::Main>>,
     spaces: Query<(Entity, Option<&LastActivatedAt>, Has<Active>), With<Space>>,
     mut commands: Commands,
 ) {
-    let entries: Vec<(Entity, i64, bool)> = spaces
-        .iter()
-        .map(|(entity, ts, active)| (entity, ts.map(|t| t.0).unwrap_or(0), active))
-        .collect();
-    apply_active(&entries, &mut commands);
+    for children in &mains {
+        let mut entries = Vec::new();
+        for child in children.iter() {
+            if let Ok((entity, ts, active)) = spaces.get(child) {
+                entries.push((entity, ts.map(|t| t.0).unwrap_or(0), active));
+            }
+        }
+        apply_active(&entries, &mut commands);
+    }
 }
 
 pub fn ensure_active_tab(
@@ -132,10 +137,39 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_systems(Update, ensure_active_space);
-        let older = app.world_mut().spawn((Space, LastActivatedAt(1))).id();
-        let newer = app.world_mut().spawn((Space, LastActivatedAt(9))).id();
+        let main = app.world_mut().spawn(crate::window::Main).id();
+        let older = app
+            .world_mut()
+            .spawn((Space, LastActivatedAt(1), ChildOf(main)))
+            .id();
+        let newer = app
+            .world_mut()
+            .spawn((Space, LastActivatedAt(9), ChildOf(main)))
+            .id();
         app.update();
         assert!(app.world().entity(newer).contains::<Active>());
         assert!(!app.world().entity(older).contains::<Active>());
+    }
+
+    #[test]
+    fn ensure_active_space_keeps_one_active_space_per_window() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_systems(Update, ensure_active_space);
+        let first_main = app.world_mut().spawn(crate::window::Main).id();
+        let second_main = app.world_mut().spawn(crate::window::Main).id();
+        let first = app
+            .world_mut()
+            .spawn((Space, LastActivatedAt(2), ChildOf(first_main)))
+            .id();
+        let second = app
+            .world_mut()
+            .spawn((Space, LastActivatedAt(1), ChildOf(second_main)))
+            .id();
+
+        app.update();
+
+        assert!(app.world().entity(first).contains::<Active>());
+        assert!(app.world().entity(second).contains::<Active>());
     }
 }

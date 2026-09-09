@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_cef::prelude::BinReceive;
+use bevy_cef::prelude::{BinReceive, HostWindow};
 use std::sync::{LazyLock, Mutex};
 use vmux_core::overlay::{OverlayState, OverlayStateQuery};
 use vmux_flex::prelude::{ComputedNode, LayoutSystems};
@@ -88,19 +88,27 @@ fn on_window_drag_region(
 
 fn publish_window_drag_region(
     reported: Res<ReportedWindowDragRegion>,
-    header_q: Query<(&ComputedNode, Has<Open>), With<Header>>,
+    header_q: Query<(Entity, &ComputedNode, Has<Open>), With<Header>>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     overlay_q: OverlayStateQuery,
-    pointer_capture_q: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
+    pointer_capture_q: Query<(Entity, &HostWindow), (With<LayoutCef>, LayoutPointerCapture)>,
     mut last: Local<Option<WindowDragRegion>>,
 ) {
-    let overlay_owns_input =
-        OverlayState::of_any(&overlay_q).owns_input() || !pointer_capture_q.is_empty();
+    let overlay_owns_input = OverlayState::of_any(&overlay_q).owns_input()
+        || pointer_capture_q
+            .iter()
+            .any(|(_, host)| Some(host.0) == focused_window.0);
     let mut region = None;
     if let Some(reported) = reported.0
         && !overlay_owns_input
     {
-        for (header, open) in header_q.iter() {
-            if !open {
+        for (entity, header, open) in header_q.iter() {
+            if !open
+                || vmux_layout::window::host_window_of(entity, &child_of, &host_windows)
+                    != focused_window.0
+            {
                 continue;
             }
             region = WindowDragRegion::of(reported, *header);

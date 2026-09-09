@@ -162,7 +162,25 @@ flowchart TB
     split --> p2
 ```
 
-- **Space** — a project container. Exactly one is `Active` and drawn; the rest stay alive.
+Each native Bevy `Window` owns one complete tree. Its root carries `VmuxWindow`,
+`HostWindow(window)`, and `FlexViewport(window)`; the header, side sheets, main area,
+spaces, tabs, panes, and hosted surfaces descend from that root. Descendants resolve their
+native owner through this ancestry, so sizing, visibility, and browser/native surfaces stay
+inside their window.
+
+`FocusedWindow` is the cross-tree selector. Global commands, keyboard focus, capture, and
+the single command-bar overlay follow the focused native window; `Active` selections are
+interpreted within that window's tree. Closing a window removes only its tree and promotes
+another window if the primary closes. The primary tree and geometry persist across launches;
+additional windows are runtime workspaces.
+
+Space IDs are global identities. Every window may attach its own `Space` view for the same ID;
+selecting a space that is not attached creates a fresh local tab and pane tree. Names, project
+settings, and history are shared by ID, while tabs, panes, focus, expansion, side sheets, and
+other layout state remain local to each window. Only the primary window's views persist.
+
+- **Space** — a project identity with a window-local view. Exactly one view per window is
+  `Active` and drawn; the rest stay alive.
 - **Tab** — a saved pane arrangement.
 - **Pane / PaneSplit** — a recursive row/column tree. `tmux`-style tiling.
 - **Stack** — several leaves in one pane, cycled like browser tabs.

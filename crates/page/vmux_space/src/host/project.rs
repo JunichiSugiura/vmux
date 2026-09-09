@@ -145,44 +145,33 @@ const UNLISTED_DIRS: &[&str] = &[
 pub struct SpaceProjects<'w, 's> {
     settings: Option<Res<'w, vmux_setting::AppSettings>>,
     active_space: Option<Res<'w, super::spaces::ActiveSpace>>,
+    active_space_entity: Option<Res<'w, vmux_layout::space::ActiveSpaceEntity>>,
     child_of: Query<'w, 's, &'static ChildOf>,
     spaces: Query<'w, 's, (), With<vmux_layout::space::Space>>,
     space_ids: Query<'w, 's, &'static vmux_layout::space::SpaceId>,
-    expanded: Query<
-        'w,
-        's,
-        (
-            &'static vmux_layout::space::SpaceId,
-            &'static ExpandedProjectDirs,
-        ),
-        With<vmux_layout::space::Space>,
-    >,
+    expanded: Query<'w, 's, &'static ExpandedProjectDirs, With<vmux_layout::space::Space>>,
 }
 
 impl SpaceProjects<'_, '_> {
     pub fn rows(&self, entity: Entity) -> Vec<vmux_core::event::ProjectRow> {
-        let space_id =
-            vmux_layout::space::space_id_of(entity, &self.child_of, &self.spaces, &self.space_ids);
-        let Some(space_id) = space_id else {
+        let Some(space) = vmux_layout::space::space_of(entity, &self.child_of, &self.spaces) else {
             return self.active_rows();
         };
-        self.rows_of(&space_id)
+        let Ok(space_id) = self.space_ids.get(space) else {
+            return self.active_rows();
+        };
+        self.rows_of(&space_id.0, Some(space))
     }
 
     pub fn active_rows(&self) -> Vec<vmux_core::event::ProjectRow> {
         let Some(active) = self.active_space.as_deref() else {
             return Vec::new();
         };
-        self.rows_of(&active.record.id)
-    }
-
-    fn expanded_of(&self, space_id: &str) -> Option<&ExpandedProjectDirs> {
-        for (id, dirs) in &self.expanded {
-            if id.0 == space_id {
-                return Some(dirs);
-            }
-        }
-        None
+        let space = self
+            .active_space_entity
+            .as_deref()
+            .and_then(|active| active.0);
+        self.rows_of(&active.record.id, space)
     }
 
     pub fn active_projects(&self) -> Vec<vmux_core::event::ProjectRow> {
@@ -202,9 +191,9 @@ impl SpaceProjects<'_, '_> {
         overrides.project_rows()
     }
 
-    fn rows_of(&self, space_id: &str) -> Vec<vmux_core::event::ProjectRow> {
+    fn rows_of(&self, space_id: &str, space: Option<Entity>) -> Vec<vmux_core::event::ProjectRow> {
         let listed = self.projects_of(space_id);
-        let Some(expanded) = self.expanded_of(space_id) else {
+        let Some(expanded) = space.and_then(|space| self.expanded.get(space).ok()) else {
             return listed;
         };
         let mut rows = Vec::new();
@@ -307,6 +296,7 @@ fn remember_space_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[derive(Resource, Default)]
     struct SawSettingsChange(bool);
@@ -476,6 +466,54 @@ mod tests {
             fixture.open_dirs().is_empty(),
             "the side sheet names its pane, and the space is reached through it"
         );
+    }
+
+    #[test]
+    fn project_expansion_is_local_to_the_owning_space_view() {
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        let path = project.to_string_lossy().into_owned();
+        let mut settings = vmux_setting::AppSettings::embedded();
+        settings.spaces.insert(
+            "work".to_string(),
+            vmux_setting::SpaceOverrides {
+                projects: vec![vmux_setting::SpaceProject::at(path.clone())],
+                active_project: Some(path.clone()),
+                ..Default::default()
+            },
+        );
+        let mut app = App::new();
+        app.insert_resource(settings);
+        let expanded_space = app
+            .world_mut()
+            .spawn((
+                vmux_layout::space::Space,
+                vmux_layout::space::SpaceId("work".to_string()),
+                ExpandedProjectDirs(vec![path]),
+            ))
+            .id();
+        let collapsed_space = app
+            .world_mut()
+            .spawn((
+                vmux_layout::space::Space,
+                vmux_layout::space::SpaceId("work".to_string()),
+            ))
+            .id();
+        let expanded_pane = app.world_mut().spawn(ChildOf(expanded_space)).id();
+        let collapsed_pane = app.world_mut().spawn(ChildOf(collapsed_space)).id();
+
+        let (expanded, collapsed) = app
+            .world_mut()
+            .run_system_once(move |projects: SpaceProjects| {
+                (projects.rows(expanded_pane), projects.rows(collapsed_pane))
+            })
+            .unwrap();
+
+        assert!(expanded[0].expanded);
+        assert!(expanded.len() > 1);
+        assert!(!collapsed[0].expanded);
+        assert_eq!(collapsed.len(), 1);
     }
 
     #[test]

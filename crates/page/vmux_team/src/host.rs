@@ -139,7 +139,7 @@ fn agent_page(
 }
 
 fn build_team_members(
-    active_space: &ActiveSpaceEntity,
+    active_space: Option<Entity>,
     user_q: &Query<(Entity, &Profile), With<User>>,
     agent_q: &Query<(
         Entity,
@@ -154,8 +154,6 @@ fn build_team_members(
     meta_q: &Query<&PageMetadata>,
     children_q: &Query<&Children>,
 ) -> Vec<TeamMemberRow> {
-    let active = active_space.0;
-
     let mut members = Vec::new();
     if let Ok((entity, profile)) = user_q.single() {
         members.push(team_member_row(
@@ -170,7 +168,7 @@ fn build_team_members(
             false,
         ));
     }
-    if let Some(active) = active {
+    if let Some(active) = active_space {
         for (entity, profile, agent, run, session, done) in agent_q {
             if space_of(entity, child_of, space_marker) == Some(active) {
                 let is_running = matches!(run, Some(AgentRunState::Streaming));
@@ -232,7 +230,7 @@ fn answer_list_team(
             continue;
         };
         let members = build_team_members(
-            &active_space,
+            active_space.0,
             &user_q,
             &agent_q,
             &child_of,
@@ -258,6 +256,7 @@ fn emit_team(
     pending_team: Query<Entity, (With<Team>, With<PageReady>, Without<TeamListSent>)>,
     sent_team: Query<Entity, (With<Team>, With<PageReady>, With<TeamListSent>)>,
     active_space: Res<ActiveSpaceEntity>,
+    active_spaces: Query<Entity, (With<Space>, With<vmux_core::Active>)>,
     user_q: Query<(Entity, &Profile), With<User>>,
     agent_q: Query<(
         Entity,
@@ -268,46 +267,51 @@ fn emit_team(
         Option<&vmux_core::notify::AgentDoneUnseen>,
     )>,
     child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
     space_marker: Query<(), With<Space>>,
     meta_q: Query<&PageMetadata>,
     children_q: Query<&Children>,
-    mut last: Local<Option<TeamEvent>>,
+    mut last: Local<std::collections::HashMap<Entity, TeamEvent>>,
     mut commands: Commands,
 ) {
-    let pending_total = pending_layout.iter().count() + pending_team.iter().count();
-    let sent_total = sent_layout.iter().count() + sent_team.iter().count();
-    if pending_total == 0 && sent_total == 0 {
-        return;
-    }
-
-    let payload = TeamEvent {
-        members: build_team_members(
-            &active_space,
-            &user_q,
-            &agent_q,
-            &child_of,
-            &space_marker,
-            &meta_q,
-            &children_q,
-        ),
-    };
-    let body_changed = last.as_ref() != Some(&payload);
-
-    for entity in pending_layout.iter().chain(pending_team.iter()) {
+    for (entity, pending) in pending_layout
+        .iter()
+        .chain(pending_team.iter())
+        .map(|entity| (entity, true))
+        .chain(
+            sent_layout
+                .iter()
+                .chain(sent_team.iter())
+                .map(|entity| (entity, false)),
+        )
+    {
+        let target_space = space_of(entity, &child_of, &space_marker).or_else(|| {
+            let window = vmux_layout::window::host_window_of(entity, &child_of, &host_windows)?;
+            active_spaces.iter().find(|space| {
+                vmux_layout::window::host_window_of(*space, &child_of, &host_windows)
+                    == Some(window)
+            })
+        });
+        let payload = TeamEvent {
+            members: build_team_members(
+                target_space.or(active_space.0),
+                &user_q,
+                &agent_q,
+                &child_of,
+                &space_marker,
+                &meta_q,
+                &children_q,
+            ),
+        };
+        if !pending && last.get(&entity) == Some(&payload) {
+            continue;
+        }
         if !browsers.can_emit_to(&entity) {
             continue;
         }
         commands.trigger(BinHostEmitEvent::from_rkyv(entity, TEAM_EVENT, &payload));
         commands.entity(entity).insert(TeamListSent);
-    }
-    if body_changed {
-        for entity in sent_layout.iter().chain(sent_team.iter()) {
-            if !browsers.can_emit_to(&entity) {
-                continue;
-            }
-            commands.trigger(BinHostEmitEvent::from_rkyv(entity, TEAM_EVENT, &payload));
-        }
-        *last = Some(payload);
+        last.insert(entity, payload);
     }
 }
 
@@ -592,7 +596,7 @@ mod tests {
                  meta_q: Query<&PageMetadata>,
                  children_q: Query<&Children>| {
                     build_team_members(
-                        &active,
+                        active.0,
                         &user_q,
                         &agent_q,
                         &child_of,

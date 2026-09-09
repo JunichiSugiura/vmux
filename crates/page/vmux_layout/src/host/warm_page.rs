@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 use bevy::prelude::*;
 use bevy_cef::prelude::CefSystems;
+use bevy_cef::prelude::HostWindow;
 use vmux_core::KeyboardOwner;
 use vmux_core::page::{PageReady, PrewarmPage};
 use vmux_core::{PageMetadata, PageOpenError, PageOpenHandled, PageOpenSet, PageOpenTask};
@@ -156,7 +157,8 @@ fn handle_registered_page_open(
 fn maintain_registered_page_pools(
     pages: Query<&PrewarmPage>,
     pool_nodes: Query<(Entity, &WarmPagePoolNode)>,
-    vmux_window: Query<Entity, With<VmuxWindow>>,
+    vmux_windows: Query<(Entity, &HostWindow), With<VmuxWindow>>,
+    focused_window: Res<crate::window::FocusedWindow>,
     layout_ready: Query<(), (With<LayoutCef>, With<PageReady>)>,
     spares: Query<&WarmPageSpare>,
     mut commands: Commands,
@@ -165,7 +167,15 @@ fn maintain_registered_page_pools(
     if layout_ready.is_empty() {
         return;
     }
-    let Ok(window) = vmux_window.single() else {
+    let Some(window) = focused_window
+        .0
+        .and_then(|focused| {
+            vmux_windows
+                .iter()
+                .find_map(|(root, host)| (host.0 == focused).then_some(root))
+        })
+        .or_else(|| vmux_windows.iter().next().map(|(root, _)| root))
+    else {
         return;
     };
     for page in &pages {
@@ -229,7 +239,8 @@ fn handle_warm_page_open<M: WarmPage>(
 
 fn maintain_warm_page_pool<M: WarmPage>(
     pool_nodes: Query<(Entity, &WarmPagePoolNode)>,
-    vmux_window: Query<Entity, With<VmuxWindow>>,
+    vmux_windows: Query<(Entity, &HostWindow), With<VmuxWindow>>,
+    focused_window: Res<crate::window::FocusedWindow>,
     layout_ready: Query<(), (With<LayoutCef>, With<PageReady>)>,
     spares: Query<&WarmPageSpare>,
     mut commands: Commands,
@@ -238,7 +249,15 @@ fn maintain_warm_page_pool<M: WarmPage>(
     if layout_ready.is_empty() || M::POOL_SIZE == 0 {
         return;
     }
-    let Ok(window) = vmux_window.single() else {
+    let Some(window) = focused_window
+        .0
+        .and_then(|focused| {
+            vmux_windows
+                .iter()
+                .find_map(|(root, host)| (host.0 == focused).then_some(root))
+        })
+        .or_else(|| vmux_windows.iter().next().map(|(root, _)| root))
+    else {
         return;
     };
     let node = pool_node_for(M::URL, window, &pool_nodes, &mut commands);
@@ -380,8 +399,10 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .init_resource::<WarmPageSpawnBudget>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_systems(Update, maintain_warm_page_pool::<TestPage>);
-        app.world_mut().spawn(VmuxWindow);
+        let window = app.world_mut().spawn_empty().id();
+        app.world_mut().spawn((VmuxWindow, HostWindow(window)));
 
         app.update();
         assert_eq!(
@@ -485,8 +506,10 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .init_resource::<WarmPageSpawnBudget>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_systems(Update, maintain_registered_page_pools);
-        app.world_mut().spawn(VmuxWindow);
+        let window = app.world_mut().spawn_empty().id();
+        app.world_mut().spawn((VmuxWindow, HostWindow(window)));
         app.world_mut().spawn((LayoutCef, PageReady {}));
         for (host, title) in [("history", "History"), ("lsp", "Language Servers")] {
             app.world_mut().spawn(PrewarmPage {

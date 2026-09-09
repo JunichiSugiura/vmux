@@ -471,7 +471,11 @@ fn command_bar_toggle_should_open(is_open: bool, picker: Option<CommandBarPicker
 
 fn handle_open_command_bar(
     mut reader: MessageReader<AppCommand>,
-    layout_q: Query<(Entity, Has<CommandBarPanelActive>), With<RendersLauncherPanel>>,
+    layout_q: Query<
+        (Entity, Has<CommandBarPanelActive>, Option<&HostWindow>),
+        With<RendersLauncherPanel>,
+    >,
+    windows: Query<&Window>,
     all_children: Query<&Children>,
     browser_meta: Query<&PageMetadata, Or<(With<WebviewSource>, With<HostsPage>)>>,
     focus: Res<CommandBarWorkspaceSnapshot>,
@@ -485,7 +489,13 @@ fn handle_open_command_bar(
     )>,
     mut commands: Commands,
 ) {
-    let Ok((layout_e, is_open)) = layout_q.single() else {
+    let Some((layout_e, is_open, _)) = layout_q
+        .iter()
+        .find(|(_, _, host)| {
+            host.is_some_and(|host| windows.get(host.0).is_ok_and(|window| window.focused))
+        })
+        .or_else(|| layout_q.iter().next())
+    else {
         return;
     };
     let active_stack_count = focus.stack_count;

@@ -3,10 +3,11 @@ use crate::{
     TabLayoutSpawnContent, TabLayoutSpawnRequest,
     host::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
 };
+#[cfg(test)]
+use bevy::window::PrimaryWindow;
 use bevy::{
     ecs::{message::Messages, relationship::Relationship},
     prelude::*,
-    window::PrimaryWindow,
 };
 use bevy_cef::prelude::*;
 use moonshine_save::prelude::*;
@@ -26,6 +27,7 @@ impl Plugin for TabPlugin {
             .register_type::<TabWorktree>()
             .register_type::<TabDirDecided>()
             .init_resource::<LastTabCloseAt>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_message::<CloseTabRequest>()
             .add_message::<crate::NewTabRequest>()
             .add_plugins(BinEventEmitterPlugin::<(TabsCommandEvent,)>::for_hosts(&[
@@ -163,7 +165,7 @@ fn handle_tab_commands(
     tabs: Query<(Entity, &LastActivatedAt), With<Tab>>,
     active_tab_param: crate::stack::ActiveTabParam,
     tab_q: Query<Entity, With<Tab>>,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+    focused_window: Res<crate::window::FocusedWindow>,
     child_of_q: Query<&ChildOf>,
     all_children: Query<&Children>,
     effective_startup_url: Option<Res<vmux_core::EffectiveStartupUrl>>,
@@ -173,6 +175,9 @@ fn handle_tab_commands(
     mut commands: Commands,
 ) {
     for cmd in reader.read() {
+        let Some(window) = focused_window.0 else {
+            continue;
+        };
         let active_tab = active_tab_param.get();
 
         match cmd {
@@ -200,7 +205,7 @@ fn handle_tab_commands(
                 };
                 layout_requests.write(TabLayoutSpawnRequest {
                     space,
-                    primary_window: *primary_window,
+                    primary_window: window,
                     name: Some(name),
                     startup_dir: startup_dir.clone(),
                     content,
@@ -223,7 +228,7 @@ fn handle_tab_commands(
                     let name = format!("Tab {}", tabs.iter().count() + 1);
                     layout_requests.write(TabLayoutSpawnRequest {
                         space,
-                        primary_window: *primary_window,
+                        primary_window: window,
                         name: Some(name),
                         startup_dir: startup_dir.clone(),
                         content: TabLayoutSpawnContent::StartupUrlOrPrompt,
@@ -319,6 +324,9 @@ fn handle_tab_commands(
     }
 
     for request in new_tabs.read() {
+        let Some(window) = focused_window.0 else {
+            continue;
+        };
         let Some((space, startup_dir)) = effective_startup_dir
             .as_deref()
             .and_then(|effective| effective.0.clone())
@@ -328,7 +336,7 @@ fn handle_tab_commands(
         let name = format!("Tab {}", tabs.iter().count() + 1);
         layout_requests.write(TabLayoutSpawnRequest {
             space,
-            primary_window: *primary_window,
+            primary_window: window,
             name: Some(name),
             startup_dir,
             content: TabLayoutSpawnContent::Url {
@@ -702,6 +710,7 @@ mod tests {
             .add_message::<PageOpenRequest>()
             .add_message::<vmux_core::agent::SpawnAgentInStackRequest>()
             .init_resource::<crate::PendingLaunch>()
+            .init_resource::<crate::window::FocusedWindow>()
             .insert_resource(test_settings())
             .init_resource::<CollectedSpawns>()
             .add_systems(
@@ -718,6 +727,7 @@ mod tests {
 
     fn build_main_and_tab(app: &mut App) -> Entity {
         let window = app.world_mut().spawn(PrimaryWindow).id();
+        app.insert_resource(crate::window::FocusedWindow(Some(window)));
         let main = app.world_mut().spawn(MainNode).id();
         let space = app
             .world_mut()
@@ -1089,7 +1099,8 @@ mod tests {
                 .in_set(ReadAppCommands),
         );
 
-        app.world_mut().spawn(PrimaryWindow);
+        let window = app.world_mut().spawn(PrimaryWindow).id();
+        app.insert_resource(crate::window::FocusedWindow(Some(window)));
         let main = app.world_mut().spawn(MainNode).id();
         let space = app
             .world_mut()
@@ -1146,7 +1157,8 @@ mod tests {
             .add_observer(on_tabs_command_emit);
 
         let webview = app.world_mut().spawn_empty().id();
-        app.world_mut().spawn(PrimaryWindow);
+        let window = app.world_mut().spawn(PrimaryWindow).id();
+        app.insert_resource(crate::window::FocusedWindow(Some(window)));
         let main = app.world_mut().spawn(MainNode).id();
         let space = app
             .world_mut()
@@ -1210,7 +1222,8 @@ mod tests {
             sync_tab_visibility.before(LayoutSystems::Layout),
         );
 
-        app.world_mut().spawn(PrimaryWindow);
+        let window = app.world_mut().spawn(PrimaryWindow).id();
+        app.insert_resource(crate::window::FocusedWindow(Some(window)));
         let main = app.world_mut().spawn(MainNode).id();
         let space = app
             .world_mut()

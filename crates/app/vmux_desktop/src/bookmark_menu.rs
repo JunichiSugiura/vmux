@@ -2,7 +2,8 @@ use bevy::prelude::*;
 
 impl Plugin for BookmarkMenuPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(vmux_layout::LayoutContractPlugin);
+        app.add_plugins(vmux_layout::LayoutContractPlugin)
+            .init_resource::<vmux_layout::window::FocusedWindow>();
         #[cfg(target_os = "macos")]
         app.add_message::<macos::BookmarkMenuSelection>()
             .init_resource::<macos::BookmarkMenuActionSequence>()
@@ -37,7 +38,6 @@ mod macos {
     use bevy::ecs::relationship::Relationship;
     use bevy::ecs::system::NonSendMarker;
     use bevy::prelude::*;
-    use bevy::window::PrimaryWindow;
     use bevy_cef::prelude::{BinHostEmitEvent, Browsers};
     use muda::ContextMenu;
     use parking_lot::Mutex;
@@ -139,7 +139,7 @@ mod macos {
     pub(super) fn show_bookmark_menu(
         _non_send: NonSendMarker,
         mut reader: MessageReader<ShowBookmarkMenuRequest>,
-        primary: Query<Entity, With<PrimaryWindow>>,
+        focused: Res<vmux_layout::window::FocusedWindow>,
         entries: Query<(
             Entity,
             &Uuid,
@@ -159,7 +159,8 @@ mod macos {
         let Some(request) = reader.read().last().cloned() else {
             return;
         };
-        let Ok(window_entity) = primary.single() else {
+
+        let Some(window_entity) = focused.0 else {
             return;
         };
         let view_ptr = WINIT_WINDOWS.with_borrow(|windows| {

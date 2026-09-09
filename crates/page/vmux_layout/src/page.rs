@@ -508,17 +508,21 @@ fn HeaderView(
         is_zoomed: _,
     } = stacks_state;
     let TabsHostEvent { tabs } = tabs_state;
-    let host_active_tab_id = tabs
+    let host_tab_activation = tabs
         .iter()
-        .find(|tab| tab.is_active)
-        .map(|tab| tab.id.clone());
+        .map(|tab| (tab.id.clone(), tab.is_active))
+        .collect::<Vec<_>>();
     let tab_drag_region_revision = tabs
         .iter()
         .map(|tab| tab.id.as_str())
         .collect::<Vec<_>>()
         .join(":");
     let mut active_sync = tab_drag;
-    use_effect(use_reactive!(|host_active_tab_id| {
+    use_effect(use_reactive!(|host_tab_activation| {
+        let host_active_tab_id = host_tab_activation
+            .iter()
+            .find(|(_, is_active)| *is_active)
+            .map(|(id, _)| id.clone());
         active_sync.acknowledge_active(host_active_tab_id);
     }));
     let active_row = stacks.iter().find(|t| t.is_active).cloned();
@@ -1558,11 +1562,8 @@ impl TabDrag {
     }
 
     fn acknowledge_active(&mut self, host_active_tab_id: Option<String>) {
-        self.host_active.set(host_active_tab_id.clone());
-        let Some(optimistic) = (self.optimistic_active)() else {
-            return;
-        };
-        if host_active_tab_id.as_deref() == Some(optimistic.as_str()) {
+        self.host_active.set(host_active_tab_id);
+        if self.optimistic_active.peek().is_some() {
             self.optimistic_active.set(None);
         }
     }

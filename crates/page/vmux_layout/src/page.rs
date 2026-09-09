@@ -1530,10 +1530,10 @@ impl TabDrag {
 
     fn source_style(self, tab_id: &str) -> String {
         let Some(state) = (self.state)() else {
-            return String::new();
+            return "transform:none;z-index:auto;pointer-events:auto;".to_string();
         };
         if !state.active || state.source_id != tab_id {
-            return String::new();
+            return "transform:none;z-index:auto;pointer-events:auto;".to_string();
         }
         let offset_x = state.current_x - state.start_x;
         format!("transform:translate3d({offset_x}px,0,0);z-index:20;pointer-events:none;")
@@ -1613,7 +1613,7 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
             String::new(),
             cn([
                 tab_box_classes,
-                "rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground",
+                "glass rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground",
             ]),
             cn(["min-w-0 flex-1", trunc, "text-ui"]),
             "flex h-4 w-4 cursor-pointer shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10".to_string(),

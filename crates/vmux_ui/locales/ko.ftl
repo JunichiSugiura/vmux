@@ -167,6 +167,9 @@ spaces-tabs = { $count ->
 spaces-delete = 스페이스 삭제
 
 team-title = 팀
+simulator-title = 시뮬레이터
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = 이 스페이스에는 나만 있습니다
 team-agents = { $count ->
     [one] 나와 에이전트 1개

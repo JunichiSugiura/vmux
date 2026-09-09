@@ -29,10 +29,7 @@ impl Plugin for StartPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn((
             crate::PAGE_MANIFEST,
-            vmux_core::host::page::NativelyHosted {
-                url: START_PAGE_URL,
-                title: "Start",
-            },
+            vmux_core::host::page::NativelyHosted::page(START_PAGE_URL, "Start"),
         ));
         app.init_resource::<vmux_command::snapshot::CommandBarAgentModels>()
             .add_message::<InlineTransitionRequested>()

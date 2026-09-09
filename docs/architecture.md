@@ -189,7 +189,7 @@ Two engines, and which one draws a surface depends on what the surface *is*.
 ```mermaid
 flowchart TB
     win["Vmux window"]
-    native["Vmux's own pages — 16 of them<br/>native Dioxus components in this process<br/>painted by a transparent wry WKWebView"]
+    native["Vmux's own pages — 17 of them<br/>native Dioxus components in this process<br/>painted by a transparent wry WKWebView"]
     layout["the layout: header · URL bar · sidebar<br/>NativePagePlugin::as_layout"]
     pane["everything in a pane: terminal, files,<br/>settings, agents, start, spaces …<br/>NativePagePlugin::in_pane"]
     cef["content you browse — https://<br/>full Chromium via CEF"]
@@ -200,7 +200,7 @@ flowchart TB
     native --> pane
 ```
 
-**Vmux's own UI is not a web app any more.** Sixteen pages — the layout overlay included —
+**Vmux's own UI is not a web app any more.** Seventeen pages — the layout overlay included —
 run their components as native Dioxus in the host process, each painted by its own
 transparent `wry` webview. There is no wasm build of the UI and no `vmux://` page inside
 CEF. Even the command bar, which used to be its own webview, is now a panel drawn inside
@@ -229,6 +229,17 @@ one. No page here wants force-click inside its own chrome.
 **Content pages are still CEF.** `Browser::new` is the leaf that carries them — windowed,
 natively focused — so scrolling an `https://` page costs what Chrome costs. CEF also still
 backs the extension bridge pages, and the windowless path it paints offscreen.
+
+The simulator page is a native pane backed by `axe`. The host attaches to a matching booted iOS
+Simulator or boots the latest available device, copies its MJPEG stream to a loopback socket, and
+turns normalized pointer and keyboard events from the page into guest input. MCP exposes the same
+attached device through screenshots, pixel-addressed taps and swipes, text and key input, and
+hardware buttons. Copy and paste synchronize the host and guest pasteboards before sending the
+matching iOS keyboard shortcut. Other modified keystrokes are forwarded as HID combinations so
+native text selection and editing shortcuts behave like Simulator.app. CoreSimulator presents the
+native iOS software keyboard while the page is attached. Vmux performs that private-framework call
+in a short-lived copy of its executable so CoreSimulator does not install long-lived run-loop work
+in the desktop process. The Simulator.app window is not captured or driven.
 
 Because the shell draws its own titlebar and resize edges rather than letting AppKit draw
 them, it watches mouse-downs app-wide and turns the ones that land in the drag region into

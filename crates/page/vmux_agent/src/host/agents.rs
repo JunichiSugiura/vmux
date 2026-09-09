@@ -18,10 +18,7 @@ impl Plugin for AgentsManagerPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn((
             PAGE_MANIFEST,
-            NativelyHosted {
-                url: "vmux://agents/",
-                title: "Agents",
-            },
+            NativelyHosted::page("vmux://agents/", "Agents"),
         ));
         vmux_core::register_host_spawn(app, "agents");
         app.init_resource::<AgentsPageWebviews>()

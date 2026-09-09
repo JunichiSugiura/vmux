@@ -180,6 +180,9 @@ spaces-tabs = { $count ->
 spaces-delete = Delete space
 
 team-title = Team
+simulator-title = Simulator
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = Just you in this space
 team-agents = { $count ->
     [one] You and 1 agent

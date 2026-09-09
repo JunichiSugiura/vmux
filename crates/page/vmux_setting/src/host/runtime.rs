@@ -1888,6 +1888,7 @@ mod tests {
                 "vmux://tools/",
                 "vmux://vault/",
                 "vmux://services/",
+                "vmux://simulator/",
                 "vmux://spaces/",
                 "vmux://team/",
                 "vmux://history/",

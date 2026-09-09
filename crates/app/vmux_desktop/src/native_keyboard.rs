@@ -1,6 +1,6 @@
 use std::ptr::NonNull;
 use std::sync::LazyLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use bevy::input::keyboard::KeyCode;
@@ -22,7 +22,15 @@ impl Plugin for NativeKeyboardPlugin {
         )
         .add_systems(
             Update,
-            process_monitored_keys.in_set(vmux_command::WriteAppCommands),
+            sync_simulator_shortcuts
+                .after(vmux_layout::stack::ComputeFocusSet)
+                .before(vmux_simulator::SimulatorFocusSet),
+        )
+        .add_systems(
+            Update,
+            process_monitored_keys
+                .in_set(vmux_command::WriteAppCommands)
+                .before(vmux_simulator::SimulatorInputSet),
         );
     }
 }
@@ -32,10 +40,17 @@ static PENDING_PREFIX: LazyLock<Mutex<Option<(KeyCombo, Instant)>>> =
     LazyLock::new(|| Mutex::new(None));
 static PENDING_COMMANDS: LazyLock<Mutex<Vec<AppCommand>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
+static PENDING_SIMULATOR_BUTTONS: LazyLock<Mutex<Vec<vmux_simulator::event::HardwareButton>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+static PENDING_SIMULATOR_CLIPBOARD: LazyLock<
+    Mutex<Vec<vmux_simulator::event::SimulatorClipboardAction>>,
+> = LazyLock::new(|| Mutex::new(Vec::new()));
+static PENDING_SIMULATOR_KEYBOARD: AtomicUsize = AtomicUsize::new(0);
 
 static WINDOW_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 static EXIT_FULLSCREEN_REQUESTED: AtomicBool = AtomicBool::new(false);
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static SIMULATOR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub(crate) fn set_shortcut_map(map: Keymap) {
     *SHORTCUT_MAP.lock() = Some(map);
@@ -67,6 +82,47 @@ fn escape_exits_fullscreen(combo: &KeyCombo) -> bool {
     combo.is_bare_escape()
         && WINDOW_FULLSCREEN.load(Ordering::Relaxed)
         && !vmux_browser::native_page_owns_escape()
+}
+
+fn simulator_button(combo: &KeyCombo) -> Option<vmux_simulator::event::HardwareButton> {
+    if !combo.modifiers.super_key
+        || combo.modifiers.ctrl
+        || combo.modifiers.alt
+        || combo.modifiers.shift
+    {
+        return None;
+    }
+    match combo.key {
+        KeyCode::KeyH => Some(vmux_simulator::event::HardwareButton::Home),
+        KeyCode::KeyL => Some(vmux_simulator::event::HardwareButton::Lock),
+        KeyCode::KeyS => Some(vmux_simulator::event::HardwareButton::Siri),
+        _ => None,
+    }
+}
+
+fn simulator_clipboard(
+    combo: &KeyCombo,
+) -> Option<vmux_simulator::event::SimulatorClipboardAction> {
+    if !combo.modifiers.super_key
+        || combo.modifiers.ctrl
+        || combo.modifiers.alt
+        || combo.modifiers.shift
+    {
+        return None;
+    }
+    match combo.key {
+        KeyCode::KeyC => Some(vmux_simulator::event::SimulatorClipboardAction::Copy),
+        KeyCode::KeyV => Some(vmux_simulator::event::SimulatorClipboardAction::Paste),
+        _ => None,
+    }
+}
+
+fn toggles_simulator_software_keyboard(combo: &KeyCombo) -> bool {
+    combo.key == KeyCode::KeyK
+        && combo.modifiers.super_key
+        && !combo.modifiers.ctrl
+        && !combo.modifiers.alt
+        && !combo.modifiers.shift
 }
 
 enum KeyAction {
@@ -111,6 +167,22 @@ fn decide(
 }
 
 fn classify(combo: KeyCombo) -> KeyAction {
+    if SIMULATOR_ACTIVE.load(Ordering::Relaxed) && toggles_simulator_software_keyboard(&combo) {
+        PENDING_SIMULATOR_KEYBOARD.fetch_add(1, Ordering::Relaxed);
+        return KeyAction::Consume(None);
+    }
+    if SIMULATOR_ACTIVE.load(Ordering::Relaxed)
+        && let Some(action) = simulator_clipboard(&combo)
+    {
+        PENDING_SIMULATOR_CLIPBOARD.lock().push(action);
+        return KeyAction::Consume(None);
+    }
+    if SIMULATOR_ACTIVE.load(Ordering::Relaxed)
+        && let Some(button) = simulator_button(&combo)
+    {
+        PENDING_SIMULATOR_BUTTONS.lock().push(button);
+        return KeyAction::Consume(None);
+    }
     if escape_exits_fullscreen(&combo) {
         EXIT_FULLSCREEN_REQUESTED.store(true, Ordering::Relaxed);
         return KeyAction::Consume(None);
@@ -278,20 +350,74 @@ fn install_native_key_monitor(proxy: Option<Res<EventLoopProxyWrapper>>) {
     });
 }
 
+fn sync_simulator_shortcuts(
+    focus: Option<Res<vmux_layout::stack::FocusedStack>>,
+    children: Query<&Children>,
+    pages: Query<&vmux_core::PageMetadata>,
+    mut requests: Option<ResMut<Messages<vmux_simulator::SimulatorFocusRequest>>>,
+) {
+    let active = focus
+        .as_deref()
+        .and_then(|focus| focus.stack)
+        .and_then(|stack| children.get(stack).ok())
+        .and_then(|children| {
+            children.iter().find(|entity| {
+                pages.get(*entity).is_ok_and(|metadata| {
+                    vmux_simulator::url::SimulatorRoute::of_url(&metadata.url).is_some()
+                })
+            })
+        });
+    SIMULATOR_ACTIVE.store(active.is_some(), Ordering::Relaxed);
+    if let Some(requests) = requests.as_mut() {
+        requests.write(vmux_simulator::SimulatorFocusRequest(active));
+    }
+}
+
 fn process_monitored_keys(
     mut issuer: vmux_command::CommandIssuer,
+    mut simulator_buttons: Option<ResMut<Messages<vmux_simulator::HardwareButtonRequest>>>,
+    mut simulator_clipboard: Option<ResMut<Messages<vmux_simulator::SimulatorClipboardRequest>>>,
+    mut simulator_keyboard: Option<
+        ResMut<Messages<vmux_simulator::SimulatorSoftwareKeyboardRequest>>,
+    >,
     user: Query<Entity, With<vmux_core::team::User>>,
 ) {
-    let drained = {
+    let commands = {
         let mut queue = PENDING_COMMANDS.lock();
-        if queue.is_empty() {
-            return;
-        }
         std::mem::take(&mut *queue)
     };
+    let buttons = {
+        let mut queue = PENDING_SIMULATOR_BUTTONS.lock();
+        std::mem::take(&mut *queue)
+    };
+    let clipboard = {
+        let mut queue = PENDING_SIMULATOR_CLIPBOARD.lock();
+        std::mem::take(&mut *queue)
+    };
+    let toggle_keyboard = PENDING_SIMULATOR_KEYBOARD.swap(0, Ordering::Relaxed);
+    if commands.is_empty() && buttons.is_empty() && clipboard.is_empty() && toggle_keyboard == 0 {
+        return;
+    }
     let caller = user.single().unwrap_or(Entity::PLACEHOLDER);
-    for cmd in drained {
+    for cmd in commands {
         issuer.issue(caller, cmd);
+    }
+    if let Some(simulator_buttons) = simulator_buttons.as_mut() {
+        for button in buttons {
+            simulator_buttons.write(vmux_simulator::HardwareButtonRequest { view: None, button });
+        }
+    }
+    if let Some(simulator_clipboard) = simulator_clipboard.as_mut() {
+        for action in clipboard {
+            simulator_clipboard
+                .write(vmux_simulator::SimulatorClipboardRequest { view: None, action });
+        }
+    }
+    if let Some(simulator_keyboard) = simulator_keyboard.as_mut() {
+        for _ in 0..toggle_keyboard {
+            simulator_keyboard
+                .write(vmux_simulator::SimulatorSoftwareKeyboardRequest { view: None });
+        }
     }
 }
 
@@ -442,5 +568,60 @@ mod tests {
                 _ => panic!("expected command bar shortcut"),
             }
         }
+    }
+
+    #[test]
+    fn simulator_shortcuts_map_command_h_l_and_s_to_hardware_buttons() {
+        use vmux_simulator::event::HardwareButton;
+
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyH)),
+            Some(HardwareButton::Home)
+        );
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyL)),
+            Some(HardwareButton::Lock)
+        );
+        assert_eq!(
+            simulator_button(&super_combo(KeyCode::KeyS)),
+            Some(HardwareButton::Siri)
+        );
+    }
+
+    #[test]
+    fn simulator_shortcuts_require_command_without_other_modifiers() {
+        let mut shifted = super_combo(KeyCode::KeyH);
+        shifted.modifiers.shift = true;
+
+        assert_eq!(simulator_button(&shifted), None);
+        assert_eq!(simulator_button(&combo(KeyCode::KeyH, false)), None);
+    }
+
+    #[test]
+    fn simulator_clipboard_shortcuts_map_command_c_and_v() {
+        use vmux_simulator::event::SimulatorClipboardAction;
+
+        assert_eq!(
+            simulator_clipboard(&super_combo(KeyCode::KeyC)),
+            Some(SimulatorClipboardAction::Copy)
+        );
+        assert_eq!(
+            simulator_clipboard(&super_combo(KeyCode::KeyV)),
+            Some(SimulatorClipboardAction::Paste)
+        );
+    }
+
+    #[test]
+    fn simulator_software_keyboard_shortcut_is_command_k() {
+        assert!(toggles_simulator_software_keyboard(&super_combo(
+            KeyCode::KeyK
+        )));
+        assert!(!toggles_simulator_software_keyboard(&combo(
+            KeyCode::KeyK,
+            false
+        )));
+        assert!(!toggles_simulator_software_keyboard(&super_combo(
+            KeyCode::KeyH
+        )));
     }
 }

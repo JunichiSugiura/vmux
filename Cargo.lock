@@ -10184,6 +10184,7 @@ dependencies = [
  "vmux_service",
  "vmux_session",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_terminal",
@@ -10232,6 +10233,7 @@ dependencies = [
  "vmux_native",
  "vmux_service",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_team",
@@ -10423,6 +10425,7 @@ dependencies = [
  "vmux_layout",
  "vmux_service",
  "vmux_setting",
+ "vmux_simulator",
  "vmux_space",
  "vmux_start",
  "vmux_team",
@@ -10771,6 +10774,27 @@ dependencies = [
  "vmux_history",
  "vmux_layout",
  "vmux_ui",
+]
+
+[[package]]
+name = "vmux_simulator"
+version = "0.0.34"
+dependencies = [
+ "bevy",
+ "bevy_cef",
+ "bevy_ecs",
+ "dioxus",
+ "libc",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+ "percent-encoding",
+ "rkyv",
+ "serde",
+ "serde_json",
+ "uuid",
+ "vmux_core",
+ "vmux_ui",
+ "vmux_wire",
 ]
 
 [[package]]

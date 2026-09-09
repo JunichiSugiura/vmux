@@ -659,6 +659,103 @@ call again."
     }
 }
 
+fn simulator_screenshot_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_screenshot".into(),
+        description: "Capture the attached iOS Simulator screen and return it inline. Use the returned pixel dimensions and image coordinates with simulator_tap and simulator_swipe."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {}
+        }),
+    }
+}
+
+fn simulator_tap_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_tap".into(),
+        description:
+            "Tap the attached iOS Simulator at x,y pixel coordinates from simulator_screenshot."
+                .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["x", "y"],
+            "additionalProperties": false,
+            "properties": {
+                "x": {"type": "integer", "minimum": 0},
+                "y": {"type": "integer", "minimum": 0}
+            }
+        }),
+    }
+}
+
+fn simulator_swipe_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_swipe".into(),
+        description: "Swipe the attached iOS Simulator between pixel coordinates from simulator_screenshot. duration_ms defaults to 300."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["start_x", "start_y", "end_x", "end_y"],
+            "additionalProperties": false,
+            "properties": {
+                "start_x": {"type": "integer", "minimum": 0},
+                "start_y": {"type": "integer", "minimum": 0},
+                "end_x": {"type": "integer", "minimum": 0},
+                "end_y": {"type": "integer", "minimum": 0},
+                "duration_ms": {"type": "integer", "minimum": 1, "maximum": 10000}
+            }
+        }),
+    }
+}
+
+fn simulator_type_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_type".into(),
+        description: "Type text into the focused control in the attached iOS Simulator.".into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["text"],
+            "additionalProperties": false,
+            "properties": {
+                "text": {"type": "string", "minLength": 1}
+            }
+        }),
+    }
+}
+
+fn simulator_key_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_key".into(),
+        description: "Press one HID keycode in the attached iOS Simulator. Common codes: Enter 40, Backspace 42, Tab 43, Space 44."
+            .into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["keycode"],
+            "additionalProperties": false,
+            "properties": {
+                "keycode": {"type": "integer", "minimum": 0, "maximum": 255}
+            }
+        }),
+    }
+}
+
+fn simulator_button_definition() -> ToolDefinition {
+    ToolDefinition {
+        name: "simulator_button".into(),
+        description: "Press a hardware button on the attached iOS Simulator.".into(),
+        input_schema: serde_json::json!({
+            "type": "object",
+            "required": ["button"],
+            "additionalProperties": false,
+            "properties": {
+                "button": {"enum": ["home", "lock", "siri"]}
+            }
+        }),
+    }
+}
+
 fn browser_snapshot_definition() -> ToolDefinition {
     ToolDefinition {
         name: "browser_snapshot".into(),
@@ -915,6 +1012,12 @@ pub fn tool_definitions_filtered(
         defs.push(read_terminal_definition());
     }
     defs.push(screenshot_definition());
+    defs.push(simulator_screenshot_definition());
+    defs.push(simulator_tap_definition());
+    defs.push(simulator_swipe_definition());
+    defs.push(simulator_type_definition());
+    defs.push(simulator_key_definition());
+    defs.push(simulator_button_definition());
     defs.push(browser_snapshot_definition());
     defs.push(browser_scroll_definition());
     defs.push(record_start_definition());
@@ -957,6 +1060,13 @@ pub fn dispatch_in_shell(
             Some("bottom") => Ok(Some(AgentPaneDirection::Bottom)),
             Some(other) => Err(format!("unknown direction: {other}")),
         }
+    }
+    fn required_u32(arguments: &Value, key: &str, tool: &str) -> Result<u32, String> {
+        let value = arguments
+            .get(key)
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("{tool}.{key} must be a non-negative integer"))?;
+        u32::try_from(value).map_err(|_| format!("{tool}.{key} is out of range"))
     }
     if name == "resume_in_acp" {
         let anchor = anchor
@@ -1322,6 +1432,80 @@ pub fn dispatch_in_shell(
             vmux_client::protocol::AgentQuery::Screenshot { pane },
         ));
     }
+    if name == "simulator_screenshot" {
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorScreenshot,
+        ));
+    }
+    if name == "simulator_tap" {
+        let x = required_u32(&arguments, "x", name)?;
+        let y = required_u32(&arguments, "y", name)?;
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorControl {
+                action: vmux_client::protocol::SimulatorAction::Tap { x, y },
+            },
+        ));
+    }
+    if name == "simulator_swipe" {
+        let start_x = required_u32(&arguments, "start_x", name)?;
+        let start_y = required_u32(&arguments, "start_y", name)?;
+        let end_x = required_u32(&arguments, "end_x", name)?;
+        let end_y = required_u32(&arguments, "end_y", name)?;
+        let duration_ms = arguments
+            .get("duration_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(300);
+        if !(1..=10_000).contains(&duration_ms) {
+            return Err("simulator_swipe.duration_ms must be between 1 and 10000".to_string());
+        }
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorControl {
+                action: vmux_client::protocol::SimulatorAction::Swipe {
+                    start_x,
+                    start_y,
+                    end_x,
+                    end_y,
+                    duration_ms: duration_ms as u32,
+                },
+            },
+        ));
+    }
+    if name == "simulator_type" {
+        let text = arguments
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
+            .ok_or("simulator_type.text is empty")?;
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorControl {
+                action: vmux_client::protocol::SimulatorAction::TypeText(text.to_string()),
+            },
+        ));
+    }
+    if name == "simulator_key" {
+        let keycode = required_u32(&arguments, "keycode", name)?;
+        let keycode = u8::try_from(keycode)
+            .map_err(|_| "simulator_key.keycode must be between 0 and 255".to_string())?;
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorControl {
+                action: vmux_client::protocol::SimulatorAction::Key(keycode),
+            },
+        ));
+    }
+    if name == "simulator_button" {
+        let button = match arguments.get("button").and_then(Value::as_str) {
+            Some("home") => vmux_client::protocol::SimulatorButton::Home,
+            Some("lock") => vmux_client::protocol::SimulatorButton::Lock,
+            Some("siri") => vmux_client::protocol::SimulatorButton::Siri,
+            Some(other) => return Err(format!("unknown simulator button: {other}")),
+            None => return Err("simulator_button.button is required".to_string()),
+        };
+        return Ok(DispatchTarget::Query(
+            vmux_client::protocol::AgentQuery::SimulatorControl {
+                action: vmux_client::protocol::SimulatorAction::Button(button),
+            },
+        ));
+    }
     if name == "browser_snapshot" {
         let pane = match arguments.get("target") {
             None | Some(Value::Null) => None,
@@ -1527,7 +1711,7 @@ mod tests {
         assert_eq!(super::ShellNote::of("   "), "");
     }
     use super::*;
-    use vmux_client::protocol::{AgentCommand, AgentQuery};
+    use vmux_client::protocol::{AgentCommand, AgentQuery, SimulatorAction, SimulatorButton};
 
     fn tool_names() -> Vec<String> {
         tool_definitions()
@@ -1555,6 +1739,69 @@ mod tests {
         let names = tool_names();
         assert!(names.contains(&"record_start".to_string()));
         assert!(names.contains(&"record_stop".to_string()));
+    }
+
+    #[test]
+    fn simulator_tools_are_listed() {
+        let names = tool_names();
+        for name in [
+            "simulator_screenshot",
+            "simulator_tap",
+            "simulator_swipe",
+            "simulator_type",
+            "simulator_key",
+            "simulator_button",
+        ] {
+            assert!(names.contains(&name.to_string()), "missing {name}");
+        }
+    }
+
+    #[test]
+    fn simulator_controls_dispatch_to_queries() {
+        assert_eq!(
+            dispatch_query("simulator_screenshot", serde_json::json!({})).unwrap(),
+            AgentQuery::SimulatorScreenshot
+        );
+        assert_eq!(
+            dispatch_query("simulator_tap", serde_json::json!({"x": 120, "y": 240})).unwrap(),
+            AgentQuery::SimulatorControl {
+                action: SimulatorAction::Tap { x: 120, y: 240 }
+            }
+        );
+        assert_eq!(
+            dispatch_query(
+                "simulator_swipe",
+                serde_json::json!({"start_x": 100, "start_y": 700, "end_x": 100, "end_y": 200})
+            )
+            .unwrap(),
+            AgentQuery::SimulatorControl {
+                action: SimulatorAction::Swipe {
+                    start_x: 100,
+                    start_y: 700,
+                    end_x: 100,
+                    end_y: 200,
+                    duration_ms: 300,
+                }
+            }
+        );
+        assert_eq!(
+            dispatch_query("simulator_type", serde_json::json!({"text": "hello"})).unwrap(),
+            AgentQuery::SimulatorControl {
+                action: SimulatorAction::TypeText("hello".to_string())
+            }
+        );
+        assert_eq!(
+            dispatch_query("simulator_key", serde_json::json!({"keycode": 40})).unwrap(),
+            AgentQuery::SimulatorControl {
+                action: SimulatorAction::Key(40)
+            }
+        );
+        assert_eq!(
+            dispatch_query("simulator_button", serde_json::json!({"button": "home"})).unwrap(),
+            AgentQuery::SimulatorControl {
+                action: SimulatorAction::Button(SimulatorButton::Home)
+            }
+        );
     }
 
     #[test]

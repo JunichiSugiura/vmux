@@ -74,6 +74,31 @@ pub enum FileTouchKind {
     Edit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum SimulatorButton {
+    Home,
+    Lock,
+    Siri,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub enum SimulatorAction {
+    Tap {
+        x: u32,
+        y: u32,
+    },
+    Swipe {
+        start_x: u32,
+        start_y: u32,
+        end_x: u32,
+        end_y: u32,
+        duration_ms: u32,
+    },
+    TypeText(String),
+    Key(u8),
+    Button(SimulatorButton),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct FileSearchMatch {
     pub path: String,
@@ -311,6 +336,10 @@ pub enum AgentQuery {
         name: Option<String>,
     },
     BookmarkList,
+    SimulatorScreenshot,
+    SimulatorControl {
+        action: SimulatorAction,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -1125,6 +1154,25 @@ mod tests {
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&none).unwrap();
         let back: AgentQuery = rkyv::from_bytes::<AgentQuery, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(back, none);
+    }
+
+    #[test]
+    fn agent_query_simulator_control_rkyv_round_trip() {
+        let query = AgentQuery::SimulatorControl {
+            action: SimulatorAction::Swipe {
+                start_x: 120,
+                start_y: 700,
+                end_x: 120,
+                end_y: 200,
+                duration_ms: 300,
+            },
+        };
+
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&query).unwrap();
+        let recovered: AgentQuery =
+            rkyv::from_bytes::<AgentQuery, rkyv::rancor::Error>(&bytes).unwrap();
+
+        assert_eq!(recovered, query);
     }
 
     #[test]

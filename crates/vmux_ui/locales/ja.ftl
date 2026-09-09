@@ -161,6 +161,9 @@ spaces-tabs = { $count } タブ
 spaces-delete = スペースを削除
 
 team-title = チーム
+simulator-title = シミュレータ
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = このスペースにはあなたのみ参加中です
 team-agents = あなたと { $count } エージェント
 team-empty = まだ誰もいません

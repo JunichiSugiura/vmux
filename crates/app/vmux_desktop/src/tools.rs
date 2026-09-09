@@ -118,17 +118,11 @@ impl Plugin for ToolsPlugin {
         }
         app.world_mut().spawn((
             PAGE_MANIFEST,
-            vmux_core::host::page::NativelyHosted {
-                url: "vmux://tools/",
-                title: "Tools",
-            },
+            vmux_core::host::page::NativelyHosted::page("vmux://tools/", "Tools"),
         ));
         app.world_mut().spawn((
             VAULT_PAGE_MANIFEST,
-            vmux_core::host::page::NativelyHosted {
-                url: "vmux://vault/",
-                title: "Vault",
-            },
+            vmux_core::host::page::NativelyHosted::page("vmux://vault/", "Vault"),
         ));
         vmux_core::register_host_spawn(app, "tools");
         vmux_core::register_host_spawn(app, "vault");

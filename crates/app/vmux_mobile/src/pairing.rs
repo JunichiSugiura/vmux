@@ -153,11 +153,11 @@ pub(crate) struct PairCardProps {
 
 #[component]
 pub(crate) fn PairCard(props: PairCardProps) -> Element {
-    let mut show_link = use_signal(|| !props.value.trim().is_empty());
     let unavailable = use_hook(|| match qr_scanner::ScannerSupport::detect() {
         qr_scanner::ScannerSupport::Available => None,
         qr_scanner::ScannerSupport::Unavailable(reason) => Some(reason),
     });
+    let mut show_link = use_signal(|| unavailable.is_some() || !props.value.trim().is_empty());
 
     rsx! {
         div { class: "w-full",
@@ -208,6 +208,7 @@ pub(crate) fn PairCard(props: PairCardProps) -> Element {
                     input {
                         class: "h-10 min-w-0 flex-1 bg-transparent px-3 font-mono text-base text-foreground outline-none placeholder:text-muted-foreground",
                         r#type: "url",
+                        autofocus: unavailable.is_some(),
                         inputmode: "url",
                         autocomplete: "off",
                         autocapitalize: "none",

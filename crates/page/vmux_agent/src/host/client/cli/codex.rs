@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use crate::client::cli::strategy::{
-    CliAgentStrategy, PromptHistory, ResumableSession, lines_skipping_invalid_utf8,
+    CliAgentStrategy, CliModelCatalog, PromptHistory, ResumableSession, lines_skipping_invalid_utf8,
 };
 use crate::strategy::AgentStrategy;
 use crate::{AgentKind, AgentVariant, AssistantBlock, McpServerConfig, Message};
@@ -126,6 +126,14 @@ impl CliAgentStrategy for CodexStrategy {
         args
     }
 
+    fn model_catalog(&self) -> CliModelCatalog {
+        CodexModels::load()
+    }
+
+    fn model_args(&self, model: &str) -> Vec<String> {
+        vec!["--model".to_string(), model.to_string()]
+    }
+
     fn effort_args(&self, level: &str) -> Vec<String> {
         vec!["-c".to_string(), format!("model_reasoning_effort={level}")]
     }
@@ -157,6 +165,83 @@ impl CliAgentStrategy for CodexStrategy {
 
     fn load_transcript(&self, session_id: &str) -> Result<Vec<Message>, String> {
         load_codex_transcript(&self.sessions_root(), session_id)
+    }
+}
+
+#[derive(Default, serde::Deserialize)]
+struct CodexConfig {
+    model: Option<String>,
+    model_catalog_json: Option<PathBuf>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct CodexModelFile {
+    models: Vec<CodexModel>,
+}
+
+#[derive(serde::Deserialize)]
+struct CodexModel {
+    slug: String,
+    display_name: String,
+    #[serde(default)]
+    description: String,
+}
+
+struct CodexModels;
+
+impl CodexModels {
+    fn load() -> CliModelCatalog {
+        let home = std::env::var("CODEX_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                let home = std::env::var("HOME").unwrap_or_default();
+                PathBuf::from(home).join(".codex")
+            });
+        Self::from_config(&home.join("config.toml"))
+    }
+
+    fn from_config(path: &Path) -> CliModelCatalog {
+        let config = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| toml::from_str::<CodexConfig>(&text).ok())
+            .unwrap_or_default();
+        let mut models = config
+            .model_catalog_json
+            .as_deref()
+            .and_then(|path| std::fs::read(path).ok())
+            .and_then(|bytes| serde_json::from_slice::<CodexModelFile>(&bytes).ok())
+            .map(|catalog| {
+                catalog
+                    .models
+                    .into_iter()
+                    .map(|model| vmux_wire::room::ModelOptionEntry {
+                        id: model.slug,
+                        name: model.display_name,
+                        description: model.description,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let selected = config.model.unwrap_or_default();
+        if !selected.is_empty() && !models.iter().any(|model| model.id == selected) {
+            models.insert(
+                0,
+                vmux_wire::room::ModelOptionEntry {
+                    id: selected.clone(),
+                    name: selected.clone(),
+                    description: String::new(),
+                },
+            );
+        }
+        let selected = if selected.is_empty() {
+            models
+                .first()
+                .map(|model| model.id.clone())
+                .unwrap_or_default()
+        } else {
+            selected
+        };
+        CliModelCatalog { selected, models }
     }
 }
 
@@ -668,6 +753,36 @@ mod tests {
             r#"{{"timestamp":"2026-04-30T11:41:00.170Z","type":"session_meta","payload":{{"id":"{id}","timestamp":"2026-04-30T09:56:21.846Z","cwd":"{cwd}"}}}}"#
         );
         std::fs::write(dir.join(file), format!("{line}\n")).unwrap();
+    }
+
+    #[test]
+    fn model_catalog_reads_the_configured_codex_catalog() {
+        let tmp = unique_tmp("codex-models");
+        let catalog = tmp.join("models.json");
+        std::fs::write(
+            &catalog,
+            r#"{"models":[{"slug":"gpt-next","display_name":"GPT Next","description":"Fast"}]}"#,
+        )
+        .unwrap();
+        let config = tmp.join("config.toml");
+        std::fs::write(
+            &config,
+            format!(
+                "model = \"gpt-next\"\nmodel_catalog_json = {:?}\n",
+                catalog.to_string_lossy()
+            ),
+        )
+        .unwrap();
+
+        let models = CodexModels::from_config(&config);
+
+        assert_eq!(models.selected, "gpt-next");
+        assert_eq!(models.models[0].name, "GPT Next");
+        assert_eq!(
+            CodexStrategy.model_args("gpt-next"),
+            ["--model", "gpt-next"]
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

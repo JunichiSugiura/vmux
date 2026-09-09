@@ -526,6 +526,18 @@ pub enum PaneCommand {
     )]
     #[shortcut(chord = "Ctrl+g, Alt+o")]
     RotateBackward,
+    #[menu(
+        id = "mirror_panes_horizontal",
+        label = "Mirror Panes Horizontally\t<leader> alt+h"
+    )]
+    #[shortcut(chord = "Ctrl+g, Alt+h")]
+    MirrorHorizontal,
+    #[menu(
+        id = "mirror_panes_vertical",
+        label = "Mirror Panes Vertically\t<leader> alt+v"
+    )]
+    #[shortcut(chord = "Ctrl+g, Alt+v")]
+    MirrorVertical,
     #[menu(id = "equalize_pane_size", label = "Equalize Pane Size\t<leader> =")]
     #[shortcut(chord = "Ctrl+g, =")]
     EqualizeSize,

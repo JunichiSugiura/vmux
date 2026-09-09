@@ -10250,6 +10250,7 @@ version = "0.0.34"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
+ "chrono",
  "dioxus",
  "dioxus-primitives",
  "pulldown-cmark",

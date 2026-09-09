@@ -4,7 +4,7 @@ use vmux_wire::prompt_media::ChatSubmitAttachment;
 
 #[cfg(test)]
 pub fn group_turns(messages: &[Message], durations: &[u32], running: bool) -> Vec<ChatItem> {
-    group_turns_page(&[], messages, durations, running, 0, usize::MAX).items
+    group_turns_page(&[], messages, &[], durations, running, 0, usize::MAX).items
 }
 
 pub struct ChatItemPage {
@@ -41,6 +41,7 @@ pub fn grouped_item_count(imported: &[Message], live: &[Message]) -> usize {
 pub fn group_turns_tail(
     imported: &[Message],
     live: &[Message],
+    message_times: &[u64],
     durations: &[u32],
     running: bool,
     limit: usize,
@@ -49,17 +50,17 @@ pub fn group_turns_tail(
     group_turns_page_with_total(
         imported,
         live,
+        message_times,
         durations,
         running,
-        total.saturating_sub(limit),
-        total,
-        total,
+        PageRange::new(total.saturating_sub(limit), total, total),
     )
 }
 
 pub fn group_turns_before(
     imported: &[Message],
     live: &[Message],
+    message_times: &[u64],
     durations: &[u32],
     running: bool,
     before: usize,
@@ -70,11 +71,10 @@ pub fn group_turns_before(
     group_turns_page_with_total(
         imported,
         live,
+        message_times,
         durations,
         running,
-        end.saturating_sub(limit),
-        end,
-        total,
+        PageRange::new(end.saturating_sub(limit), end, total),
     )
 }
 
@@ -82,29 +82,53 @@ pub fn group_turns_before(
 fn group_turns_page(
     imported: &[Message],
     live: &[Message],
+    message_times: &[u64],
     durations: &[u32],
     running: bool,
     start: usize,
     end: usize,
 ) -> ChatItemPage {
     let total = grouped_item_count(imported, live);
-    group_turns_page_with_total(imported, live, durations, running, start, end, total)
+    group_turns_page_with_total(
+        imported,
+        live,
+        message_times,
+        durations,
+        running,
+        PageRange::new(start, end, total),
+    )
+}
+
+struct PageRange {
+    start: usize,
+    end: usize,
+    total: usize,
+}
+
+impl PageRange {
+    fn new(start: usize, end: usize, total: usize) -> Self {
+        let start = start.min(total);
+        let end = end.min(total).max(start);
+        Self { start, end, total }
+    }
 }
 
 fn group_turns_page_with_total(
     imported: &[Message],
     live: &[Message],
+    message_times: &[u64],
     durations: &[u32],
     running: bool,
-    start: usize,
-    end: usize,
-    total: usize,
+    range: PageRange,
 ) -> ChatItemPage {
-    let start = start.min(total);
-    let end = end.min(total).max(start);
-    let mut builder = PageBuilder::new(start, end, durations);
+    let mut builder = PageBuilder::new(range.start, range.end, durations);
 
-    for message in imported.iter().chain(live) {
+    for (index, message) in imported.iter().chain(live).enumerate() {
+        let created_at_ms = index
+            .checked_sub(imported.len())
+            .and_then(|index| message_times.get(index))
+            .copied()
+            .unwrap_or_default();
         match message {
             Message::User { text, attachments } => {
                 builder.flush_turn();
@@ -112,12 +136,12 @@ fn group_turns_page_with_total(
                     .map(|(context, display)| (Some(context), display))
                     .unwrap_or((None, text));
                 if !text.trim().is_empty() || !attachments.is_empty() {
-                    builder.push_user(text, context, attachments);
+                    builder.push_user(text, context, attachments, created_at_ms);
                 }
-                builder.start_turn();
+                builder.start_turn(created_at_ms);
             }
             Message::Assistant { blocks } => {
-                builder.start_turn();
+                builder.start_turn(created_at_ms);
                 if let Some(turn) = builder.current.as_mut() {
                     push_assistant_blocks(turn, blocks);
                 }
@@ -127,7 +151,7 @@ fn group_turns_page_with_total(
                 content,
                 is_error,
             } => {
-                builder.start_turn();
+                builder.start_turn(created_at_ms);
                 if let Some(turn) = builder.current.as_mut() {
                     turn.blocks.push(ChatBlock::ToolResult {
                         call_id: call_id.clone(),
@@ -140,7 +164,7 @@ fn group_turns_page_with_total(
     }
     builder.flush_turn();
     if running
-        && end == total
+        && range.end == range.total
         && let Some(ChatItem::Turn(last)) = builder.items.last_mut()
     {
         last.running = true;
@@ -148,9 +172,9 @@ fn group_turns_page_with_total(
     }
     ChatItemPage {
         items: builder.items,
-        start,
-        end,
-        total,
+        start: range.start,
+        end: range.end,
+        total: range.total,
     }
 }
 
@@ -183,13 +207,21 @@ impl<'a> PageBuilder<'a> {
         self.item_index >= self.start && self.item_index < self.end
     }
 
-    fn start_turn(&mut self) {
+    fn start_turn(&mut self, created_at_ms: u64) {
         if self.current_exists {
+            if created_at_ms != 0
+                && let Some(turn) = self.current.as_mut()
+            {
+                turn.created_at_ms = created_at_ms;
+            }
             return;
         }
         self.current_exists = true;
         if self.captures() {
-            self.current = Some(ChatTurn::default());
+            self.current = Some(ChatTurn {
+                created_at_ms,
+                ..ChatTurn::default()
+            });
         }
     }
 
@@ -198,6 +230,7 @@ impl<'a> PageBuilder<'a> {
         text: &str,
         context: Option<&str>,
         attachments: &[crate::protocol::AgentAttachment],
+        created_at_ms: u64,
     ) {
         if self.captures() {
             self.items.push(ChatItem::User {
@@ -212,6 +245,7 @@ impl<'a> PageBuilder<'a> {
                         size: attachment.size,
                     })
                     .collect(),
+                created_at_ms,
             });
         }
         self.item_index += 1;
@@ -457,12 +491,37 @@ mod tests {
             assistant(vec![AssistantBlock::Text("three".into())]),
         ];
 
-        let page = group_turns_tail(&[], &messages, &[1, 2, 3], false, 3);
+        let page = group_turns_tail(&[], &messages, &[], &[1, 2, 3], false, 3);
 
         assert_eq!((page.start, page.end, page.total), (3, 6, 6));
         assert_eq!(page.items.len(), 3);
         assert!(matches!(&page.items[0], ChatItem::Turn(turn) if turn.duration_secs == Some(2)));
         assert!(matches!(&page.items[1], ChatItem::User { text, .. } if text == "c"));
+    }
+
+    #[test]
+    fn grouped_items_keep_their_message_timestamps() {
+        let messages = vec![
+            Message::user("question"),
+            assistant(vec![AssistantBlock::Text("answer".into())]),
+        ];
+
+        let items = group_turns_page(&[], &messages, &[10, 20], &[], false, 0, usize::MAX).items;
+
+        assert!(matches!(
+            &items[0],
+            ChatItem::User {
+                created_at_ms: 10,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &items[1],
+            ChatItem::Turn(ChatTurn {
+                created_at_ms: 20,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -474,7 +533,7 @@ mod tests {
             assistant(vec![AssistantBlock::Text("two".into())]),
         ];
 
-        let page = group_turns_before(&[], &messages, &[1, 2], false, 3, 2);
+        let page = group_turns_before(&[], &messages, &[], &[1, 2], false, 3, 2);
 
         assert_eq!((page.start, page.end, page.total), (1, 3, 4));
         assert!(matches!(&page.items[0], ChatItem::Turn(turn) if turn.duration_secs == Some(1)));

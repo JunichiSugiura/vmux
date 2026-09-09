@@ -170,6 +170,11 @@ team-title = 團隊
 simulator-title = 模擬器
 simulator-waiting-device = { $device } · iOS { $version }
 simulator-waiting-version = iOS { $version }
+team-profiles = 設定檔
+team-new-profile = 新增設定檔
+team-switch-profile = 切換到 { $profile }
+team-edit-profile = 編輯設定檔
+team-profile-name = 設定檔名稱
 team-just-you = 這個工作區只有你
 team-agents = { $count ->
     [one] 你和 1 個 Agent

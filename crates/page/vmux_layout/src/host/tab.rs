@@ -1,7 +1,7 @@
 use crate::event::TabsCommandEvent;
 use crate::{
     TabLayoutSpawnContent, TabLayoutSpawnRequest,
-    host::swap::{find_kind_index, resolve_next, resolve_prev, swap_siblings},
+    host::swap::{find_kind_index, move_sibling, resolve_next, resolve_prev, swap_siblings},
 };
 #[cfg(test)]
 use bevy::window::PrimaryWindow;
@@ -431,6 +431,8 @@ fn sync_tab_order(
 fn on_tabs_command_emit(
     trigger: On<BinReceive<TabsCommandEvent>>,
     tabs: Query<(Entity, &LastActivatedAt), With<Tab>>,
+    child_of: Query<&ChildOf>,
+    children: Query<&Children>,
     active_tab_param: crate::stack::ActiveTabParam,
     mut messages: ResMut<Messages<AppCommand>>,
     mut issued: ResMut<Messages<vmux_command::CommandIssued>>,
@@ -468,6 +470,48 @@ fn on_tabs_command_emit(
                 return;
             };
             commands.entity(target).insert(LastActivatedAt::now());
+        }
+        "reorder" => {
+            let Some(source) =
+                tab_target(evt.tab_id.as_deref(), tabs.iter().map(|(entity, _)| entity))
+            else {
+                return;
+            };
+            let Some(target) = tab_target(
+                evt.target_tab_id.as_deref(),
+                tabs.iter().map(|(entity, _)| entity),
+            ) else {
+                return;
+            };
+            if source == target {
+                return;
+            }
+            let Ok(source_parent) = child_of.get(source) else {
+                return;
+            };
+            let Ok(target_parent) = child_of.get(target) else {
+                return;
+            };
+            if source_parent.parent() != target_parent.parent() {
+                return;
+            }
+            let parent = source_parent.parent();
+            let Ok(siblings) = children.get(parent) else {
+                return;
+            };
+            let kind_positions = siblings
+                .iter()
+                .enumerate()
+                .filter(|(_, entity)| tabs.contains(*entity))
+                .map(|(index, _)| index)
+                .collect::<Vec<_>>();
+            let Some(from) = find_kind_index(source, siblings, &kind_positions) else {
+                return;
+            };
+            let Some(to) = find_kind_index(target, siblings, &kind_positions) else {
+                return;
+            };
+            move_sibling(&mut commands, parent, siblings, &kind_positions, from, to);
         }
         _ => {}
     }
@@ -1047,6 +1091,7 @@ mod tests {
             payload: TabsCommandEvent {
                 command: "close".to_string(),
                 tab_id: Some(tab.to_bits().to_string()),
+                target_tab_id: None,
             },
         });
         app.update();
@@ -1070,6 +1115,7 @@ mod tests {
             payload: TabsCommandEvent {
                 command: "close".to_string(),
                 tab_id: None,
+                target_tab_id: None,
             },
         });
         app.update();
@@ -1187,6 +1233,7 @@ mod tests {
             payload: TabsCommandEvent {
                 command: "close".to_string(),
                 tab_id: Some(d.to_bits().to_string()),
+                target_tab_id: None,
             },
         });
         app.update();

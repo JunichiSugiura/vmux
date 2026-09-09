@@ -20,7 +20,27 @@ pub struct AgentSession {
 }
 
 #[derive(Component, Clone, Debug, Default, Serialize, Deserialize)]
+#[require(AgentMessageTimes)]
 pub struct AgentMessages(pub Vec<Message>);
+
+#[derive(Component, Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AgentMessageTimes(pub Vec<u64>);
+
+impl AgentMessageTimes {
+    pub fn reconcile(&mut self, before: &[Message], after: &[Message]) {
+        let stable = before
+            .iter()
+            .zip(after)
+            .take_while(|(left, right)| left == right)
+            .count();
+        self.0.truncate(stable);
+        let observed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.0.resize(after.len(), observed_at);
+    }
+}
 
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentConversationTitle(pub String);

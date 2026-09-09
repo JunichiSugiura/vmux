@@ -170,6 +170,11 @@ team-title = Команда
 simulator-title = Симулятор
 simulator-waiting-device = { $device } · iOS { $version }
 simulator-waiting-version = iOS { $version }
+team-profiles = Профили
+team-new-profile = Новый профиль
+team-switch-profile = Переключиться на { $profile }
+team-edit-profile = Изменить профиль
+team-profile-name = Имя профиля
 team-just-you = В этом пространстве только вы
 team-agents = { $count ->
     [one] Вы и 1 агент

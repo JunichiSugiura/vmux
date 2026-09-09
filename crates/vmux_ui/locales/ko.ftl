@@ -170,6 +170,11 @@ team-title = 팀
 simulator-title = 시뮬레이터
 simulator-waiting-device = { $device } · iOS { $version }
 simulator-waiting-version = iOS { $version }
+team-profiles = 프로필
+team-new-profile = 새 프로필
+team-switch-profile = { $profile }(으)로 전환
+team-edit-profile = 프로필 편집
+team-profile-name = 프로필 이름
 team-just-you = 이 스페이스에는 나만 있습니다
 team-agents = { $count ->
     [one] 나와 에이전트 1개

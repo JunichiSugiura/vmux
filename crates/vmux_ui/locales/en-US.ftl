@@ -183,6 +183,11 @@ team-title = Team
 simulator-title = Simulator
 simulator-waiting-device = { $device } · iOS { $version }
 simulator-waiting-version = iOS { $version }
+team-profiles = Profiles
+team-new-profile = New profile
+team-switch-profile = Switch to { $profile }
+team-edit-profile = Edit profile
+team-profile-name = Profile name
 team-just-you = Just you in this space
 team-agents = { $count ->
     [one] You and 1 agent

@@ -168,7 +168,6 @@ impl SideSheetResizeEvent {
 
 #[derive(
     Clone,
-    Copy,
     Debug,
     Default,
     PartialEq,
@@ -179,6 +178,7 @@ impl SideSheetResizeEvent {
     rkyv::Deserialize,
 )]
 pub struct WindowDragRegionEvent {
+    pub id: String,
     pub left: f32,
     pub top: f32,
     pub width: f32,
@@ -186,7 +186,7 @@ pub struct WindowDragRegionEvent {
 }
 
 impl WindowDragRegionEvent {
-    pub fn is_finite(self) -> bool {
+    pub fn is_finite(&self) -> bool {
         self.left.is_finite()
             && self.top.is_finite()
             && self.width.is_finite()
@@ -374,6 +374,7 @@ mod tests {
         let original = TabsCommandEvent {
             command: "switch-tab".into(),
             tab_id: Some("work".into()),
+            target_tab_id: None,
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&original).expect("ser");
         let recovered =
@@ -556,6 +557,8 @@ pub struct TabsCommandEvent {
     pub command: String,
     #[serde(default)]
     pub tab_id: Option<String>,
+    #[serde(default)]
+    pub target_tab_id: Option<String>,
 }
 
 #[derive(

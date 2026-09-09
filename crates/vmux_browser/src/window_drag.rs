@@ -10,7 +10,7 @@ use crate::LayoutPointerCapture;
 
 impl Plugin for WindowDragPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<ReportedWindowDragRegion>()
+        app.init_resource::<ReportedWindowDragRegions>()
             .add_observer(on_window_drag_region)
             .add_systems(
                 PostUpdate,
@@ -21,7 +21,7 @@ impl Plugin for WindowDragPlugin {
 
 pub(crate) struct WindowDragPlugin;
 
-static REGION: LazyLock<Mutex<Option<WindowDragRegion>>> = LazyLock::new(|| Mutex::new(None));
+static REGIONS: LazyLock<Mutex<Vec<WindowDragRegion>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowDragRegion {
@@ -33,13 +33,10 @@ pub struct WindowDragRegion {
 
 impl WindowDragRegion {
     pub fn contains_point(x_px: f32, y_px: f32) -> bool {
-        let published = REGION
+        let published = REGIONS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match *published {
-            Some(region) => region.contains(x_px, y_px),
-            None => false,
-        }
+        published.iter().any(|region| region.contains(x_px, y_px))
     }
 
     fn of(reported: WindowDragRegionEvent, header: ComputedNode) -> Option<Self> {
@@ -68,42 +65,45 @@ impl WindowDragRegion {
             && y_px <= self.bottom_px
     }
 
-    fn publish(region: Option<Self>) {
-        let mut published = REGION
+    fn publish(regions: Vec<Self>) {
+        let mut published = REGIONS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *published = region;
+        *published = regions;
     }
 }
 
 #[derive(Resource, Default)]
-struct ReportedWindowDragRegion(Option<WindowDragRegionEvent>);
+struct ReportedWindowDragRegions(
+    std::collections::BTreeMap<(Entity, String), WindowDragRegionEvent>,
+);
 
 fn on_window_drag_region(
     trigger: On<BinReceive<WindowDragRegionEvent>>,
-    mut reported: ResMut<ReportedWindowDragRegion>,
+    mut reported: ResMut<ReportedWindowDragRegions>,
 ) {
-    reported.0 = Some(trigger.event().payload);
+    let region = trigger.event().payload.clone();
+    reported
+        .0
+        .insert((trigger.event().webview, region.id.clone()), region);
 }
 
 fn publish_window_drag_region(
-    reported: Res<ReportedWindowDragRegion>,
+    reported: Res<ReportedWindowDragRegions>,
     header_q: Query<(Entity, &ComputedNode, Has<Open>), With<Header>>,
     child_of: Query<&ChildOf>,
     host_windows: Query<&HostWindow>,
     focused_window: Res<vmux_layout::window::FocusedWindow>,
     overlay_q: OverlayStateQuery,
     pointer_capture_q: Query<(Entity, &HostWindow), (With<LayoutCef>, LayoutPointerCapture)>,
-    mut last: Local<Option<WindowDragRegion>>,
+    mut last: Local<Vec<WindowDragRegion>>,
 ) {
     let overlay_owns_input = OverlayState::of_any(&overlay_q).owns_input()
         || pointer_capture_q
             .iter()
             .any(|(_, host)| Some(host.0) == focused_window.0);
-    let mut region = None;
-    if let Some(reported) = reported.0
-        && !overlay_owns_input
-    {
+    let mut regions = Vec::new();
+    if !overlay_owns_input {
         for (entity, header, open) in header_q.iter() {
             if !open
                 || vmux_layout::window::host_window_of(entity, &child_of, &host_windows)
@@ -111,15 +111,24 @@ fn publish_window_drag_region(
             {
                 continue;
             }
-            region = WindowDragRegion::of(reported, *header);
+            for ((webview, _), reported) in reported.0.iter() {
+                if vmux_layout::window::host_window_of(*webview, &child_of, &host_windows)
+                    != focused_window.0
+                {
+                    continue;
+                }
+                if let Some(region) = WindowDragRegion::of(reported.clone(), *header) {
+                    regions.push(region);
+                }
+            }
             break;
         }
     }
-    if *last == region {
+    if *last == regions {
         return;
     }
-    *last = region;
-    WindowDragRegion::publish(region);
+    *last = regions.clone();
+    WindowDragRegion::publish(regions);
 }
 
 #[cfg(test)]
@@ -143,6 +152,7 @@ mod tests {
     fn a_reported_region_becomes_physical_pixels_in_window_space() {
         let header = HeaderNode::at(Vec2::new(16.0, 16.0), Vec2::new(2000.0, 168.0), 0.5);
         let reported = WindowDragRegionEvent {
+            id: "trailing".to_string(),
             left: 300.0,
             top: 8.0,
             width: 400.0,
@@ -166,6 +176,7 @@ mod tests {
 
         let region = WindowDragRegion::of(
             WindowDragRegionEvent {
+                id: "trailing".to_string(),
                 left: 400.0,
                 top: 0.0,
                 width: 400.0,
@@ -186,6 +197,7 @@ mod tests {
         assert_eq!(
             WindowDragRegion::of(
                 WindowDragRegionEvent {
+                    id: "trailing".to_string(),
                     left: 400.0,
                     top: 0.0,
                     width: 100.0,
@@ -198,6 +210,7 @@ mod tests {
         assert_eq!(
             WindowDragRegion::of(
                 WindowDragRegionEvent {
+                    id: "trailing".to_string(),
                     left: 10.0,
                     top: 0.0,
                     width: 0.0,

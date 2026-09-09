@@ -221,15 +221,23 @@ impl Agents {
 impl Log {
     pub fn chat_items(&self, live_turn: &str, running: bool) -> Vec<ChatItem> {
         let mut messages = Vec::with_capacity(self.events.len() + 1);
+        let mut timestamps = Vec::with_capacity(self.events.len() + 1);
         for event in &self.events {
             messages.push(event.message.clone());
+            timestamps.push(event.created_at_ms);
         }
         if !live_turn.is_empty() {
             messages.push(RoomMessage::Assistant {
                 blocks: vec![AssistantBlock::Text(live_turn.to_string())],
             });
+            timestamps.push(
+                self.events
+                    .last()
+                    .map(|event| event.created_at_ms)
+                    .unwrap_or_default(),
+            );
         }
-        group_turns_tail(&[], &messages, &[], running, usize::MAX).items
+        group_turns_tail(&[], &messages, &timestamps, &[], running, usize::MAX).items
     }
 }
 

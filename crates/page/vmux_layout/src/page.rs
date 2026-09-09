@@ -499,6 +499,7 @@ fn HeaderView(
     stacks_error: Option<String>,
     tabs_error: Option<String>,
 ) -> Element {
+    let tab_drag = use_tab_drag();
     let StacksHostEvent {
         stacks,
         can_go_back,
@@ -537,7 +538,14 @@ fn HeaderView(
     rsx! {
         div {
             class: "flex h-full min-h-0 min-w-0 flex-col text-foreground",
-            div { class: "flex min-w-0 shrink-0 items-center gap-1 pl-[var(--vmux-tab-row-pad-left)] pr-2",
+            div {
+                class: "flex min-w-0 shrink-0 items-center gap-1 pr-2",
+                ..tab_drag.listeners(),
+                WindowDragRegion {
+                    id: "leading",
+                    class: "h-10 shrink-0 self-stretch",
+                    style: "margin-left:min(56px,var(--vmux-tab-row-pad-left));width:max(0px,calc(var(--vmux-tab-row-pad-left) - 56px));",
+                }
                 if let Some(err) = tabs_error {
                     span { class: "text-ui text-destructive", "{err}" }
                 } else {
@@ -548,11 +556,15 @@ fn HeaderView(
                                 if tab.is_active {
                                     tab.bg_color = active_bg_color.clone();
                                 }
-                                rsx! { Tab { key: "{tab.id}", tab } }
+                                rsx! { Tab { key: "{tab.id}", tab, drag: tab_drag } }
                             }
                         }
                         NewTabButton {}
-                        WindowDragRegion {}
+                        WindowDragRegion {
+                            id: "trailing",
+                            class: "h-10 min-w-0 flex-1 self-stretch",
+                            style: "",
+                        }
                     }
                 }
             }
@@ -659,26 +671,72 @@ fn url_row_cef(_bg_color: Option<&str>) -> (String, String) {
 
 #[component]
 fn SideSheetSpaceRow(space: vmux_core::event::space::SpaceRow) -> Element {
-    rsx! {
-        button {
-            r#type: "button",
-            class: "group flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-foreground hover:bg-foreground/5",
-            onclick: move |_| {
-                let _ = send(&vmux_core::event::space::SpaceCommandEvent {
-                    command: "open_page".to_string(),
-                    space_id: Some(space.id.clone()),
-                    name: None,
-                });
-            },
-            Icon { class: "h-4 w-4 shrink-0",
-                path { d: "M3 3h7v7H3z" }
-                path { d: "M14 3h7v7h-7z" }
-                path { d: "M3 14h7v7H3z" }
-                path { d: "M14 14h7v7h-7z" }
+    let mut editing = use_signal(|| false);
+    let draft = use_signal(|| space.name.clone());
+    let menu_value = use_signal(|| space.id.clone());
+    let rename_id = space.id.clone();
+    if editing() {
+        return rsx! {
+            div { class: "flex h-9 items-center gap-2 px-2 py-1.5",
+                Icon { class: "h-4 w-4 shrink-0",
+                    path { d: "M3 3h7v7H3z" }
+                    path { d: "M14 3h7v7h-7z" }
+                    path { d: "M3 14h7v7H3z" }
+                    path { d: "M14 14h7v7h-7z" }
+                }
+                BookmarkNameInput {
+                    draft,
+                    class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
+                    placeholder: String::new(),
+                    on_commit: move |name| {
+                        editing.set(false);
+                        let _ = send(&vmux_core::event::space::SpaceCommandEvent {
+                            command: "rename".to_string(),
+                            space_id: Some(rename_id.clone()),
+                            name: Some(name),
+                        });
+                    },
+                    on_cancel: move |_| editing.set(false),
+                }
             }
-            span {
-                class: "min-w-0 flex-1 truncate text-ui font-medium text-foreground text-left",
-                "{space.name}"
+        };
+    }
+
+    rsx! {
+        LayoutContextMenu {
+            ContextMenuTrigger { attributes: vec![],
+                button {
+                    r#type: "button",
+                    class: "group flex w-full cursor-pointer items-center gap-2 px-2 py-1.5 text-foreground hover:bg-foreground/5",
+                    onclick: move |_| {
+                        let _ = send(&vmux_core::event::space::SpaceCommandEvent {
+                            command: "open_page".to_string(),
+                            space_id: Some(space.id.clone()),
+                            name: None,
+                        });
+                    },
+                    Icon { class: "h-4 w-4 shrink-0",
+                        path { d: "M3 3h7v7H3z" }
+                        path { d: "M14 3h7v7h-7z" }
+                        path { d: "M3 14h7v7H3z" }
+                        path { d: "M14 14h7v7h-7z" }
+                    }
+                    span {
+                        class: "min-w-0 flex-1 truncate text-ui font-medium text-foreground text-left",
+                        "{space.name}"
+                    }
+                }
+            }
+            ContextMenuContent { attributes: vec![],
+                ContextMenuItem {
+                    index: 0usize,
+                    value: Into::<ReadSignal<String>>::into(menu_value),
+                    on_select: move |_: String| {
+                        begin_inline_rename(editing, draft, space.name.clone())
+                    },
+                    attributes: vec![],
+                    {translate("common-rename")}
+                }
             }
         }
     }
@@ -1312,8 +1370,123 @@ fn UpdateProgressBar(downloaded: u64, total: u64) -> Element {
     }
 }
 
+#[derive(Clone, PartialEq)]
+struct TabDragState {
+    source_id: String,
+    target_id: String,
+    start_x: f64,
+    start_y: f64,
+    active: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct TabDrag {
+    state: Signal<Option<TabDragState>>,
+}
+
+fn use_tab_drag() -> TabDrag {
+    TabDrag {
+        state: use_signal(|| None),
+    }
+}
+
+impl TabDrag {
+    fn listeners(self) -> Vec<Attribute> {
+        if self.state.read().is_none() {
+            return Vec::new();
+        }
+        let mut advancing = self;
+        let mut finishing = self;
+        let mut cancelling = self;
+        vec![
+            dioxus_elements::events::onpointermove(move |event| advancing.advance(&event)),
+            dioxus_elements::events::onpointerup(move |event| finishing.finish(&event)),
+            dioxus_elements::events::onpointercancel(move |_| cancelling.cancel()),
+        ]
+    }
+
+    fn begin(&mut self, event: &Event<PointerData>, source_id: String) {
+        if event.trigger_button() != Some(MouseButton::Primary) {
+            return;
+        }
+        let point = event.client_coordinates();
+        self.state.set(Some(TabDragState {
+            target_id: source_id.clone(),
+            source_id,
+            start_x: point.x,
+            start_y: point.y,
+            active: false,
+        }));
+    }
+
+    fn advance(&mut self, event: &Event<PointerData>) {
+        let Some(mut state) = (self.state)() else {
+            return;
+        };
+        if state.active {
+            return;
+        }
+        let point = event.client_coordinates();
+        let dx = point.x - state.start_x;
+        let dy = point.y - state.start_y;
+        if dx * dx + dy * dy < 16.0 {
+            return;
+        }
+        state.active = true;
+        self.state.set(Some(state));
+    }
+
+    fn target(&mut self, target_id: String) {
+        let Some(mut state) = (self.state)() else {
+            return;
+        };
+        if state.target_id == target_id {
+            return;
+        }
+        state.target_id = target_id;
+        self.state.set(Some(state));
+    }
+
+    fn finish(&mut self, event: &Event<PointerData>) {
+        self.advance(event);
+        let Some(state) = (self.state)() else {
+            return;
+        };
+        if !state.active {
+            self.state.set(None);
+            return;
+        }
+        event.prevent_default();
+        event.stop_propagation();
+        if state.source_id != state.target_id {
+            let _ = send(&TabsCommandEvent {
+                command: "reorder".to_string(),
+                tab_id: Some(state.source_id.clone()),
+                target_tab_id: Some(state.target_id.clone()),
+            });
+        }
+        let mut held = self.state;
+        spawn(async move {
+            sleep_ms(0).await;
+            held.set(None);
+        });
+    }
+
+    fn cancel(&mut self) {
+        self.state.set(None);
+    }
+
+    fn blocks_click(self, tab_id: &str) -> bool {
+        (self.state)().is_some_and(|state| state.active && state.source_id == tab_id)
+    }
+
+    fn targets(self, tab_id: &str) -> bool {
+        (self.state)().is_some_and(|state| state.active && state.target_id == tab_id)
+    }
+}
+
 #[component]
-fn Tab(tab: TabRow) -> Element {
+fn Tab(tab: TabRow, drag: TabDrag) -> Element {
     let id_switch = tab.id.clone();
     let id_close = tab.id.clone();
     let display_title = if !tab.title.is_empty() {
@@ -1330,7 +1503,11 @@ fn Tab(tab: TabRow) -> Element {
         before:[background:radial-gradient(circle_at_top_left,transparent_0,transparent_8px,var(--tab-bg)_8px)] \
         after:content-[''] after:absolute after:bottom-0 after:-right-2 after:h-2 after:w-2 after:pointer-events-none \
         after:[background:radial-gradient(circle_at_top_right,transparent_0,transparent_8px,var(--tab-bg)_8px)]";
-    let tab_box_classes = "group flex h-10 w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 -mb-[3px] pb-[3px] cursor-pointer items-center gap-2 px-3.5";
+    let tab_box_classes = if drag.targets(&tab.id) {
+        "group flex h-10 w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 -mb-[3px] pb-[3px] cursor-grabbing items-center gap-2 px-3.5 ring-1 ring-inset ring-primary/50"
+    } else {
+        "group flex h-10 w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 -mb-[3px] pb-[3px] cursor-grab active:cursor-grabbing items-center gap-2 px-3.5"
+    };
 
     let trunc = dir_truncate_class(&display_title);
     let (tab_style, tab_class, title_class, close_class) = if is_active {
@@ -1375,10 +1552,24 @@ fn Tab(tab: TabRow) -> Element {
         div {
             class: "{tab_class}",
             style: "{tab_style}",
-            onclick: move |_| {
+            onpointerdown: {
+                let source_id = tab.id.clone();
+                move |event| drag.begin(&event, source_id.clone())
+            },
+            onpointerenter: {
+                let target_id = tab.id.clone();
+                move |_| drag.target(target_id.clone())
+            },
+            onclick: move |event| {
+                if drag.blocks_click(&id_switch) {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    return;
+                }
                 let _ = send(&TabsCommandEvent {
                     command: "switch".to_string(),
                     tab_id: Some(id_switch.clone()),
+                    target_tab_id: None,
                 });
             },
             div {
@@ -1409,6 +1600,7 @@ fn Tab(tab: TabRow) -> Element {
                     let _ = send(&TabsCommandEvent {
                         command: "close".to_string(),
                         tab_id: Some(id_close.clone()),
+                        target_tab_id: None,
                     });
                 },
                 Icon { class: "h-2.5 w-2.5",
@@ -1494,6 +1686,7 @@ fn NewTabButton() -> Element {
                 let _ = send(&TabsCommandEvent {
                     command: "new".to_string(),
                     tab_id: None,
+                    target_tab_id: None,
                 });
             },
             Icon { class: "h-3.5 w-3.5",
@@ -1505,7 +1698,7 @@ fn NewTabButton() -> Element {
 }
 
 #[component]
-fn WindowDragRegion() -> Element {
+fn WindowDragRegion(id: &'static str, class: &'static str, style: &'static str) -> Element {
     let mut region = use_signal(|| None::<Rc<MountedData>>);
     let publish = move || {
         spawn(async move {
@@ -1516,6 +1709,7 @@ fn WindowDragRegion() -> Element {
                 return;
             };
             let _ = send(&WindowDragRegionEvent {
+                id: id.to_string(),
                 left: rect.origin.x as f32,
                 top: rect.origin.y as f32,
                 width: rect.size.width as f32,
@@ -1526,7 +1720,8 @@ fn WindowDragRegion() -> Element {
 
     rsx! {
         div {
-            class: "h-10 min-w-0 flex-1 self-stretch",
+            class,
+            style,
             onmounted: move |event: Event<MountedData>| {
                 region.set(Some(event.data()));
                 publish();
@@ -1620,6 +1815,8 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                         let _ = send(&TeamCommandEvent {
                             command: "open".to_string(),
                             member_id: None,
+                            profile_id: None,
+                            profile_name: None,
                         });
                     },
                     Avatar {
@@ -1648,6 +1845,8 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                                         let _ = send(&TeamCommandEvent {
                                             command: "focus".to_string(),
                                             member_id: Some(id.clone()),
+                                            profile_id: None,
+                                            profile_name: None,
                                         });
                                     },
                                     Avatar {
@@ -1675,6 +1874,8 @@ fn TeamFacepile(members: Vec<TeamMemberRow>) -> Element {
                                 let _ = send(&TeamCommandEvent {
                                     command: "open".to_string(),
                                     member_id: None,
+                                    profile_id: None,
+                                    profile_name: None,
                                 });
                             },
                             "+{overflow}"

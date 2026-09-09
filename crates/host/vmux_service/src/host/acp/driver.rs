@@ -577,11 +577,13 @@ fn tool_kind_approval_name(kind: Option<ToolKind>) -> Option<&'static str> {
     }
 }
 
-fn approval_details_from_kind(request: &RequestPermissionRequest) -> Option<(String, String)> {
-    Some((
-        tool_kind_approval_name(request.tool_call.fields.kind)?.to_string(),
-        request_approval_args(request)?,
-    ))
+fn approval_details_from_kind(request: &RequestPermissionRequest) -> (String, String) {
+    (
+        tool_kind_approval_name(request.tool_call.fields.kind)
+            .unwrap_or("Use tool")
+            .to_string(),
+        request_approval_args(request).unwrap_or_else(|| "{}".to_string()),
+    )
 }
 
 async fn resolve_approval_details(
@@ -601,7 +603,7 @@ async fn resolve_approval_details(
             .await
             .is_err()
         {
-            return approval_details_from_kind(request);
+            return Some(approval_details_from_kind(request));
         }
     }
 }
@@ -2367,6 +2369,10 @@ mod tests {
         );
 
         assert_eq!(approval_details(&request, &AcpProjector::new()), None);
+        assert_eq!(
+            approval_details_from_kind(&request),
+            ("Use tool".to_string(), "{}".to_string())
+        );
     }
 
     #[test]
@@ -2384,10 +2390,10 @@ mod tests {
 
         assert_eq!(
             approval_details_from_kind(&request),
-            Some((
+            (
                 "Execute command".to_string(),
                 r#"{"command":"echo hi"}"#.to_string(),
-            ))
+            )
         );
     }
 

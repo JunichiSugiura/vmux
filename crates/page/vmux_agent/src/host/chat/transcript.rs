@@ -15,7 +15,7 @@ use vmux_core::PageMetadata;
 use vmux_core::team::{Profile, User};
 use vmux_service::chat::{group_turns_before, group_turns_tail, grouped_item_count};
 use vmux_session::AcpSession;
-use vmux_session::{AgentConversationTitle, AgentMessages, PromptQueue};
+use vmux_session::{AgentConversationTitle, AgentMessageTimes, AgentMessages, PromptQueue};
 
 pub(super) struct ChatTranscriptPlugin;
 
@@ -62,6 +62,7 @@ fn push_chat_to_page(
     sessions: Query<(
         Entity,
         Ref<AgentMessages>,
+        Ref<AgentMessageTimes>,
         Ref<AgentRunState>,
         Option<Ref<AgentTurnMeta>>,
         Option<Ref<Profile>>,
@@ -88,7 +89,9 @@ fn push_chat_to_page(
         last_push.remove(&stack);
         owed.remove(&stack);
     }
-    for (stack, messages, state, turn_meta, profile, meta, queue, imported, title) in &sessions {
+    for (stack, messages, message_times, state, turn_meta, profile, meta, queue, imported, title) in
+        &sessions
+    {
         let moved = user_moved
             || state.is_changed()
             || turn_meta.as_ref().is_some_and(|meta| meta.is_changed())
@@ -98,7 +101,8 @@ fn push_chat_to_page(
                 .as_ref()
                 .is_some_and(|imported| imported.is_changed())
             || title.as_ref().is_some_and(|title| title.is_changed());
-        if !moved && !messages.is_changed() && !owed.contains(&stack) {
+        if !moved && !messages.is_changed() && !message_times.is_changed() && !owed.contains(&stack)
+        {
             continue;
         }
         let Ok(kids) = children.get(stack) else {
@@ -129,6 +133,7 @@ fn push_chat_to_page(
         owed.remove(&stack);
         let snapshot = snapshot_of(
             &messages,
+            &message_times,
             &state,
             turn_meta.as_deref(),
             profile.as_deref(),
@@ -165,6 +170,7 @@ fn chat_snapshot_due(streaming: bool, urgent: bool, elapsed: Option<std::time::D
 
 fn snapshot_of(
     messages: &AgentMessages,
+    message_times: &AgentMessageTimes,
     state: &AgentRunState,
     turn_meta: Option<&AgentTurnMeta>,
     profile: Option<&Profile>,
@@ -183,6 +189,7 @@ fn snapshot_of(
     let page = group_turns_tail(
         imported_messages,
         &messages.0,
+        &message_times.0,
         durations,
         running,
         CHAT_INITIAL_ITEM_LIMIT as usize,
@@ -290,6 +297,7 @@ fn sync_chat_to_ready_views(
     child_of: Query<&ChildOf>,
     sessions: Query<(
         &AgentMessages,
+        &AgentMessageTimes,
         &AgentRunState,
         Option<&AgentTurnMeta>,
         Option<&Profile>,
@@ -311,7 +319,7 @@ fn sync_chat_to_ready_views(
             continue;
         };
         let stack = parent.parent();
-        let Ok((messages, state, turn_meta, profile, meta, queue, imported, title)) =
+        let Ok((messages, message_times, state, turn_meta, profile, meta, queue, imported, title)) =
             sessions.get(stack)
         else {
             continue;
@@ -324,6 +332,7 @@ fn sync_chat_to_ready_views(
             CHAT_SNAPSHOT_EVENT,
             &snapshot_of(
                 messages,
+                message_times,
                 state,
                 turn_meta,
                 profile,
@@ -376,6 +385,7 @@ fn on_chat_history_request(
     child_of: Query<&ChildOf>,
     sessions: Query<(
         &AgentMessages,
+        &AgentMessageTimes,
         &AgentRunState,
         Option<&AgentTurnMeta>,
         Option<&ImportedConversation>,
@@ -387,7 +397,8 @@ fn on_chat_history_request(
     let Ok(parent) = child_of.get(webview) else {
         return;
     };
-    let Ok((messages, state, turn_meta, imported)) = sessions.get(parent.parent()) else {
+    let Ok((messages, message_times, state, turn_meta, imported)) = sessions.get(parent.parent())
+    else {
         return;
     };
     if !browsers.can_emit_to(&webview) {
@@ -406,6 +417,7 @@ fn on_chat_history_request(
     let page = group_turns_before(
         imported_messages,
         &messages.0,
+        &message_times.0,
         durations,
         matches!(state, AgentRunState::Streaming),
         request.before as usize,
@@ -483,6 +495,7 @@ mod tests {
         };
         let snapshot = snapshot_of(
             &AgentMessages::default(),
+            &AgentMessageTimes::default(),
             &AgentRunState::Idle,
             None,
             None,
@@ -501,6 +514,7 @@ mod tests {
     fn snapshot_includes_approval_tool_and_input() {
         let snapshot = snapshot_of(
             &AgentMessages::default(),
+            &AgentMessageTimes::default(),
             &AgentRunState::AwaitingApproval {
                 call_id: "call-1".into(),
                 name: "vmux.run".into(),
@@ -528,6 +542,7 @@ mod tests {
         let title = AgentConversationTitle("Refine generated chat summaries".into());
         let snapshot = snapshot_of(
             &AgentMessages::default(),
+            &AgentMessageTimes::default(),
             &AgentRunState::Idle,
             None,
             None,
@@ -550,6 +565,7 @@ mod tests {
         let profile = Profile::user_named("Personal".into());
         let snapshot = snapshot_of(
             &AgentMessages::default(),
+            &AgentMessageTimes::default(),
             &AgentRunState::Idle,
             None,
             None,

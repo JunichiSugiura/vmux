@@ -5,7 +5,7 @@ use vmux_agent::AgentRunState;
 use vmux_command::{AppCommand, BrowserCommand, OpenCommand};
 use vmux_core::agent::SessionId;
 use vmux_core::event::team::{
-    TEAM_EVENT, TEAM_PAGE_URL, TeamCommandEvent, TeamEvent, TeamMemberRow,
+    ProfileRow, TEAM_EVENT, TEAM_PAGE_URL, TeamCommandEvent, TeamEvent, TeamMemberRow,
 };
 use vmux_core::page::PageReady;
 use vmux_core::team::{Agent, Profile, User};
@@ -23,7 +23,8 @@ pub struct TeamPlugin;
 impl Plugin for TeamPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn(crate::PAGE_MANIFEST);
-        app.add_systems(Startup, spawn_user_profile)
+        app.add_message::<ProfileSwitchRequested>()
+            .add_systems(Startup, spawn_user_profile)
             .add_systems(Update, (sync_user_profile_name, emit_team).chain())
             .add_systems(Update, answer_list_team)
             .add_plugins(HostedPagePlugin::<Team>::default())
@@ -33,6 +34,11 @@ impl Plugin for TeamPlugin {
             .add_observer(on_team_command)
             .add_observer(reset_team_sent_on_page_ready);
     }
+}
+
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
+pub struct ProfileSwitchRequested {
+    pub profile_id: String,
 }
 
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
@@ -201,6 +207,17 @@ fn build_team_members(
     members
 }
 
+fn build_profiles() -> Vec<ProfileRow> {
+    vmux_core::profile::profiles()
+        .into_iter()
+        .map(|profile| ProfileRow {
+            id: profile.id,
+            name: profile.name,
+            is_active: profile.active,
+        })
+        .collect()
+}
+
 fn answer_list_team(
     mut reader: MessageReader<AgentCommandRequest>,
     service: Option<Res<ServiceClient>>,
@@ -302,6 +319,7 @@ fn emit_team(
                 &meta_q,
                 &children_q,
             ),
+            profiles: build_profiles(),
         };
         if !pending && last.get(&entity) == Some(&payload) {
             continue;
@@ -355,9 +373,68 @@ fn on_team_command(
     agents: Query<Entity, With<Agent>>,
     child_of: Query<&ChildOf>,
     spaces: Query<(), With<Space>>,
+    mut space_profiles: Query<&mut vmux_layout::profile::Profile, With<Space>>,
+    mut active_record: Option<ResMut<vmux_space::ActiveSpace>>,
+    mut profile_switches: MessageWriter<ProfileSwitchRequested>,
     mut commands: Commands,
 ) {
-    if let Some(member_id) = trigger.event().payload.member_id.as_deref() {
+    let event = &trigger.event().payload;
+    match event.command.as_str() {
+        "create_profile" => {
+            let Some(name) = event.profile_name.as_deref() else {
+                return;
+            };
+            match vmux_core::profile::create_profile(name) {
+                Ok(profile) => {
+                    profile_switches.write(ProfileSwitchRequested {
+                        profile_id: profile.id,
+                    });
+                }
+                Err(error) => bevy::log::warn!("profile create failed: {error}"),
+            }
+            return;
+        }
+        "switch_profile" => {
+            let Some(profile_id) = event.profile_id.as_deref() else {
+                return;
+            };
+            let profile_id = vmux_core::profile::sanitize_profile(profile_id);
+            if profile_id != vmux_core::profile::active_profile_name()
+                && vmux_core::profile::profile_exists(&profile_id)
+            {
+                profile_switches.write(ProfileSwitchRequested { profile_id });
+            }
+            return;
+        }
+        "update_profile" => {
+            let (Some(profile_id), Some(name)) =
+                (event.profile_id.as_deref(), event.profile_name.as_deref())
+            else {
+                return;
+            };
+            let profile_id = vmux_core::profile::sanitize_profile(profile_id);
+            if let Err(error) = vmux_core::profile::set_profile_display_name(&profile_id, name) {
+                bevy::log::warn!("profile update failed: {error}");
+                return;
+            }
+            if profile_id == vmux_core::profile::active_profile_name() {
+                let name = name.trim().to_string();
+                for mut profile in &mut space_profiles {
+                    profile.name.clone_from(&name);
+                }
+                if let Some(active) = active_record.as_deref_mut() {
+                    active.record.profile.clone_from(&name);
+                }
+                if let Ok(entity) = user.single() {
+                    commands.entity(entity).insert(Profile::user_named(name));
+                }
+            }
+            return;
+        }
+        _ => {}
+    }
+
+    if let Some(member_id) = event.member_id.as_deref() {
         if let Some(entity) = parse_member_entity(member_id)
             && agents.get(entity).is_ok()
         {
@@ -505,6 +582,7 @@ mod tests {
         let mut app = App::new();
         app.add_message::<AppCommand>()
             .add_message::<vmux_command::CommandIssued>()
+            .add_message::<ProfileSwitchRequested>()
             .add_observer(on_team_command);
         app
     }
@@ -531,6 +609,8 @@ mod tests {
             payload: TeamCommandEvent {
                 command: "focus".to_string(),
                 member_id: Some(stack.to_bits().to_string()),
+                profile_id: None,
+                profile_name: None,
             },
         });
         app.world_mut().flush();
@@ -551,6 +631,8 @@ mod tests {
             payload: TeamCommandEvent {
                 command: "open".to_string(),
                 member_id: None,
+                profile_id: None,
+                profile_name: None,
             },
         });
         app.world_mut().flush();

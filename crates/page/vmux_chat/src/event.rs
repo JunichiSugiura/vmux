@@ -510,6 +510,7 @@ mod tests {
                     mime_type: "image/png".into(),
                     size: 3,
                 }],
+                created_at_ms: 100,
             },
             ChatItem::Turn(ChatTurn {
                 blocks: vec![
@@ -524,6 +525,7 @@ mod tests {
                 running: false,
                 duration_secs: Some(12),
                 step_count: 2,
+                created_at_ms: 200,
             }),
         ];
         let json = serde_json::to_string(&items).unwrap();
@@ -642,6 +644,7 @@ mod tests {
                 text: "next".into(),
                 context: None,
                 attachments: Vec::new(),
+                created_at_ms: 0,
             },
             ChatItem::Turn(ChatTurn {
                 blocks: vec![ChatBlock::Text("working".into()), tool("new")],

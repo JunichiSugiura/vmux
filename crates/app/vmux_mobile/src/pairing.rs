@@ -208,6 +208,7 @@ pub(crate) fn PairCard(props: PairCardProps) -> Element {
                     input {
                         class: "h-10 min-w-0 flex-1 bg-transparent px-3 font-mono text-base text-foreground outline-none placeholder:text-muted-foreground",
                         r#type: "url",
+                        autofocus: unavailable.is_some(),
                         inputmode: "url",
                         autocomplete: "off",
                         autocapitalize: "none",

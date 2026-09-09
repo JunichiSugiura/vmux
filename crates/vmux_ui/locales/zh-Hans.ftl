@@ -168,6 +168,8 @@ spaces-delete = 删除工作区
 
 team-title = 团队
 simulator-title = 模拟器
+simulator-keyboard = 键盘
+simulator-keyboard-placeholder = 在 iPhone 中输入或粘贴
 team-just-you = 此工作区中只有你
 team-agents = { $count ->
     [one] 你和 1 个 Agent

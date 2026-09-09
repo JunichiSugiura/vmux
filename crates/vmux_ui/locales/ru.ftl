@@ -168,6 +168,8 @@ spaces-delete = Удалить пространство
 
 team-title = Команда
 simulator-title = Симулятор
+simulator-keyboard = Клавиатура
+simulator-keyboard-placeholder = Введите или вставьте текст на iPhone
 team-just-you = В этом пространстве только вы
 team-agents = { $count ->
     [one] Вы и 1 агент

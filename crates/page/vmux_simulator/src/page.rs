@@ -8,6 +8,7 @@ use crate::url::SimulatorRoute;
 use dioxus::html::geometry::ClientPoint;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
+use std::rc::Rc;
 use vmux_ui::hooks::{send, use_event, use_theme};
 use vmux_ui::i18n::translate;
 use vmux_ui::platform::sleep_ms;
@@ -36,6 +37,8 @@ fn Mirror(port: u16, device_name: String) -> Element {
     let mut press = use_signal(|| None::<PointerSession>);
     let mut image_size = use_signal(|| None::<(f64, f64)>);
     let mut home_progress = use_signal(|| 0.0f32);
+    let mut surface = use_signal(|| None::<Rc<MountedData>>);
+    let mut keyboard_open = use_signal(|| false);
     let progress = home_progress();
     let scale = 1.0 - progress * 0.12;
     let offset = -progress * 18.0;
@@ -53,6 +56,28 @@ fn Mirror(port: u16, device_name: String) -> Element {
         div {
             class: "relative flex h-full w-full items-center justify-center overflow-hidden bg-zinc-950/70 p-8 outline-none",
             tabindex: 0,
+            onmounted: move |event: Event<MountedData>| {
+                let target = event.data();
+                surface.set(Some(target.clone()));
+                spawn(async move {
+                    if let Err(error) = target.set_focus(true).await {
+                        dioxus::logger::tracing::warn!("focusing the simulator failed: {error:?}");
+                    }
+                });
+            },
+            onpointerdown: move |_| {
+                if keyboard_open() {
+                    return;
+                }
+                let Some(target) = surface.peek().clone() else {
+                    return;
+                };
+                spawn(async move {
+                    if let Err(error) = target.set_focus(true).await {
+                        dioxus::logger::tracing::warn!("focusing the simulator failed: {error:?}");
+                    }
+                });
+            },
             onkeydown: move |event| {
                 let Some(key) = Keystroke::of(&event) else {
                     return;
@@ -99,6 +124,24 @@ fn Mirror(port: u16, device_name: String) -> Element {
             div { class: "pointer-events-none absolute left-5 top-4 text-sm font-medium text-zinc-300",
                 "{device_name}"
             }
+            button {
+                r#type: "button",
+                aria_label: translate("simulator-keyboard"),
+                title: translate("simulator-keyboard"),
+                class: "absolute right-5 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 active:bg-white/15",
+                onclick: move |_| keyboard_open.toggle(),
+                svg {
+                    class: "h-4 w-4",
+                    view_box: "0 0 24 24",
+                    fill: "none",
+                    stroke: "currentColor",
+                    stroke_width: "1.8",
+                    stroke_linecap: "round",
+                    stroke_linejoin: "round",
+                    rect { x: "3", y: "5", width: "18", height: "14", rx: "2" }
+                    path { d: "M7 9h.01M11 9h.01M15 9h.01M19 9h.01M7 13h.01M11 13h.01M15 13h.01M19 13h.01M8 17h8" }
+                }
+            }
             div { class: "relative rounded-[3.25rem] bg-gradient-to-b from-zinc-700 via-zinc-950 to-black p-[7px] shadow-[0_28px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/20",
                 div { class: "absolute -left-[3px] top-28 h-16 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -left-[3px] top-48 h-24 w-[3px] rounded-l bg-zinc-700" }
@@ -138,7 +181,132 @@ fn Mirror(port: u16, device_name: String) -> Element {
                     }
                 }
             }
+            if keyboard_open() {
+                KeyboardCapture {
+                    on_close: move |_| {
+                        keyboard_open.set(false);
+                        let Some(target) = surface.peek().clone() else {
+                            return;
+                        };
+                        spawn(async move {
+                            if let Err(error) = target.set_focus(true).await {
+                                dioxus::logger::tracing::warn!("focusing the simulator failed: {error:?}");
+                            }
+                        });
+                    }
+                }
+            }
         }
+    }
+}
+
+#[component]
+fn KeyboardCapture(on_close: EventHandler<()>) -> Element {
+    let mut draft = use_signal(KeyboardDraft::default);
+
+    rsx! {
+        div {
+            class: "absolute bottom-5 left-1/2 z-30 flex w-[calc(100%-2.5rem)] max-w-lg -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/15 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl",
+            onpointerdown: move |event| event.stop_propagation(),
+            input {
+                r#type: "text",
+                autofocus: true,
+                autocomplete: "off",
+                autocapitalize: "none",
+                spellcheck: false,
+                value: "{draft().value()}",
+                placeholder: translate("simulator-keyboard-placeholder"),
+                aria_label: translate("simulator-keyboard-placeholder"),
+                class: "h-9 min-w-0 flex-1 rounded-xl bg-white/10 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-1 focus:ring-white/25",
+                onmounted: move |event: Event<MountedData>| async move {
+                    if let Err(error) = event.data().set_focus(true).await {
+                        dioxus::logger::tracing::warn!("focusing simulator keyboard input failed: {error:?}");
+                    }
+                },
+                oninput: move |event| {
+                    let keys = draft.write().replace(event.value());
+                    for key in keys {
+                        let _ = send(&key);
+                    }
+                },
+                onkeydown: move |event: Event<KeyboardData>| {
+                    event.stop_propagation();
+                    match event.key() {
+                        Key::Escape => {
+                            event.prevent_default();
+                            on_close.call(());
+                        }
+                        Key::Backspace if draft.peek().is_empty() => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(42));
+                        }
+                        Key::Enter => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(40));
+                        }
+                        Key::Tab => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(43));
+                        }
+                        Key::ArrowRight => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(79));
+                        }
+                        Key::ArrowLeft => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(80));
+                        }
+                        Key::ArrowDown => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(81));
+                        }
+                        Key::ArrowUp => {
+                            event.prevent_default();
+                            let _ = send(&SimulatorKey::Code(82));
+                        }
+                        _ => {}
+                    }
+                },
+            }
+            button {
+                r#type: "button",
+                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
+                onclick: move |_| on_close.call(()),
+                {translate("common-done")}
+            }
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+struct KeyboardDraft(String);
+
+impl KeyboardDraft {
+    fn value(&self) -> &str {
+        &self.0
+    }
+
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    fn replace(&mut self, next: String) -> Vec<SimulatorKey> {
+        let previous = std::mem::replace(&mut self.0, next);
+        if let Some(added) = self.0.strip_prefix(&previous) {
+            if added.is_empty() {
+                return Vec::new();
+            }
+            return vec![SimulatorKey::Text(added.to_string())];
+        }
+        if let Some(removed) = previous.strip_prefix(&self.0) {
+            return removed.chars().map(|_| SimulatorKey::Code(42)).collect();
+        }
+        let mut keys = Vec::with_capacity(previous.chars().count() + 1);
+        keys.extend(previous.chars().map(|_| SimulatorKey::Code(42)));
+        if !self.0.is_empty() {
+            keys.push(SimulatorKey::Text(self.0.clone()));
+        }
+        keys
     }
 }
 
@@ -299,5 +467,33 @@ impl PointerRelease {
             }
             Self::None => home_progress.set(0.0),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keyboard_capture_forwards_insertions_deletions_and_replacements() {
+        let mut draft = KeyboardDraft::default();
+
+        assert_eq!(
+            draft.replace("pair".to_string()),
+            vec![SimulatorKey::Text("pair".to_string())]
+        );
+        assert_eq!(
+            draft.replace("pai".to_string()),
+            vec![SimulatorKey::Code(42)]
+        );
+        assert_eq!(
+            draft.replace("link".to_string()),
+            vec![
+                SimulatorKey::Code(42),
+                SimulatorKey::Code(42),
+                SimulatorKey::Code(42),
+                SimulatorKey::Text("link".to_string()),
+            ]
+        );
     }
 }

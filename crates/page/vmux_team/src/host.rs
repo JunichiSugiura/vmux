@@ -8,6 +8,7 @@ use vmux_core::event::team::{
     ProfileRow, TEAM_EVENT, TEAM_PAGE_URL, TeamCommandEvent, TeamEvent, TeamMemberRow,
 };
 use vmux_core::page::PageReady;
+use vmux_core::profile::{ProfileId, ProfileLabel};
 use vmux_core::team::{Agent, Profile, User};
 use vmux_core::{PageMetadata, focus_pane_entity};
 use vmux_layout::cef::LayoutCef;
@@ -23,9 +24,8 @@ pub struct TeamPlugin;
 impl Plugin for TeamPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn(crate::PAGE_MANIFEST);
-        app.init_resource::<ProfileRows>()
-            .add_message::<ProfileSwitchRequested>()
-            .add_systems(Startup, spawn_user_profile)
+        app.add_message::<ProfileSwitchRequested>()
+            .add_systems(Startup, (spawn_user_profile, spawn_profile_labels))
             .add_systems(Update, (sync_user_profile_name, emit_team).chain())
             .add_systems(Update, answer_list_team)
             .add_plugins(HostedPagePlugin::<Team>::default())
@@ -64,42 +64,21 @@ impl HostedPage for Team {
 #[derive(Component)]
 struct TeamListSent;
 
-#[derive(Resource)]
-struct ProfileRows(Vec<ProfileRow>);
-
-impl Default for ProfileRows {
-    fn default() -> Self {
-        Self::load()
-    }
-}
-
-impl ProfileRows {
-    fn load() -> Self {
-        Self(build_profiles())
-    }
-
-    fn refresh(&mut self) {
-        *self = Self::load();
-    }
-
-    fn select(&mut self, profile_id: &str) {
-        for profile in &mut self.0 {
-            profile.is_active = profile.id == profile_id;
-        }
-        self.0.sort_by(|left, right| {
-            right
-                .is_active
-                .cmp(&left.is_active)
-                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-                .then_with(|| left.id.cmp(&right.id))
-        });
-    }
-}
-
 fn spawn_user_profile(mut commands: Commands) {
     let mut identity = commands.spawn((Profile::user(), User, Name::new("Profile: User")));
     if vmux_core::profile::is_test_session() {
         identity.insert(vmux_core::team::Tester);
+    }
+}
+
+fn spawn_profile_labels(mut commands: Commands) {
+    let active = vmux_core::profile::active_profile_name();
+    for id in vmux_core::profile::profile_ids() {
+        let name = vmux_core::profile::profile_display_name(&id);
+        let mut entity = commands.spawn((ProfileLabel, ProfileId(id.clone()), Name::new(name)));
+        if id == active {
+            entity.insert(vmux_core::Active);
+        }
     }
 }
 
@@ -240,15 +219,25 @@ fn build_team_members(
     members
 }
 
-fn build_profiles() -> Vec<ProfileRow> {
-    vmux_core::profile::profiles()
-        .into_iter()
-        .map(|profile| ProfileRow {
-            id: profile.id,
-            name: profile.name,
-            is_active: profile.active,
-        })
-        .collect()
+fn build_profiles(
+    labels: &Query<(&ProfileId, &Name, Has<vmux_core::Active>), With<ProfileLabel>>,
+) -> Vec<ProfileRow> {
+    let mut profiles = Vec::new();
+    for (id, name, is_active) in labels {
+        profiles.push(ProfileRow {
+            id: id.0.clone(),
+            name: name.as_str().to_string(),
+            is_active,
+        });
+    }
+    profiles.sort_by(|left, right| {
+        right
+            .is_active
+            .cmp(&left.is_active)
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    profiles
 }
 
 fn answer_list_team(
@@ -321,7 +310,7 @@ fn emit_team(
     space_marker: Query<(), With<Space>>,
     meta_q: Query<&PageMetadata>,
     children_q: Query<&Children>,
-    profiles: Res<ProfileRows>,
+    profile_labels: Query<(&ProfileId, &Name, Has<vmux_core::Active>), With<ProfileLabel>>,
     mut last: Local<std::collections::HashMap<Entity, TeamEvent>>,
     mut commands: Commands,
 ) {
@@ -353,7 +342,7 @@ fn emit_team(
                 &meta_q,
                 &children_q,
             ),
-            profiles: profiles.0.clone(),
+            profiles: build_profiles(&profile_labels),
         };
         if !pending && last.get(&entity) == Some(&payload) {
             continue;
@@ -410,7 +399,10 @@ fn on_team_command(
     mut space_profiles: Query<&mut vmux_layout::profile::Profile, With<Space>>,
     mut active_record: Option<ResMut<vmux_space::ActiveSpace>>,
     mut profile_switches: MessageWriter<ProfileSwitchRequested>,
-    mut profiles: ResMut<ProfileRows>,
+    mut profile_labels: Query<
+        (Entity, &ProfileId, &mut Name, Has<vmux_core::Active>),
+        With<ProfileLabel>,
+    >,
     mut commands: Commands,
 ) {
     let event = &trigger.event().payload;
@@ -419,13 +411,21 @@ fn on_team_command(
             let Some(name) = event.profile_name.as_deref() else {
                 return;
             };
-            match vmux_core::profile::create_profile(name) {
-                Ok(profile) => {
-                    profiles.refresh();
-                    profiles.select(&profile.id);
-                    profile_switches.write(ProfileSwitchRequested {
-                        profile_id: profile.id,
-                    });
+            let name = name.trim().to_string();
+            match vmux_core::profile::create_profile(&name) {
+                Ok(profile_id) => {
+                    for (entity, _, _, is_active) in &mut profile_labels {
+                        if is_active {
+                            commands.entity(entity).remove::<vmux_core::Active>();
+                        }
+                    }
+                    commands.spawn((
+                        ProfileLabel,
+                        ProfileId(profile_id.clone()),
+                        Name::new(name),
+                        vmux_core::Active,
+                    ));
+                    profile_switches.write(ProfileSwitchRequested { profile_id });
                 }
                 Err(error) => bevy::log::warn!("profile create failed: {error}"),
             }
@@ -439,8 +439,19 @@ fn on_team_command(
             if profile_id != vmux_core::profile::active_profile_name()
                 && vmux_core::profile::profile_exists(&profile_id)
             {
-                profiles.select(&profile_id);
-                profile_switches.write(ProfileSwitchRequested { profile_id });
+                let mut found = false;
+                for (entity, id, _, is_active) in &mut profile_labels {
+                    let selected = id.0 == profile_id;
+                    found |= selected;
+                    if selected && !is_active {
+                        commands.entity(entity).insert(vmux_core::Active);
+                    } else if !selected && is_active {
+                        commands.entity(entity).remove::<vmux_core::Active>();
+                    }
+                }
+                if found {
+                    profile_switches.write(ProfileSwitchRequested { profile_id });
+                }
             }
             return;
         }
@@ -455,9 +466,13 @@ fn on_team_command(
                 bevy::log::warn!("profile update failed: {error}");
                 return;
             }
-            profiles.refresh();
+            let name = name.trim().to_string();
+            for (_, id, mut label, _) in &mut profile_labels {
+                if id.0 == profile_id {
+                    *label = Name::new(name.clone());
+                }
+            }
             if profile_id == vmux_core::profile::active_profile_name() {
-                let name = name.trim().to_string();
                 for mut profile in &mut space_profiles {
                     profile.name.clone_from(&name);
                 }
@@ -619,8 +634,7 @@ mod tests {
 
     fn command_app() -> App {
         let mut app = App::new();
-        app.init_resource::<ProfileRows>()
-            .add_message::<AppCommand>()
+        app.add_message::<AppCommand>()
             .add_message::<vmux_command::CommandIssued>()
             .add_message::<ProfileSwitchRequested>()
             .add_observer(on_team_command);

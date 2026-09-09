@@ -52,10 +52,6 @@ fn capitalize_first(s: &str) -> String {
     }
 }
 
-fn display_name_path() -> PathBuf {
-    profile_dir().join("display_name")
-}
-
 fn display_name_path_for(profile: &str) -> PathBuf {
     shared_data_dir()
         .join("profiles")
@@ -74,31 +70,19 @@ fn display_name_from(configured: Option<&str>, id: &str, is_test: bool) -> Strin
 }
 
 pub fn display_name() -> String {
-    let configured = std::fs::read_to_string(display_name_path()).ok();
-    display_name_from(
-        configured.as_deref(),
-        &active_profile_name(),
-        is_test_session(),
-    )
+    profile_display_name(&active_profile_name())
 }
 
 pub fn set_display_name(name: &str) -> std::io::Result<()> {
     set_profile_display_name(&active_profile_name(), name)
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProfileEntry {
-    pub id: String,
-    pub name: String,
-    pub active: bool,
+pub fn profile_display_name(profile: &str) -> String {
+    profile_display_name_in(&shared_data_dir(), profile, is_test_session())
 }
 
-pub fn profiles() -> Vec<ProfileEntry> {
-    profiles_in(
-        &shared_data_dir(),
-        &active_profile_name(),
-        is_test_session(),
-    )
+pub fn profile_ids() -> Vec<String> {
+    profile_ids_in(&shared_data_dir(), &active_profile_name())
 }
 
 pub fn profile_exists(profile: &str) -> bool {
@@ -109,8 +93,8 @@ pub fn profile_exists(profile: &str) -> bool {
             .is_some_and(|p| p.is_dir())
 }
 
-pub fn create_profile(name: &str) -> std::io::Result<ProfileEntry> {
-    create_profile_in(&shared_data_dir(), &active_profile_name(), name)
+pub fn create_profile(name: &str) -> std::io::Result<String> {
+    create_profile_in(&shared_data_dir(), name)
 }
 
 pub fn set_profile_display_name(profile: &str, name: &str) -> std::io::Result<()> {
@@ -129,7 +113,14 @@ pub fn set_profile_display_name(profile: &str, name: &str) -> std::io::Result<()
     std::fs::write(path, name)
 }
 
-fn profiles_in(data: &std::path::Path, active: &str, is_test: bool) -> Vec<ProfileEntry> {
+fn profile_display_name_in(data: &std::path::Path, profile: &str, is_test: bool) -> String {
+    let profile = sanitize_profile(profile);
+    let configured =
+        std::fs::read_to_string(data.join("profiles").join(&profile).join("display_name")).ok();
+    display_name_from(configured.as_deref(), &profile, is_test)
+}
+
+fn profile_ids_in(data: &std::path::Path, active: &str) -> Vec<String> {
     let root = data.join("profiles");
     let mut ids = std::collections::BTreeSet::new();
     ids.insert(active.to_string());
@@ -140,30 +131,10 @@ fn profiles_in(data: &std::path::Path, active: &str, is_test: bool) -> Vec<Profi
             }
         }
     }
-    let mut profiles = Vec::new();
-    for id in ids {
-        let configured = std::fs::read_to_string(root.join(&id).join("display_name")).ok();
-        profiles.push(ProfileEntry {
-            name: display_name_from(configured.as_deref(), &id, is_test),
-            active: id == active,
-            id,
-        });
-    }
-    profiles.sort_by(|left, right| {
-        right
-            .active
-            .cmp(&left.active)
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    profiles
+    ids.into_iter().collect()
 }
 
-fn create_profile_in(
-    data: &std::path::Path,
-    active: &str,
-    name: &str,
-) -> std::io::Result<ProfileEntry> {
+fn create_profile_in(data: &std::path::Path, name: &str) -> std::io::Result<String> {
     let name = name.trim();
     if name.is_empty() {
         return Err(std::io::Error::new(
@@ -183,11 +154,7 @@ fn create_profile_in(
     let dir = root.join(&id);
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("display_name"), name)?;
-    Ok(ProfileEntry {
-        active: id == active,
-        id,
-        name: name.to_string(),
-    })
+    Ok(id)
 }
 
 fn data_dir_suffix_for(profile: &str) -> PathBuf {
@@ -485,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn profile_listing_includes_active_and_saved_profiles() {
+    fn profile_listing_includes_active_and_saved_profile_ids() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(temp.path().join("profiles/work")).unwrap();
         std::fs::write(
@@ -494,12 +461,13 @@ mod tests {
         )
         .unwrap();
 
-        let profiles = profiles_in(temp.path(), "personal", false);
+        let profiles = profile_ids_in(temp.path(), "personal");
 
-        assert_eq!(profiles.len(), 2);
-        assert_eq!(profiles[0].id, "personal");
-        assert!(profiles[0].active);
-        assert_eq!(profiles[1].name, "Client Work");
+        assert_eq!(profiles, ["personal", "work"]);
+        assert_eq!(
+            profile_display_name_in(temp.path(), "work", false),
+            "Client Work"
+        );
     }
 
     #[test]
@@ -507,10 +475,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(temp.path().join("profiles/client-work")).unwrap();
 
-        let created = create_profile_in(temp.path(), "personal", "Client Work").unwrap();
+        let created = create_profile_in(temp.path(), "Client Work").unwrap();
 
-        assert_eq!(created.id, "client-work-2");
-        assert_eq!(created.name, "Client Work");
+        assert_eq!(created, "client-work-2");
         assert_eq!(
             std::fs::read_to_string(temp.path().join("profiles/client-work-2/display_name"))
                 .unwrap(),

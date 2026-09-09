@@ -340,6 +340,9 @@ pub enum AgentQuery {
     SimulatorControl {
         action: SimulatorAction,
     },
+    WorkingDirectory {
+        anchor: ProcessId,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -1139,6 +1142,18 @@ mod tests {
         let recovered: AgentQuery =
             rkyv::from_bytes::<AgentQuery, rkyv::rancor::Error>(&bytes).unwrap();
         assert_eq!(recovered, AgentQuery::ReadLayout { anchor: None });
+    }
+
+    #[test]
+    fn agent_query_working_directory_rkyv_round_trip() {
+        let query = AgentQuery::WorkingDirectory {
+            anchor: ProcessId::new(),
+        };
+        let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&query).unwrap();
+        let recovered: AgentQuery =
+            rkyv::from_bytes::<AgentQuery, rkyv::rancor::Error>(&bytes).unwrap();
+
+        assert_eq!(recovered, query);
     }
 
     #[test]

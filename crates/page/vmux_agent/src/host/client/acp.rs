@@ -49,7 +49,7 @@ impl Plugin for AcpAgentPlugin {
 
 const CONVERSATION_TITLE_STEER_PROMPT: &str = "On the first user message, always call mcp__vmux__set_conversation_title as the first tool of the turn. The host immediately shows the raw first prompt as a provisional title; replace it with a concise 3 to 7 word summary with corrected spelling and grammar. On later user messages, call the tool only when the conversation topic materially changes; keep the current title for same-topic follow-ups. When needed, call it before reading skills, calling any other tool, or answering. Never copy the user's prompt verbatim. This tool never needs user permission.";
 
-const UNBOUND_WORKSPACE_CONTEXT: &str = "VMUX HOST POLICY (mandatory): This tab has no selected project. Read-only inspection may use the current directory or a known path immediately. Never call select_project or create_worktree for requests that only read, show, search, or explain existing files. Before the first edit, write, test, build, or other mutation in an existing project, call select_project with its known path or without a path to open the project picker rooted at ~/.vmux/workspace. For a new project, do not ask the user to invent a folder location. First call request_user_choice with two concrete options: create the project at a suggested path under ~/.vmux/workspace, or choose an existing project. Use ~/.vmux/workspace/<remote-host>/<organization>/<repository> when a remote is known and ~/.vmux/workspace/local/<project> otherwise. If the user chooses creation, use run only to create the empty directory, then call select_project with that path. vmux will offer Git initialization and use the new project root directly; never call create_worktree for that new project. Do not search the user's home directory. General questions and self-contained terminal demonstrations may run in the temporary current directory.";
+const UNBOUND_WORKSPACE_CONTEXT: &str = "VMUX HOST POLICY (mandatory): This tab starts in ~/.vmux/projects and has no selected project. Before accessing project files or running project commands, call select_project with the known project path or without a path to open the picker. Paths inside ~/.vmux/projects are selected immediately; paths outside it require explicit user approval in the native picker. For a new project, do not ask the user to invent a folder location. First call request_user_choice with two concrete options: create the project at a suggested path under ~/.vmux/projects, or choose an existing project. Use ~/.vmux/projects/<remote-host>/<organization>/<repository> when a remote is known and ~/.vmux/projects/local/<project> otherwise. If the user chooses creation, use run only to create the empty directory, then call select_project with that path. vmux will offer Git initialization and use the new project root directly; never call create_worktree for that new project. Do not search the user's home directory. General questions and self-contained terminal demonstrations may use the current directory without selecting a project.";
 const PENDING_WORKTREE_CONTEXT: &str = "VMUX HOST POLICY (mandatory): Project activation is pending. Do not access project paths directly or run git worktree add yourself. Wait for vmux to finish preparing the selected project before inspecting, editing, testing, or running it.";
 const REPOSITORY_WORKTREE_CONTEXT: &str = "VMUX HOST POLICY (mandatory): The selected project is a Git repository, but this tab is not isolated. Reading and inspection are allowed without a worktree. Never call create_worktree for requests that only read, show, search, or explain existing files. Immediately before the first edit, write, test, build, or other mutation, call create_worktree. It reuses a known linked worktree, automatically uses one unambiguous existing worktree, or creates one when none exists. If it reports multiple candidates, ask the user with request_user_choice to choose an existing path or Create new worktree, then call create_worktree again with path or create=true. Never run git worktree add yourself.";
 
@@ -1232,19 +1232,19 @@ mod tests {
     }
 
     #[test]
-    fn unbound_workspace_context_allows_reading_before_project_setup() {
+    fn unbound_workspace_context_requires_project_selection_before_file_access() {
         let context = acp_prompt_context(None, Some(AcpWorkspaceState::Unbound)).unwrap();
 
-        assert!(context.contains("Read-only inspection"));
-        assert!(context.contains("Never call select_project or create_worktree"));
+        assert!(context.contains("Before accessing project files"));
         assert!(context.contains("select_project"));
         assert!(context.contains("request_user_choice"));
-        assert!(context.contains("~/.vmux/workspace/<remote-host>"));
-        assert!(context.contains("~/.vmux/workspace/local/<project>"));
+        assert!(context.contains("explicit user approval"));
+        assert!(context.contains("~/.vmux/projects/<remote-host>"));
+        assert!(context.contains("~/.vmux/projects/local/<project>"));
         assert!(context.contains("create the empty directory"));
         assert!(context.contains("use the new project root directly"));
         assert!(context.contains("Do not search the user's home directory"));
-        assert!(context.contains("project picker"));
+        assert!(context.contains("open the picker"));
     }
 
     #[test]

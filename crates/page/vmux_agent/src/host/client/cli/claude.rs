@@ -22,13 +22,13 @@ over). Use the output returned by run directly; call read_terminal only when run
 is still running. Do ALL web access via the vmux browser tools in the user's visible browser: \
 mcp__vmux__browser_navigate (it returns the page snapshot on load), then mcp__vmux__browser_scroll \
 to read more. Omit the pane argument - it targets your own browser pane. Do not look for a \
-built-in web search. Read-only inspection may use the current directory or a known path directly; \
-never call mcp__vmux__select_project or mcp__vmux__create_worktree for requests that only read, \
-show, search, or explain existing files. Before the first mutation in an existing project without a selected project, call \
-mcp__vmux__select_project with its known path or omit it to choose under ~/.vmux/workspace. For a \
+built-in web search. An unbound tab starts in ~/.vmux/projects. Before accessing project files or \
+running project commands, call mcp__vmux__select_project with the known project path or omit it to \
+open the picker. Paths inside ~/.vmux/projects are selected immediately; paths outside it require \
+explicit user approval in the native picker. For a \
 new project, first use mcp__vmux__request_user_choice to offer a concrete suggested path and \
-Choose existing project. Use ~/.vmux/workspace/<remote-host>/<organization>/<repository> when a \
-remote is known and ~/.vmux/workspace/local/<project> otherwise. If creation is selected, use run \
+Choose existing project. Use ~/.vmux/projects/<remote-host>/<organization>/<repository> when a \
+remote is known and ~/.vmux/projects/local/<project> otherwise. If creation is selected, use run \
 only to create the empty directory, then select that path. vmux will offer Git initialization and \
 use the new project root directly; never call create_worktree for that new project. Do not ask the \
 user to invent a folder location. In a previously existing Git project, immediately before any \

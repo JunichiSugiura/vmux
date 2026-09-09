@@ -236,24 +236,43 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_reported_region_drops_it_from_the_next_publish() {
+    fn removing_a_reported_region_preserves_the_same_region_in_another_window() {
         let mut reported = ReportedWindowDragRegions::default();
         let webview = Entity::from_bits(1);
-        reported.update(webview, WindowDragRegionEvent {
-            id: "leading".to_string(),
-            removed: false,
-            left: 10.0,
-            top: 0.0,
-            width: 20.0,
-            height: 40.0,
-        });
+        let other_webview = Entity::from_bits(2);
+        reported.update(
+            webview,
+            WindowDragRegionEvent {
+                id: "leading".to_string(),
+                removed: false,
+                left: 10.0,
+                top: 0.0,
+                width: 20.0,
+                height: 40.0,
+            },
+        );
+        reported.update(
+            other_webview,
+            WindowDragRegionEvent {
+                id: "leading".to_string(),
+                removed: false,
+                left: 30.0,
+                top: 0.0,
+                width: 20.0,
+                height: 40.0,
+            },
+        );
 
-        reported.update(webview, WindowDragRegionEvent {
-            id: "leading".to_string(),
-            removed: true,
-            ..Default::default()
-        });
+        reported.update(
+            webview,
+            WindowDragRegionEvent {
+                id: "leading".to_string(),
+                removed: true,
+                ..Default::default()
+            },
+        );
 
-        assert!(reported.0.is_empty());
+        assert_eq!(reported.0.len(), 1);
+        assert!(reported.0.contains_key(&(other_webview, "leading".into())));
     }
 }

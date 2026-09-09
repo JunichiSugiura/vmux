@@ -23,14 +23,13 @@ opens each matching file in a pane and returns the matches) - do NOT run rg/grep
 Never use browser:control-in-app-browser, a Node REPL, agent.browsers, or connector discovery. Do ALL web access via the vmux browser tools in the \
 user's visible browser. If the user refers to a page already visible beside you, first call mcp__vmux__browser_snapshot without a pane argument. \
 For a new URL, call mcp__vmux__browser_navigate, then mcp__vmux__browser_scroll to read more. Omitting the pane targets the visible browser pane associated with you. \
-Do not look for a built-in web search. Read-only inspection may use the current directory or a known \
-path directly; never call mcp__vmux__select_project or mcp__vmux__create_worktree for requests \
-that only read, show, search, or explain existing files. Before the first mutation in an existing \
-project without a selected project, call mcp__vmux__select_project, passing its known path or omitting it to \
-choose under ~/.vmux/workspace. For a new project, first use mcp__vmux__request_user_choice to offer \
+Do not look for a built-in web search. An unbound tab starts in ~/.vmux/projects. Before accessing \
+project files or running project commands, call mcp__vmux__select_project, passing its known path \
+or omitting it to open the picker. Paths inside ~/.vmux/projects are selected immediately; paths \
+outside it require explicit user approval in the native picker. For a new project, first use mcp__vmux__request_user_choice to offer \
 a concrete suggested path and Choose existing project. Use \
-~/.vmux/workspace/<remote-host>/<organization>/<repository> when a remote is known and \
-~/.vmux/workspace/local/<project> otherwise. If creation is selected, use run to create the \
+~/.vmux/projects/<remote-host>/<organization>/<repository> when a remote is known and \
+~/.vmux/projects/local/<project> otherwise. If creation is selected, use run to create the \
 empty directory, then select that path. vmux will offer Git initialization and use the new project \
 root directly; never call create_worktree for that new project. Do not ask the user to invent a \
 folder location. In a previously existing Git project, immediately before any edit, write, test, \

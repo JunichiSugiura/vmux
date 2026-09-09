@@ -1421,7 +1421,8 @@ async fn create_terminal(
         ..
     } = req;
     let env: Vec<(String, String)> = env.into_iter().map(|var| (var.name, var.value)).collect();
-    let cwd = cwd.unwrap_or_else(|| shared.cwd());
+    let session_cwd = shared.cwd();
+    let cwd = cwd.unwrap_or_else(|| session_cwd.clone());
     if !cwd.is_absolute() {
         return Err(format!(
             "acp: terminal cwd must be absolute: {}",
@@ -1434,6 +1435,12 @@ async fn create_terminal(
             cwd.display()
         ));
     }
+    let cwd = resolve_in_cwd(&session_cwd, &cwd).ok_or_else(|| {
+        format!(
+            "acp: terminal cwd is outside session cwd: {}; select the project and wait for user approval first",
+            cwd.display()
+        )
+    })?;
     let cwd = cwd.to_string_lossy().into_owned();
     let id = ProcessId::new();
 
@@ -2756,19 +2763,26 @@ mod tests {
         assert_eq!(slice_lines(text, Some(10), Some(2)), "");
     }
 
-    fn test_shared(
+    fn test_shared_at(
+        cwd: PathBuf,
         manager: Arc<tokio::sync::Mutex<ProcessManager>>,
     ) -> (Arc<AcpShared>, broadcast::Receiver<ServiceMessage>) {
         let (stream_tx, stream_rx) = broadcast::channel(64);
         let shared = Arc::new(AcpShared::new(
             "s1".to_string(),
-            std::env::temp_dir(),
+            cwd,
             ProcessId::new(),
             stream_tx,
             manager,
             Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         ));
         (shared, stream_rx)
+    }
+
+    fn test_shared(
+        manager: Arc<tokio::sync::Mutex<ProcessManager>>,
+    ) -> (Arc<AcpShared>, broadcast::Receiver<ServiceMessage>) {
+        test_shared_at(std::env::temp_dir(), manager)
     }
 
     #[test]
@@ -3004,6 +3018,23 @@ mod tests {
         .await;
 
         assert!(result.is_err());
+        assert!(manager.lock().await.processes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_terminal_rejects_cwd_outside_session() {
+        let session = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let manager = Arc::new(tokio::sync::Mutex::new(ProcessManager::default()));
+        let (shared, _rx) = test_shared_at(session.path().to_path_buf(), manager.clone());
+
+        let result = create_terminal(
+            &shared,
+            CreateTerminalRequest::new("s1", "/bin/sh").cwd(outside.path()),
+        )
+        .await;
+
+        assert!(matches!(result, Err(message) if message.contains("outside session cwd")));
         assert!(manager.lock().await.processes.is_empty());
     }
 

@@ -558,6 +558,32 @@ pub(crate) struct AgentCwd<'a> {
     tab_cwd: Option<&'a str>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ProjectsDirectory(PathBuf);
+
+impl ProjectsDirectory {
+    pub(crate) fn ensure() -> Result<Self, String> {
+        Self::ensure_at(vmux_core::profile::projects_dir())
+    }
+
+    fn ensure_at(path: PathBuf) -> Result<Self, String> {
+        std::fs::create_dir_all(&path)
+            .map_err(|error| format!("failed to create projects directory: {error}"))?;
+        let path = path
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve projects directory: {error}"))?;
+        Ok(Self(path))
+    }
+
+    pub(crate) fn contains(&self, path: &Path) -> bool {
+        path.starts_with(&self.0)
+    }
+
+    pub(crate) fn into_path(self) -> PathBuf {
+        self.0
+    }
+}
+
 impl<'a> AgentCwd<'a> {
     pub(crate) fn of_tab(tab_cwd: Option<&'a str>) -> Self {
         Self { tab_cwd }
@@ -583,13 +609,8 @@ impl<'a> AgentCwd<'a> {
         Err("tab and agent project directories are missing".to_string())
     }
 
-    pub(crate) fn process() -> PathBuf {
-        std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|path| path.is_dir())
-            .or_else(|| std::env::current_dir().ok())
-            .filter(|path| path.is_dir())
-            .unwrap_or_else(|| PathBuf::from("/"))
+    pub(crate) fn projects() -> Result<PathBuf, String> {
+        ProjectsDirectory::ensure().map(ProjectsDirectory::into_path)
     }
 }
 
@@ -614,6 +635,16 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&agent_dir);
         let _ = std::fs::remove_dir_all(&tab_dir);
+    }
+
+    #[test]
+    pub(crate) fn projects_directory_is_created_and_contains_only_its_tree() {
+        let root = tempfile::tempdir().unwrap();
+        let projects = ProjectsDirectory::ensure_at(root.path().join("projects")).unwrap();
+
+        assert!(projects.contains(&projects.0.join("github.com/vmux-ai/vmux")));
+        assert!(!projects.contains(root.path()));
+        assert!(projects.into_path().is_dir());
     }
 
     #[test]

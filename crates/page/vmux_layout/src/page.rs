@@ -512,6 +512,11 @@ fn HeaderView(
         .iter()
         .find(|tab| tab.is_active)
         .map(|tab| tab.id.clone());
+    let tab_drag_region_revision = tabs
+        .iter()
+        .map(|tab| tab.id.as_str())
+        .collect::<Vec<_>>()
+        .join(":");
     let mut active_sync = tab_drag;
     use_effect(use_reactive!(|host_active_tab_id| {
         active_sync.acknowledge_active(host_active_tab_id);
@@ -552,6 +557,7 @@ fn HeaderView(
                 ..tab_drag.listeners(),
                 WindowDragRegion {
                     id: "leading",
+                    revision: tab_drag_region_revision.clone(),
                     class: "h-10 shrink-0 self-stretch",
                     style: "margin-left:min(56px,var(--vmux-tab-row-pad-left));width:max(0px,calc(var(--vmux-tab-row-pad-left) - 56px));",
                 }
@@ -572,6 +578,7 @@ fn HeaderView(
                         NewTabButton {}
                         WindowDragRegion {
                             id: "trailing",
+                            revision: tab_drag_region_revision.clone(),
                             class: "h-10 min-w-0 flex-1 self-stretch",
                             style: "",
                         }
@@ -1586,19 +1593,29 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
         before:[background:radial-gradient(circle_at_top_left,transparent_0,transparent_8px,var(--tab-bg)_8px)] \
         after:content-[''] after:absolute after:bottom-0 after:-right-2 after:h-2 after:w-2 after:pointer-events-none \
         after:[background:radial-gradient(circle_at_top_right,transparent_0,transparent_8px,var(--tab-bg)_8px)]";
-    let tab_box_classes = if drag.targets(&tab.id) {
-        "group flex h-10 w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 -mb-[3px] pb-[3px] cursor-grabbing items-center gap-2 px-3.5 ring-1 ring-inset ring-primary/50"
+    let tab_size_classes = if is_active {
+        "h-10 -mb-[3px] pb-[3px]"
     } else {
-        "group flex h-10 w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 -mb-[3px] pb-[3px] cursor-grab active:cursor-grabbing items-center gap-2 px-3.5"
+        "h-9 mb-1"
     };
+    let tab_drag_classes = if drag.targets(&tab.id) {
+        "cursor-grabbing ring-1 ring-inset ring-primary/50"
+    } else {
+        "cursor-grab active:cursor-grabbing"
+    };
+    let tab_box_classes = cn([
+        "group flex w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 items-center gap-2 px-3.5",
+        tab_size_classes,
+        tab_drag_classes,
+    ]);
 
     let trunc = dir_truncate_class(&display_title);
     let (mut tab_style, tab_class, title_class, close_class) = if is_active {
         (
-            "--tab-bg:var(--glass);".to_string(),
+            "--tab-bg:var(--glass);background-color:var(--glass);".to_string(),
             cn([
                 skirt_classes,
-                tab_box_classes,
+                tab_box_classes.as_str(),
                 "glass rounded-t-md border-b-0",
             ]),
             cn([
@@ -1610,9 +1627,9 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
         )
     } else {
         (
-            String::new(),
+            "--tab-bg:var(--glass);background-color:var(--glass);".to_string(),
             cn([
-                tab_box_classes,
+                tab_box_classes.as_str(),
                 "glass rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground",
             ]),
             cn(["min-w-0 flex-1", trunc, "text-ui"]),
@@ -1782,7 +1799,12 @@ fn NewTabButton() -> Element {
 }
 
 #[component]
-fn WindowDragRegion(id: &'static str, class: &'static str, style: &'static str) -> Element {
+fn WindowDragRegion(
+    id: &'static str,
+    revision: String,
+    class: &'static str,
+    style: &'static str,
+) -> Element {
     let mut region = use_signal(|| None::<Rc<MountedData>>);
     let publish = move || {
         spawn(async move {
@@ -1809,6 +1831,10 @@ fn WindowDragRegion(id: &'static str, class: &'static str, style: &'static str) 
             ..Default::default()
         });
     });
+    use_effect(use_reactive!(|revision| {
+        let _ = revision;
+        publish();
+    }));
 
     rsx! {
         div {

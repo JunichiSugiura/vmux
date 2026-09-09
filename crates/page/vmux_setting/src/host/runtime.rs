@@ -1892,6 +1892,7 @@ mod tests {
                 "vmux://spaces/",
                 "vmux://team/",
                 "vmux://history/",
+                "vmux://cheatsheet/",
                 "vmux://extensions/",
                 "vmux://lsp/",
                 "vmux://settings/",

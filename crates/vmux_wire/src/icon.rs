@@ -33,6 +33,7 @@ pub enum BuiltinIcon {
     Hammer,
     Vault,
     Smartphone,
+    Keyboard,
 }
 
 impl BuiltinIcon {

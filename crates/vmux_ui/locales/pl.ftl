@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } kart
 }
 spaces-delete = Usuń przestrzeń
+cheatsheet-title = Skróty klawiaturowe
+cheatsheet-count = Skróty: { $count }
+cheatsheet-search = Filtruj skróty…
+cheatsheet-empty = Brak pasujących skrótów
+cheatsheet-general = Ogólne
 
 team-title = Zespół
 simulator-title = Symulator

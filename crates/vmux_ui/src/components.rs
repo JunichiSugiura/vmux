@@ -11,6 +11,7 @@ pub mod context_menu;
 pub mod dialog;
 pub mod effort_menu;
 pub mod icon;
+pub mod inline_edit;
 pub mod input;
 pub mod manager;
 pub mod mcp_menu;

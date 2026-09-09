@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } schede
 }
 spaces-delete = Elimina spazio
+cheatsheet-title = Scorciatoie da tastiera
+cheatsheet-count = { $count } scorciatoie
+cheatsheet-search = Filtra scorciatoie…
+cheatsheet-empty = Nessuna scorciatoia corrispondente
+cheatsheet-general = Generale
 
 team-title = Team
 simulator-title = Simulatore

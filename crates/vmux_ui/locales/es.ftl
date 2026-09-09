@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } pestañas
 }
 spaces-delete = Eliminar espacio
+cheatsheet-title = Atajos de teclado
+cheatsheet-count = { $count } atajos
+cheatsheet-search = Filtrar atajos…
+cheatsheet-empty = No hay atajos coincidentes
+cheatsheet-general = General
 
 team-title = Equipo
 simulator-title = Simulador

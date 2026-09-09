@@ -942,6 +942,16 @@ mod tests {
     }
 
     #[test]
+    fn shortcut_labels_include_hidden_commands() {
+        let entries = AppCommand::shortcut_labels();
+        let rotate = entries
+            .iter()
+            .find(|(id, _)| *id == "rotate_forward")
+            .map(|(_, name)| name.as_str());
+        assert_eq!(rotate, Some("Layout > Pane > Rotate Forward"));
+    }
+
+    #[test]
     fn browser_navigation_back_still_resolves() {
         assert!(matches!(
             AppCommand::from_menu_id("browser_prev_page"),

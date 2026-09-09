@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } تبويبات
 }
 spaces-delete = حذف مساحة العمل
+cheatsheet-title = اختصارات لوحة المفاتيح
+cheatsheet-count = { $count } اختصار
+cheatsheet-search = تصفية الاختصارات…
+cheatsheet-empty = لا توجد اختصارات مطابقة
+cheatsheet-general = عام
 
 team-title = الفريق
 simulator-title = المحاكي

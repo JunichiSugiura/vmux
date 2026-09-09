@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::*;
+use bevy_ecs::system::SystemParam;
 
 use vmux_agent::AgentRunState;
 use vmux_command::{AppCommand, BrowserCommand, OpenCommand};
@@ -30,7 +31,7 @@ impl Plugin for TeamPlugin {
             .add_systems(Update, answer_list_team)
             .add_plugins(HostedPagePlugin::<Team>::default())
             .add_plugins(BinEventEmitterPlugin::<(TeamCommandEvent,)>::for_hosts(&[
-                "team", "layout",
+                "team", "layout", "spaces",
             ]))
             .add_observer(on_team_command)
             .add_observer(reset_team_sent_on_page_ready);
@@ -63,6 +64,35 @@ impl HostedPage for Team {
 
 #[derive(Component)]
 struct TeamListSent;
+
+#[derive(SystemParam)]
+struct TeamViews<'w, 's> {
+    pending_layout:
+        Query<'w, 's, Entity, (With<LayoutCef>, With<PageReady>, Without<TeamListSent>)>,
+    sent_layout: Query<'w, 's, Entity, (With<LayoutCef>, With<PageReady>, With<TeamListSent>)>,
+    pending_team: Query<'w, 's, Entity, (With<Team>, With<PageReady>, Without<TeamListSent>)>,
+    sent_team: Query<'w, 's, Entity, (With<Team>, With<PageReady>, With<TeamListSent>)>,
+    pending_spaces: Query<
+        'w,
+        's,
+        Entity,
+        (
+            With<vmux_space::Spaces>,
+            With<PageReady>,
+            Without<TeamListSent>,
+        ),
+    >,
+    sent_spaces: Query<
+        'w,
+        's,
+        Entity,
+        (
+            With<vmux_space::Spaces>,
+            With<PageReady>,
+            With<TeamListSent>,
+        ),
+    >,
+}
 
 fn spawn_user_profile(mut commands: Commands) {
     let mut identity = commands.spawn((Profile::user(), User, Name::new("Profile: User")));
@@ -290,10 +320,7 @@ fn answer_list_team(
 
 fn emit_team(
     browsers: NonSend<Browsers>,
-    pending_layout: Query<Entity, (With<LayoutCef>, With<PageReady>, Without<TeamListSent>)>,
-    sent_layout: Query<Entity, (With<LayoutCef>, With<PageReady>, With<TeamListSent>)>,
-    pending_team: Query<Entity, (With<Team>, With<PageReady>, Without<TeamListSent>)>,
-    sent_team: Query<Entity, (With<Team>, With<PageReady>, With<TeamListSent>)>,
+    views: TeamViews,
     active_space: Res<ActiveSpaceEntity>,
     active_spaces: Query<Entity, (With<Space>, With<vmux_core::Active>)>,
     user_q: Query<(Entity, &Profile), With<User>>,
@@ -314,14 +341,18 @@ fn emit_team(
     mut last: Local<std::collections::HashMap<Entity, TeamEvent>>,
     mut commands: Commands,
 ) {
-    for (entity, pending) in pending_layout
+    for (entity, pending) in views
+        .pending_layout
         .iter()
-        .chain(pending_team.iter())
+        .chain(views.pending_team.iter())
+        .chain(views.pending_spaces.iter())
         .map(|entity| (entity, true))
         .chain(
-            sent_layout
+            views
+                .sent_layout
                 .iter()
-                .chain(sent_team.iter())
+                .chain(views.sent_team.iter())
+                .chain(views.sent_spaces.iter())
                 .map(|entity| (entity, false)),
         )
     {
@@ -358,12 +389,11 @@ fn emit_team(
 
 fn reset_team_sent_on_page_ready(
     trigger: On<BinReceive<PageReady>>,
-    team_views: Query<(), With<Team>>,
-    layout_views: Query<(), With<LayoutCef>>,
+    views: Query<(), Or<(With<Team>, With<LayoutCef>, With<vmux_space::Spaces>)>>,
     mut commands: Commands,
 ) {
     let entity = trigger.event().webview;
-    if team_views.get(entity).is_err() && layout_views.get(entity).is_err() {
+    if views.get(entity).is_err() {
         return;
     }
     commands.entity(entity).remove::<TeamListSent>();

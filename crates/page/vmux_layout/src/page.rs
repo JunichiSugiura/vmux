@@ -29,6 +29,7 @@ use vmux_ui::components::context_menu::{
     ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 };
 use vmux_ui::components::icon::Icon;
+use vmux_ui::components::inline_edit::InlineEdit;
 use vmux_ui::components::progress::{Progress, ProgressIndicator};
 use vmux_ui::components::tree_row::{
     SIDEBAR_CARD_CHEVRON_CLOSED, SIDEBAR_CARD_CHEVRON_OPEN, SIDEBAR_TREE_CHEVRON_CLOSED,
@@ -36,7 +37,6 @@ use vmux_ui::components::tree_row::{
     SidebarTreeRow, SidebarTreeRowGroup,
 };
 use vmux_ui::favicon::favicon_src_for_url;
-use vmux_ui::focus::FocusClaim;
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::icon::PageIconView;
@@ -705,12 +705,12 @@ fn SideSheetSpaceRow(space: vmux_core::event::space::SpaceRow) -> Element {
                     path { d: "M3 14h7v7H3z" }
                     path { d: "M14 14h7v7h-7z" }
                 }
-                BookmarkNameInput {
+                InlineEdit {
                     draft,
-                    focus_id: "space-name-input",
                     caret_at_end: true,
                     class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
                     placeholder: String::new(),
+                    on_active_change: set_bookmark_text_input_active,
                     on_commit: move |name| {
                         editing.set(false);
                         let _ = send(&vmux_core::event::space::SpaceCommandEvent {
@@ -1104,10 +1104,11 @@ fn BookmarksSection(
                                 Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
                                     path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
                                 }
-                                BookmarkNameInput {
+                                InlineEdit {
                                     draft: new_folder_draft,
                                     class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
                                     placeholder: translate("layout-folder-name"),
+                                    on_active_change: set_bookmark_text_input_active,
                                     on_commit: move |name| {
                                         creating_folder.set(false);
                                         create_bookmark_folder(name, None);
@@ -2360,81 +2361,11 @@ fn set_bookmark_context_menu_active(active: bool) {
     let _ = send(&BookmarkContextMenuEvent { active });
 }
 
-#[component]
-fn BookmarkNameInput(
-    draft: Signal<String>,
-    #[props(default)] focus_id: &'static str,
-    #[props(default)] caret_at_end: bool,
-    class: String,
-    placeholder: String,
-    on_commit: EventHandler<String>,
-    on_cancel: EventHandler<()>,
-) -> Element {
-    let mut draft = draft;
-    let mut finished = use_signal(|| false);
-    use_drop(move || set_bookmark_text_input_active(false));
-
-    rsx! {
-        input {
-            id: focus_id,
-            r#type: "text",
-            class,
-            placeholder,
-            value: "{draft}",
-            autofocus: true,
-            oncontextmenu: move |event: Event<MouseData>| {
-                event.prevent_default();
-                event.stop_propagation();
-            },
-            onmounted: move |event| {
-                set_bookmark_text_input_active(true);
-                focus_inline_rename(event, focus_id, caret_at_end);
-            },
-            oninput: move |event| draft.set(event.value()),
-            onkeydown: move |event: Event<KeyboardData>| match event.key() {
-                Key::Enter => {
-                    event.prevent_default();
-                    if !finished() {
-                        finished.set(true);
-                        set_bookmark_text_input_active(false);
-                        on_commit.call(draft());
-                    }
-                }
-                Key::Escape => {
-                    event.prevent_default();
-                    if !finished() {
-                        finished.set(true);
-                        set_bookmark_text_input_active(false);
-                        on_cancel.call(());
-                    }
-                }
-                _ => {}
-            },
-            onblur: move |_| {
-                if !finished() {
-                    finished.set(true);
-                    set_bookmark_text_input_active(false);
-                    on_commit.call(draft());
-                }
-            },
-        }
-    }
-}
-
 fn begin_inline_rename(mut editing: Signal<bool>, mut draft: Signal<String>, name: String) {
     draft.set(name);
     spawn(async move {
         sleep_ms(0).await;
         editing.set(true);
-    });
-}
-
-fn focus_inline_rename(event: Event<MountedData>, focus_id: &'static str, caret_at_end: bool) {
-    spawn(async move {
-        let _ = event.data().set_focus(true).await;
-        if caret_at_end {
-            FocusClaim::new(focus_id).caret_at_end().request();
-        }
     });
 }
 
@@ -2528,10 +2459,11 @@ fn BookmarkFolder(
                         },
                         path { d: "m9 18 6-6-6-6" }
                     }
-                    BookmarkNameInput {
+                    InlineEdit {
                         draft,
                         class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
                         placeholder: translate("layout-folder-name"),
+                        on_active_change: set_bookmark_text_input_active,
                         on_commit: {
                             let id = uuid.clone();
                             move |name| {
@@ -2669,10 +2601,11 @@ fn BookmarkFolder(
                     Icon { class: "h-4 w-4 shrink-0 text-muted-foreground",
                         path { d: "M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" }
                     }
-                    BookmarkNameInput {
+                    InlineEdit {
                         draft: child_draft,
                         class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
                         placeholder: translate("layout-folder-name"),
+                        on_active_change: set_bookmark_text_input_active,
                         on_commit: {
                             let parent = uuid.clone();
                             move |name| {
@@ -3177,10 +3110,11 @@ fn BookmarkEntry(
                     img_class: "h-4 w-4 shrink-0 rounded-sm object-contain".to_string(),
                     icon_class: "h-4 w-4 shrink-0 text-muted-foreground".to_string(),
                 }
-                BookmarkNameInput {
+                InlineEdit {
                     draft,
                     class: "min-w-0 flex-1 bg-transparent text-ui text-foreground outline-none".to_string(),
                     placeholder: String::new(),
+                    on_active_change: set_bookmark_text_input_active,
                     on_commit: {
                         let id = uuid_rename.clone();
                         move |name| {

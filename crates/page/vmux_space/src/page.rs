@@ -4,9 +4,16 @@ use crate::event::{
     SPACE_KEY_EVENT, SPACES_LIST_EVENT, SpaceCommandEvent, SpaceKey, SpaceRow, SpacesListEvent,
 };
 use dioxus::prelude::*;
+use vmux_core::event::team::{TEAM_EVENT, TeamCommandEvent, TeamEvent};
 use vmux_core::input::{PageKeyContext, Unclaimed};
-use vmux_ui::hooks::{MenuDirection, send, use_key_claim, use_listener, use_theme};
+use vmux_ui::components::context_menu::{
+    ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
+};
+use vmux_ui::components::inline_edit::InlineEdit;
+use vmux_ui::components::manager::{ManagerSelect, ManagerSelectItem, ManagerSelectItemKind};
+use vmux_ui::hooks::{MenuDirection, send, use_event, use_key_claim, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
+use vmux_ui::platform::sleep_ms;
 
 #[component]
 pub fn Page() -> Element {
@@ -14,6 +21,7 @@ pub fn Page() -> Element {
     let mut state = use_signal(SpacesListEvent::default);
     let mut selected = use_signal(|| 0usize);
     let mut new_name = use_signal(String::new);
+    let team = use_event::<TeamEvent>(TEAM_EVENT, TeamEvent::default);
 
     let _listener = use_listener::<SpacesListEvent, _>(SPACES_LIST_EVENT, move |data| {
         selected.set(0);
@@ -39,6 +47,19 @@ pub fn Page() -> Element {
                 &[("number", TranslationValue::Number(1))],
             )
         });
+    let profiles = team().profiles;
+    let active_profile = profiles
+        .iter()
+        .find(|profile| profile.is_active)
+        .map(|profile| profile.id.clone());
+    let profile_items = profiles
+        .iter()
+        .map(|profile| ManagerSelectItem {
+            value: profile.id.clone(),
+            label: profile.name.clone(),
+            kind: ManagerSelectItemKind::User,
+        })
+        .collect::<Vec<_>>();
 
     rsx! {
         div {
@@ -51,12 +72,29 @@ pub fn Page() -> Element {
                 }
             },
             onkeydown: move |e| keys.on_keydown(&e, |_| false),
-            div { class: "flex items-center justify-between border-b border-border px-5 py-4",
+            div { class: "flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4",
                 div { class: "min-w-0",
                     h1 { class: "text-lg font-semibold", {translate("spaces-title")} }
                     div { class: "mt-1 truncate text-xs text-muted-foreground", "{active_name}" }
                 }
-                div { class: "flex shrink-0 items-center gap-2",
+                div { class: "flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2",
+                    if !profile_items.is_empty() {
+                        div { class: "w-40",
+                            ManagerSelect {
+                                items: profile_items,
+                                value: active_profile,
+                                placeholder: translate("team-profile-name"),
+                                onselect: move |profile_id| {
+                                    let _ = send(&TeamCommandEvent {
+                                        command: "switch_profile".to_string(),
+                                        member_id: None,
+                                        profile_id: Some(profile_id),
+                                        profile_name: None,
+                                    });
+                                },
+                            }
+                        }
+                    }
                     input {
                         class: "w-44 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-cyan-400/50",
                         r#type: "text",
@@ -81,17 +119,19 @@ pub fn Page() -> Element {
                     }
                 }
             }
-            div { class: "min-h-0 flex-1 overflow-y-auto p-3",
-                if spaces.is_empty() {
-                    div { class: "flex h-full items-center justify-center text-sm text-muted-foreground", {translate("spaces-empty")} }
-                } else {
-                    div { class: "flex flex-col gap-2",
-                        for (index, space) in spaces.iter().enumerate() {
-                            SpaceRowView {
-                                key: "{space.id}",
-                                space: space.clone(),
-                                selected: index == sel,
-                                deletable: count > 1,
+            div { class: "min-h-0 flex-1 overflow-y-auto px-5 py-5",
+                div { class: "mx-auto w-full max-w-4xl",
+                    if spaces.is_empty() {
+                        div { class: "flex min-h-72 items-center justify-center text-sm text-muted-foreground", {translate("spaces-empty")} }
+                    } else {
+                        div { class: "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3",
+                            for (index, space) in spaces.iter().enumerate() {
+                                SpaceRowView {
+                                    key: "{space.id}",
+                                    space: space.clone(),
+                                    selected: index == sel,
+                                    deletable: count > 1,
+                                }
                             }
                         }
                     }
@@ -183,12 +223,16 @@ fn emit_command(command: &str, space_id: Option<String>, name: Option<String>) {
 
 #[component]
 fn SpaceRowView(space: SpaceRow, selected: bool, deletable: bool) -> Element {
+    let mut editing = use_signal(|| false);
+    let draft = use_signal(|| space.name.clone());
+    let menu_value = use_signal(|| space.id.clone());
     let nav_id = space.id.clone();
     let delete_id = space.id.clone();
+    let rename_id = space.id.clone();
     let class = if selected {
-        "flex cursor-pointer items-center justify-between rounded-lg border border-cyan-400/40 bg-cyan-400/[0.08] px-3 py-3 shadow-[0_0_18px_-6px_rgba(34,211,238,0.5)]"
+        "flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-cyan-400/40 bg-cyan-400/[0.08] px-3 py-3 shadow-[0_0_18px_-6px_rgba(34,211,238,0.5)]"
     } else {
-        "flex cursor-pointer items-center justify-between rounded-lg border border-border bg-card px-3 py-3 transition-colors hover:border-cyan-400/40 hover:bg-foreground/[0.04]"
+        "glass flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-3 transition-colors hover:border-cyan-400/40 hover:bg-glass-hover"
     };
     let tab_label = translate_with(
         "spaces-tabs",
@@ -196,35 +240,92 @@ fn SpaceRowView(space: SpaceRow, selected: bool, deletable: bool) -> Element {
     );
 
     rsx! {
-        div {
-            class: "{class}",
-            onclick: move |_| {
-                emit_command("attach", Some(nav_id.clone()), None);
-            },
-            div { class: "min-w-0",
-                div { class: "flex min-w-0 items-center gap-2",
-                    span { class: "truncate text-sm font-medium text-foreground", "{space.name}" }
-                    if space.is_active {
-                        span { class: "rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-600 dark:text-blue-300", {translate("common-active")} }
+        ContextMenu {
+            ContextMenuTrigger { attributes: vec![],
+                div {
+                    class: "{class}",
+                    onclick: move |_| {
+                        emit_command("attach", Some(nav_id.clone()), None);
+                    },
+                    div { class: "min-w-0 flex-1",
+                        div { class: "flex min-w-0 items-center gap-2",
+                            if editing() {
+                                InlineEdit {
+                                    draft,
+                                    class: "min-w-0 flex-1 rounded-md bg-background/70 px-2 py-1 text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-cyan-400/40".to_string(),
+                                    placeholder: translate("spaces-new-placeholder"),
+                                    on_commit: move |name| {
+                                        editing.set(false);
+                                        emit_command("rename", Some(rename_id.clone()), Some(name));
+                                    },
+                                    on_cancel: move |_| editing.set(false),
+                                }
+                            } else {
+                                button {
+                                    r#type: "button",
+                                    class: "min-w-0 cursor-text truncate rounded px-1 py-0.5 text-left text-sm font-medium text-foreground hover:bg-foreground/[0.06]",
+                                    title: translate("common-rename"),
+                                    onclick: {
+                                        let name = space.name.clone();
+                                        move |event| {
+                                            event.stop_propagation();
+                                            begin_space_rename(editing, draft, name.clone());
+                                        }
+                                    },
+                                    "{space.name}"
+                                }
+                            }
+                            if space.is_active {
+                                span { class: "rounded-full bg-blue-500/15 px-2 py-0.5 text-xs text-blue-600 dark:text-blue-300", {translate("common-active")} }
+                            }
+                        }
+                        div { class: "mt-1 truncate px-1 text-xs text-muted-foreground", "{space.profile}" }
+                    }
+                    div { class: "ml-3 flex shrink-0 items-center gap-2",
+                        div { class: "text-xs text-muted-foreground", "{tab_label}" }
+                        if deletable {
+                            button {
+                                class: "flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground",
+                                title: translate("spaces-delete"),
+                                "aria-label": translate("spaces-delete"),
+                                onclick: move |e| {
+                                    e.stop_propagation();
+                                    emit_command("delete", Some(delete_id.clone()), None);
+                                },
+                                span { class: "text-base leading-none", "\u{00d7}" }
+                            }
+                        }
                     }
                 }
-                div { class: "mt-1 truncate text-xs text-muted-foreground", "{space.profile}" }
             }
-            div { class: "ml-3 flex shrink-0 items-center gap-2",
-                div { class: "text-xs text-muted-foreground", "{tab_label}" }
-                if deletable {
-                    button {
-                        class: "flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground",
-                        title: translate("spaces-delete"),
-                        "aria-label": translate("spaces-delete"),
-                        onclick: move |e| {
-                            e.stop_propagation();
-                            emit_command("delete", Some(delete_id.clone()), None);
-                        },
-                        span { class: "text-base leading-none", "\u{00d7}" }
-                    }
+            ContextMenuContent { attributes: vec![],
+                ContextMenuItem {
+                    index: 0usize,
+                    value: Into::<ReadSignal<String>>::into(menu_value),
+                    on_select: {
+                        let name = space.name.clone();
+                        move |_: String| begin_space_rename(editing, draft, name.clone())
+                    },
+                    attributes: vec![],
+                    {translate("common-rename")}
+                }
+                ContextMenuItem {
+                    index: 1usize,
+                    value: Into::<ReadSignal<String>>::into(menu_value),
+                    disabled: !deletable,
+                    on_select: move |_: String| emit_command("delete", Some(space.id.clone()), None),
+                    attributes: vec![],
+                    {translate("spaces-delete")}
                 }
             }
         }
     }
+}
+
+fn begin_space_rename(mut editing: Signal<bool>, mut draft: Signal<String>, name: String) {
+    draft.set(name);
+    spawn(async move {
+        sleep_ms(0).await;
+        editing.set(true);
+    });
 }

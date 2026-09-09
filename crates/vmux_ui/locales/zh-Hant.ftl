@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } 個分頁
 }
 spaces-delete = 刪除工作區
+cheatsheet-title = 鍵盤快速鍵
+cheatsheet-count = { $count } 個快速鍵
+cheatsheet-search = 篩選快速鍵…
+cheatsheet-empty = 沒有符合的快速鍵
+cheatsheet-general = 一般
 
 team-title = 團隊
 simulator-title = 模擬器

@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } abas
 }
 spaces-delete = Excluir espaço
+cheatsheet-title = Atalhos de teclado
+cheatsheet-count = { $count } atalhos
+cheatsheet-search = Filtrar atalhos…
+cheatsheet-empty = Nenhum atalho correspondente
+cheatsheet-general = Geral
 
 team-title = Equipe
 simulator-title = Simulador

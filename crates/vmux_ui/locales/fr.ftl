@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } onglets
 }
 spaces-delete = Supprimer l’espace
+cheatsheet-title = Raccourcis clavier
+cheatsheet-count = { $count } raccourcis
+cheatsheet-search = Filtrer les raccourcis…
+cheatsheet-empty = Aucun raccourci correspondant
+cheatsheet-general = Général
 
 team-title = Équipe
 simulator-title = Simulateur

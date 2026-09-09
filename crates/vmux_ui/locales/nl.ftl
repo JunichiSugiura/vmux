@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } tabbladen
 }
 spaces-delete = Werkruimte verwijderen
+cheatsheet-title = Sneltoetsen
+cheatsheet-count = { $count } sneltoetsen
+cheatsheet-search = Sneltoetsen filteren…
+cheatsheet-empty = Geen overeenkomende sneltoetsen
+cheatsheet-general = Algemeen
 
 team-title = Team
 simulator-title = Simulator

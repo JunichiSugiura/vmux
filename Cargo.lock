@@ -10223,6 +10223,7 @@ dependencies = [
  "uuid",
  "vmux_agent",
  "vmux_chat",
+ "vmux_cheatsheet",
  "vmux_command",
  "vmux_core",
  "vmux_editor",
@@ -10263,6 +10264,22 @@ dependencies = [
  "vmux_service",
  "vmux_ui",
  "vmux_wire",
+]
+
+[[package]]
+name = "vmux_cheatsheet"
+version = "0.0.34"
+dependencies = [
+ "bevy",
+ "bevy_cef",
+ "bevy_ecs",
+ "dioxus",
+ "rkyv",
+ "serde",
+ "vmux_command",
+ "vmux_core",
+ "vmux_layout",
+ "vmux_ui",
 ]
 
 [[package]]
@@ -10415,6 +10432,7 @@ dependencies = [
  "uuid",
  "vmux_agent",
  "vmux_browser",
+ "vmux_cheatsheet",
  "vmux_clipboard",
  "vmux_command",
  "vmux_core",

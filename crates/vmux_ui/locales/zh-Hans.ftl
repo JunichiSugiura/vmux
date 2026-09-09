@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } 个标签页
 }
 spaces-delete = 删除工作区
+cheatsheet-title = 键盘快捷键
+cheatsheet-count = { $count } 个快捷键
+cheatsheet-search = 筛选快捷键…
+cheatsheet-empty = 没有匹配的快捷键
+cheatsheet-general = 常规
 
 team-title = 团队
 simulator-title = 模拟器

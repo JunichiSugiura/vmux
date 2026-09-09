@@ -3,6 +3,7 @@
 use dioxus::prelude::*;
 use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::badge::Badge;
+use vmux_ui::components::inline_edit::InlineEdit;
 use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::{send, use_event, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
@@ -97,8 +98,11 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                 for profile in profiles.iter() {
                     if editing().as_deref() == Some(profile.id.as_str()) {
                         div { key: "edit-{profile.id}", class: "glass flex min-h-24 items-center rounded-xl border border-border/70 p-2",
-                            ProfileNameEditor {
+                            InlineEdit {
                                 draft,
+                                caret_at_end: true,
+                                class: "m-1 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50".to_string(),
+                                placeholder: translate("team-profile-name"),
                                 on_commit: {
                                     let id = profile.id.clone();
                                     move |name| {
@@ -126,8 +130,11 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                 }
                 if creating() {
                     div { key: "create-{profile_count}", class: "glass flex min-h-24 items-center rounded-xl border border-border/70 p-2",
-                        ProfileNameEditor {
+                        InlineEdit {
                             draft,
+                            caret_at_end: true,
+                            class: "m-1 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50".to_string(),
+                            placeholder: translate("team-profile-name"),
                             on_commit: move |name| {
                                 creating.set(false);
                                 emit_profile_command("create_profile", None, Some(name));
@@ -205,56 +212,6 @@ fn ProfileRowView(profile: ProfileRow, on_edit: EventHandler<()>) -> Element {
                     path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" }
                 }
             }
-        }
-    }
-}
-
-#[component]
-fn ProfileNameEditor(
-    draft: Signal<String>,
-    on_commit: EventHandler<String>,
-    on_cancel: EventHandler<()>,
-) -> Element {
-    let mut draft = draft;
-    let mut finished = use_signal(|| false);
-    rsx! {
-        input {
-            r#type: "text",
-            autofocus: true,
-            value: "{draft}",
-            placeholder: translate("team-profile-name"),
-            class: "m-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50",
-            oninput: move |event| draft.set(event.value()),
-            onkeydown: move |event| match event.key() {
-                Key::Enter => {
-                    event.prevent_default();
-                    let name = draft().trim().to_string();
-                    if !name.is_empty() && !finished() {
-                        finished.set(true);
-                        on_commit.call(name);
-                    }
-                }
-                Key::Escape => {
-                    event.prevent_default();
-                    if !finished() {
-                        finished.set(true);
-                        on_cancel.call(());
-                    }
-                }
-                _ => {}
-            },
-            onblur: move |_| {
-                if finished() {
-                    return;
-                }
-                finished.set(true);
-                let name = draft().trim().to_string();
-                if name.is_empty() {
-                    on_cancel.call(());
-                } else {
-                    on_commit.call(name);
-                }
-            },
         }
     }
 }

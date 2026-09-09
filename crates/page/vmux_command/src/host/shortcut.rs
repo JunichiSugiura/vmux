@@ -266,6 +266,24 @@ pub struct KeyCombo {
 }
 
 impl KeyCombo {
+    pub fn display(&self) -> String {
+        let mut label = String::new();
+        if self.modifiers.ctrl {
+            label.push('\u{2303}');
+        }
+        if self.modifiers.alt {
+            label.push('\u{2325}');
+        }
+        if self.modifiers.shift {
+            label.push('\u{21e7}');
+        }
+        if self.modifiers.super_key {
+            label.push('\u{2318}');
+        }
+        label.push_str(&key_label(self.key));
+        label
+    }
+
     pub fn of(stroke: &vmux_core::input::KeyStroke) -> Option<Self> {
         if stroke.is_modifier_key() {
             return None;
@@ -362,9 +380,79 @@ pub enum Shortcut {
     Chord(KeyCombo, KeyCombo),
 }
 
+impl Shortcut {
+    pub fn display(&self) -> String {
+        match self {
+            Self::Direct(combo) => combo.display(),
+            Self::Chord(prefix, second) => format!("{}, {}", prefix.display(), second.display()),
+        }
+    }
+}
+
+fn key_label(key: KeyCode) -> String {
+    match key {
+        KeyCode::ArrowDown => "↓".to_string(),
+        KeyCode::ArrowLeft => "←".to_string(),
+        KeyCode::ArrowRight => "→".to_string(),
+        KeyCode::ArrowUp => "↑".to_string(),
+        KeyCode::Backquote => "`".to_string(),
+        KeyCode::Backslash => "\\".to_string(),
+        KeyCode::Backspace => "⌫".to_string(),
+        KeyCode::BracketLeft => "[".to_string(),
+        KeyCode::BracketRight => "]".to_string(),
+        KeyCode::Comma => ",".to_string(),
+        KeyCode::Delete => "⌦".to_string(),
+        KeyCode::Enter => "↩".to_string(),
+        KeyCode::Equal => "=".to_string(),
+        KeyCode::Escape => "Esc".to_string(),
+        KeyCode::Minus => "-".to_string(),
+        KeyCode::Period => ".".to_string(),
+        KeyCode::Quote => "'".to_string(),
+        KeyCode::Semicolon => ";".to_string(),
+        KeyCode::Slash => "/".to_string(),
+        KeyCode::Space => "Space".to_string(),
+        KeyCode::Tab => "⇥".to_string(),
+        _ => {
+            let debug = format!("{key:?}");
+            debug
+                .strip_prefix("Key")
+                .or_else(|| debug.strip_prefix("Digit"))
+                .unwrap_or(&debug)
+                .to_string()
+        }
+    }
+}
+
 pub struct ResolvedKey {
     pub key: KeyCode,
     pub implicit_shift: bool,
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn shortcut_display_uses_compact_mac_key_labels() {
+        let shortcut = Shortcut::Chord(
+            KeyCombo {
+                key: KeyCode::KeyB,
+                modifiers: Modifiers {
+                    ctrl: true,
+                    ..Default::default()
+                },
+            },
+            KeyCombo {
+                key: KeyCode::ArrowLeft,
+                modifiers: Modifiers {
+                    alt: true,
+                    ..Default::default()
+                },
+            },
+        );
+
+        assert_eq!(shortcut.display(), "⌃B, ⌥←");
+    }
 }
 
 pub fn resolve_key(s: &str) -> Option<ResolvedKey> {

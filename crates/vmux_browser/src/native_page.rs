@@ -121,6 +121,11 @@ pub static HISTORY_PAGE: NativePage =
     NativePage::pane(vmux_history::PAGE_URL, vmux_history::page::Page).titled("History");
 
 #[cfg(target_os = "macos")]
+pub static CHEATSHEET_PAGE: NativePage =
+    NativePage::pane(vmux_cheatsheet::PAGE_URL, vmux_cheatsheet::page::Page)
+        .titled("Keyboard Shortcuts");
+
+#[cfg(target_os = "macos")]
 pub static TEAM_PAGE: NativePage =
     NativePage::pane(vmux_core::event::team::TEAM_PAGE_URL, vmux_team::page::Page).titled("Team");
 

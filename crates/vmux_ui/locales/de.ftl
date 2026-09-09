@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } Tabs
 }
 spaces-delete = Space löschen
+cheatsheet-title = Tastenkürzel
+cheatsheet-count = { $count } Tastenkürzel
+cheatsheet-search = Tastenkürzel filtern…
+cheatsheet-empty = Keine passenden Tastenkürzel
+cheatsheet-general = Allgemein
 
 team-title = Team
 simulator-title = Simulator

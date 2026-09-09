@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] { $count } вкладок
 }
 spaces-delete = Видалити простір
+cheatsheet-title = Комбінації клавіш
+cheatsheet-count = Комбінацій: { $count }
+cheatsheet-search = Фільтрувати комбінації…
+cheatsheet-empty = Немає відповідних комбінацій
+cheatsheet-general = Загальні
 
 team-title = Команда
 simulator-title = Симулятор

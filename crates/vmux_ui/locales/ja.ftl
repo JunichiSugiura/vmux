@@ -159,6 +159,11 @@ spaces-empty = スペースがありません
 spaces-default-name = スペース { $number }
 spaces-tabs = { $count } タブ
 spaces-delete = スペースを削除
+cheatsheet-title = キーボードショートカット
+cheatsheet-count = ショートカット { $count } 件
+cheatsheet-search = ショートカットを絞り込む…
+cheatsheet-empty = 一致するショートカットはありません
+cheatsheet-general = 一般
 
 team-title = チーム
 simulator-title = シミュレータ

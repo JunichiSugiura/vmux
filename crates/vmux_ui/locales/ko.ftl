@@ -165,6 +165,11 @@ spaces-tabs = { $count ->
    *[other] 탭 { $count }개
 }
 spaces-delete = 스페이스 삭제
+cheatsheet-title = 키보드 단축키
+cheatsheet-count = 단축키 { $count }개
+cheatsheet-search = 단축키 필터링…
+cheatsheet-empty = 일치하는 단축키 없음
+cheatsheet-general = 일반
 
 team-title = 팀
 simulator-title = 시뮬레이터

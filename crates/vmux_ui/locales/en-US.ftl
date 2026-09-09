@@ -178,6 +178,11 @@ spaces-tabs = { $count ->
    *[other] { $count } tabs
 }
 spaces-delete = Delete space
+cheatsheet-title = Keyboard Shortcuts
+cheatsheet-count = { $count } shortcuts
+cheatsheet-search = Filter shortcuts…
+cheatsheet-empty = No matching shortcuts
+cheatsheet-general = General
 
 team-title = Team
 simulator-title = Simulator

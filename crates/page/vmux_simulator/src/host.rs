@@ -1,3 +1,5 @@
+#[cfg(target_os = "macos")]
+mod core_simulator;
 mod device;
 mod hid;
 mod input;
@@ -5,7 +7,7 @@ mod stream;
 
 use crate::event::{
     HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
-    SimulatorKey, SimulatorReady, SimulatorTouch,
+    SimulatorKey, SimulatorReady, SimulatorSoftwareKeyboard, SimulatorTouch,
 };
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
@@ -34,8 +36,10 @@ impl Plugin for SimulatorPlugin {
         app.init_resource::<DeviceAttachment>()
             .init_resource::<Announced>()
             .init_resource::<DeviceTouchSession>()
+            .init_resource::<HardwareKeyboard>()
             .add_message::<HardwareButtonRequest>()
             .add_message::<SimulatorClipboardRequest>()
+            .add_message::<SimulatorSoftwareKeyboardRequest>()
             .add_message::<SimulatorControlRequest>()
             .add_message::<SimulatorControlResponse>()
             .add_message::<SimulatorScreenshotRequest>()
@@ -46,6 +50,7 @@ impl Plugin for SimulatorPlugin {
                 (
                     Self::handle_button_requests,
                     Self::handle_clipboard_requests,
+                    Self::handle_software_keyboard_requests,
                     Self::handle_control_requests,
                     Self::handle_screenshot_requests,
                 )
@@ -55,10 +60,12 @@ impl Plugin for SimulatorPlugin {
                 SimulatorTouch,
                 SimulatorKey,
                 SimulatorClipboard,
+                SimulatorSoftwareKeyboard,
             )>::for_hosts(&[PAGE_HOST]))
             .add_observer(Self::on_touch)
             .add_observer(Self::on_key)
             .add_observer(Self::on_clipboard)
+            .add_observer(Self::on_software_keyboard)
             .add_observer(Self::forget_on_reload);
     }
 }
@@ -68,6 +75,9 @@ pub struct HardwareButtonRequest(pub HardwareButton);
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SimulatorClipboardRequest(pub SimulatorClipboardAction);
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SimulatorSoftwareKeyboardRequest;
 
 #[derive(Message, Clone)]
 pub struct SimulatorControlRequest {
@@ -118,6 +128,17 @@ struct DevicePoints(f32, f32);
 
 #[derive(Resource)]
 struct DevicePixels(u32, u32);
+
+#[derive(Resource)]
+struct HardwareKeyboard {
+    enabled: bool,
+}
+
+impl Default for HardwareKeyboard {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
 
 #[derive(Resource, Default)]
 struct Announced(HashMap<Entity, SimulatorReady>);
@@ -184,6 +205,16 @@ impl SimulatorPlugin {
             attached.device.name,
             attached.server.port()
         );
+        let hardware_keyboard_enabled = match attached.device.set_hardware_keyboard_enabled(false) {
+            Ok(()) => false,
+            Err(error) => {
+                warn!("could not enable the simulator software keyboard: {error}");
+                true
+            }
+        };
+        commands.insert_resource(HardwareKeyboard {
+            enabled: hardware_keyboard_enabled,
+        });
         if let Some((width, height)) = attached.points {
             commands.insert_resource(DevicePoints(width, height));
         }
@@ -291,6 +322,14 @@ impl SimulatorPlugin {
         DeviceClipboard::resolve(trigger.event().payload.action, device, axe).dispatch();
     }
 
+    fn on_software_keyboard(
+        _trigger: On<BinReceive<SimulatorSoftwareKeyboard>>,
+        device: Option<Res<SimulatorDevice>>,
+        mut keyboard: ResMut<HardwareKeyboard>,
+    ) {
+        Self::toggle_software_keyboard(device.as_deref(), &mut keyboard);
+    }
+
     fn handle_button_requests(
         mut requests: MessageReader<HardwareButtonRequest>,
         device: Option<Res<SimulatorDevice>>,
@@ -314,6 +353,27 @@ impl SimulatorPlugin {
         };
         for request in requests.read() {
             DeviceClipboard::resolve(request.0, device, axe).dispatch();
+        }
+    }
+
+    fn handle_software_keyboard_requests(
+        mut requests: MessageReader<SimulatorSoftwareKeyboardRequest>,
+        device: Option<Res<SimulatorDevice>>,
+        mut keyboard: ResMut<HardwareKeyboard>,
+    ) {
+        for _ in requests.read() {
+            Self::toggle_software_keyboard(device.as_deref(), &mut keyboard);
+        }
+    }
+
+    fn toggle_software_keyboard(device: Option<&SimulatorDevice>, keyboard: &mut HardwareKeyboard) {
+        let Some(device) = device else {
+            return;
+        };
+        let enabled = !keyboard.enabled;
+        match device.set_hardware_keyboard_enabled(enabled) {
+            Ok(()) => keyboard.enabled = enabled,
+            Err(error) => error!("could not toggle the simulator software keyboard: {error}"),
         }
     }
 

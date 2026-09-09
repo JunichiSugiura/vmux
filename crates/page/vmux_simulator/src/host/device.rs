@@ -245,6 +245,20 @@ impl SimulatorDevice {
         fs::read(path).map_err(|error| format!("could not read simulator screenshot: {error}"))
     }
 
+    pub fn set_hardware_keyboard_enabled(&self, enabled: bool) -> Result<(), String> {
+        #[cfg(target_os = "macos")]
+        {
+            super::core_simulator::CoreSimulatorDevice::set_hardware_keyboard_enabled(
+                &self.udid, enabled,
+            )
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = enabled;
+            Err("simulator keyboard control requires macOS".to_string())
+        }
+    }
+
     pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
         if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
             return None;

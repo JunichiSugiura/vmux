@@ -169,9 +169,6 @@ spaces-delete = Видалити простір
 team-title = Команда
 simulator-title = Симулятор
 simulator-keyboard = Клавіатура
-simulator-keyboard-placeholder = Введіть або вставте текст на iPhone
-simulator-copy = Копіювати
-simulator-paste = Вставити
 team-just-you = У цьому просторі лише ви
 team-agents = { $count ->
     [one] Ви й 1 агент

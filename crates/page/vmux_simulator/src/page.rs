@@ -2,7 +2,7 @@
 
 use crate::event::{
     HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
-    SimulatorKey, SimulatorReady, SimulatorTouch, SimulatorTouchPhase,
+    SimulatorKey, SimulatorReady, SimulatorSoftwareKeyboard, SimulatorTouch, SimulatorTouchPhase,
 };
 use crate::url::SimulatorRoute;
 use dioxus::html::geometry::ClientPoint;
@@ -38,7 +38,6 @@ fn Mirror(port: u16, device_name: String) -> Element {
     let mut image_size = use_signal(|| None::<(f64, f64)>);
     let mut home_progress = use_signal(|| 0.0f32);
     let mut surface = use_signal(|| None::<Rc<MountedData>>);
-    let mut keyboard_open = use_signal(|| false);
     let progress = home_progress();
     let scale = 1.0 - progress * 0.12;
     let offset = -progress * 18.0;
@@ -66,9 +65,6 @@ fn Mirror(port: u16, device_name: String) -> Element {
                 });
             },
             onpointerdown: move |_| {
-                if keyboard_open() {
-                    return;
-                }
                 let Some(target) = surface.peek().clone() else {
                     return;
                 };
@@ -79,6 +75,11 @@ fn Mirror(port: u16, device_name: String) -> Element {
                 });
             },
             onkeydown: move |event| {
+                if SoftwareKeyboardShortcut::matches(&event) {
+                    event.prevent_default();
+                    let _ = send(&SimulatorSoftwareKeyboard);
+                    return;
+                }
                 if let Some(action) = ClipboardShortcut::of(&event) {
                     event.prevent_default();
                     let _ = send(&SimulatorClipboard { action });
@@ -132,9 +133,11 @@ fn Mirror(port: u16, device_name: String) -> Element {
             button {
                 r#type: "button",
                 aria_label: translate("simulator-keyboard"),
-                title: translate("simulator-keyboard"),
+                title: format!("{} (⌘K)", translate("simulator-keyboard")),
                 class: "absolute right-5 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 active:bg-white/15",
-                onclick: move |_| keyboard_open.toggle(),
+                onclick: move |_| {
+                    let _ = send(&SimulatorSoftwareKeyboard);
+                },
                 svg {
                     class: "h-4 w-4",
                     view_box: "0 0 24 24",
@@ -186,125 +189,20 @@ fn Mirror(port: u16, device_name: String) -> Element {
                     }
                 }
             }
-            if keyboard_open() {
-                KeyboardCapture {
-                    on_close: move |_| {
-                        keyboard_open.set(false);
-                        let Some(target) = surface.peek().clone() else {
-                            return;
-                        };
-                        spawn(async move {
-                            if let Err(error) = target.set_focus(true).await {
-                                dioxus::logger::tracing::warn!("focusing the simulator failed: {error:?}");
-                            }
-                        });
-                    }
-                }
-            }
         }
     }
 }
 
-#[component]
-fn KeyboardCapture(on_close: EventHandler<()>) -> Element {
-    let mut draft = use_signal(KeyboardDraft::default);
-    let copy_title = format!("{} (⌘C)", translate("simulator-copy"));
-    let paste_title = format!("{} (⌘V)", translate("simulator-paste"));
+struct SoftwareKeyboardShortcut;
 
-    rsx! {
-        div {
-            class: "absolute bottom-5 left-1/2 z-30 flex w-[calc(100%-2.5rem)] max-w-lg -translate-x-1/2 items-center gap-2 rounded-2xl border border-white/15 bg-zinc-900/95 p-2 shadow-2xl backdrop-blur-xl",
-            onpointerdown: move |event| event.stop_propagation(),
-            input {
-                r#type: "text",
-                autofocus: true,
-                autocomplete: "off",
-                autocapitalize: "none",
-                spellcheck: false,
-                value: "{draft().value()}",
-                placeholder: translate("simulator-keyboard-placeholder"),
-                aria_label: translate("simulator-keyboard-placeholder"),
-                class: "h-9 min-w-0 flex-1 rounded-xl bg-white/10 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-1 focus:ring-white/25",
-                onmounted: move |event: Event<MountedData>| async move {
-                    if let Err(error) = event.data().set_focus(true).await {
-                        dioxus::logger::tracing::warn!("focusing simulator keyboard input failed: {error:?}");
-                    }
-                },
-                oninput: move |event| {
-                    let keys = draft.write().replace(event.value());
-                    for key in keys {
-                        let _ = send(&key);
-                    }
-                },
-                onkeydown: move |event: Event<KeyboardData>| {
-                    event.stop_propagation();
-                    if let Some(action) = ClipboardShortcut::of(&event) {
-                        event.prevent_default();
-                        let _ = send(&SimulatorClipboard { action });
-                        return;
-                    }
-                    match event.key() {
-                        Key::Escape => {
-                            event.prevent_default();
-                            on_close.call(());
-                        }
-                        Key::Backspace if draft.peek().is_empty() => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(42));
-                        }
-                        Key::Enter => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(40));
-                        }
-                        Key::Tab => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(43));
-                        }
-                        Key::ArrowRight => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(79));
-                        }
-                        Key::ArrowLeft => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(80));
-                        }
-                        Key::ArrowDown => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(81));
-                        }
-                        Key::ArrowUp => {
-                            event.prevent_default();
-                            let _ = send(&SimulatorKey::Code(82));
-                        }
-                        _ => {}
-                    }
-                },
-            }
-            button {
-                r#type: "button",
-                title: "{copy_title}",
-                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
-                onclick: move |_| {
-                    let _ = send(&SimulatorClipboard { action: SimulatorClipboardAction::Copy });
-                },
-                {translate("simulator-copy")}
-            }
-            button {
-                r#type: "button",
-                title: "{paste_title}",
-                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
-                onclick: move |_| {
-                    let _ = send(&SimulatorClipboard { action: SimulatorClipboardAction::Paste });
-                },
-                {translate("simulator-paste")}
-            }
-            button {
-                r#type: "button",
-                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
-                onclick: move |_| on_close.call(()),
-                {translate("common-done")}
-            }
-        }
+impl SoftwareKeyboardShortcut {
+    fn matches(event: &Event<KeyboardData>) -> bool {
+        let modifiers = event.modifiers();
+        modifiers.meta()
+            && !modifiers.ctrl()
+            && !modifiers.alt()
+            && !modifiers.shift()
+            && event.key().to_string().eq_ignore_ascii_case("k")
     }
 }
 
@@ -321,38 +219,6 @@ impl ClipboardShortcut {
             "v" => Some(SimulatorClipboardAction::Paste),
             _ => None,
         }
-    }
-}
-
-#[derive(Clone, Default)]
-struct KeyboardDraft(String);
-
-impl KeyboardDraft {
-    fn value(&self) -> &str {
-        &self.0
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    fn replace(&mut self, next: String) -> Vec<SimulatorKey> {
-        let previous = std::mem::replace(&mut self.0, next);
-        if let Some(added) = self.0.strip_prefix(&previous) {
-            if added.is_empty() {
-                return Vec::new();
-            }
-            return vec![SimulatorKey::Text(added.to_string())];
-        }
-        if let Some(removed) = previous.strip_prefix(&self.0) {
-            return removed.chars().map(|_| SimulatorKey::Code(42)).collect();
-        }
-        let mut keys = Vec::with_capacity(previous.chars().count() + 1);
-        keys.extend(previous.chars().map(|_| SimulatorKey::Code(42)));
-        if !self.0.is_empty() {
-            keys.push(SimulatorKey::Text(self.0.clone()));
-        }
-        keys
     }
 }
 
@@ -513,33 +379,5 @@ impl PointerRelease {
             }
             Self::None => home_progress.set(0.0),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keyboard_capture_forwards_insertions_deletions_and_replacements() {
-        let mut draft = KeyboardDraft::default();
-
-        assert_eq!(
-            draft.replace("pair".to_string()),
-            vec![SimulatorKey::Text("pair".to_string())]
-        );
-        assert_eq!(
-            draft.replace("pai".to_string()),
-            vec![SimulatorKey::Code(42)]
-        );
-        assert_eq!(
-            draft.replace("link".to_string()),
-            vec![
-                SimulatorKey::Code(42),
-                SimulatorKey::Code(42),
-                SimulatorKey::Code(42),
-                SimulatorKey::Text("link".to_string()),
-            ]
-        );
     }
 }

@@ -169,9 +169,6 @@ spaces-delete = حذف مساحة العمل
 team-title = الفريق
 simulator-title = المحاكي
 simulator-keyboard = لوحة المفاتيح
-simulator-keyboard-placeholder = اكتب أو الصق في iPhone
-simulator-copy = نسخ
-simulator-paste = لصق
 team-just-you = أنت وحدك في مساحة العمل هذه
 team-agents = { $count ->
     [one] أنت ووكيل واحد

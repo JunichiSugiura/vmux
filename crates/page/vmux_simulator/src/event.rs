@@ -122,6 +122,20 @@ pub struct SimulatorClipboard {
     pub action: SimulatorClipboardAction,
 }
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct SimulatorSoftwareKeyboard;
+
 impl HardwareButton {
     pub fn as_arg(&self) -> &'static str {
         match self {

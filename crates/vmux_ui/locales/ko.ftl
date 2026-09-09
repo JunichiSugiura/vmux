@@ -169,9 +169,6 @@ spaces-delete = 스페이스 삭제
 team-title = 팀
 simulator-title = 시뮬레이터
 simulator-keyboard = 키보드
-simulator-keyboard-placeholder = iPhone에 입력하거나 붙여넣기
-simulator-copy = 복사
-simulator-paste = 붙여넣기
 team-just-you = 이 스페이스에는 나만 있습니다
 team-agents = { $count ->
     [one] 나와 에이전트 1개

@@ -508,6 +508,14 @@ fn HeaderView(
         is_zoomed: _,
     } = stacks_state;
     let TabsHostEvent { tabs } = tabs_state;
+    let host_active_tab_id = tabs
+        .iter()
+        .find(|tab| tab.is_active)
+        .map(|tab| tab.id.clone());
+    let mut active_sync = tab_drag;
+    use_effect(use_reactive!(|host_active_tab_id| {
+        active_sync.acknowledge_active(host_active_tab_id);
+    }));
     let active_row = stacks.iter().find(|t| t.is_active).cloned();
     let active_bg_color = active_row.as_ref().and_then(|r| r.bg_color.clone());
     let active_url = active_row
@@ -554,6 +562,7 @@ fn HeaderView(
                         for tab in tabs.iter() {
                             {
                                 let mut tab = tab.clone();
+                                tab.is_active = tab_drag.is_active(&tab.id, tab.is_active);
                                 if tab.is_active {
                                     tab.bg_color = active_bg_color.clone();
                                 }
@@ -1379,17 +1388,30 @@ struct TabDragState {
     target_id: String,
     start_x: f64,
     start_y: f64,
+    current_x: f64,
     active: bool,
+}
+
+#[derive(Clone, PartialEq)]
+struct TabClickBlock {
+    source_id: String,
+    target_id: String,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 struct TabDrag {
     state: Signal<Option<TabDragState>>,
+    click_block: Signal<Option<TabClickBlock>>,
+    host_active: Signal<Option<String>>,
+    optimistic_active: Signal<Option<String>>,
 }
 
 fn use_tab_drag() -> TabDrag {
     TabDrag {
         state: use_signal(|| None),
+        click_block: use_signal(|| None),
+        host_active: use_signal(|| None),
+        optimistic_active: use_signal(|| None),
     }
 }
 
@@ -1414,12 +1436,14 @@ impl TabDrag {
         if event.trigger_button() != Some(MouseButton::Primary) {
             return;
         }
+        self.click_block.set(None);
         let point = event.client_coordinates();
         self.state.set(Some(TabDragState {
             target_id: source_id.clone(),
             source_id,
             start_x: point.x,
             start_y: point.y,
+            current_x: point.x,
             active: false,
         }));
     }
@@ -1428,16 +1452,17 @@ impl TabDrag {
         let Some(mut state) = (self.state)() else {
             return;
         };
-        if state.active {
-            return;
-        }
         let point = event.client_coordinates();
         let dx = point.x - state.start_x;
         let dy = point.y - state.start_y;
-        if dx * dx + dy * dy < 16.0 {
+        state.current_x = point.x;
+        if !state.active && dx * dx + dy * dy < 16.0 {
             return;
         }
-        state.active = true;
+        if !state.active {
+            state.active = true;
+            self.activate(state.source_id.clone());
+        }
         self.state.set(Some(state));
     }
 
@@ -1469,10 +1494,18 @@ impl TabDrag {
                 target_tab_id: Some(state.target_id.clone()),
             });
         }
-        let mut held = self.state;
+        let block = TabClickBlock {
+            source_id: state.source_id,
+            target_id: state.target_id,
+        };
+        self.click_block.set(Some(block.clone()));
+        self.state.set(None);
+        let mut click_block = self.click_block;
         spawn(async move {
-            sleep_ms(0).await;
-            held.set(None);
+            sleep_ms(100).await;
+            if click_block() == Some(block) {
+                click_block.set(None);
+            }
         });
     }
 
@@ -1480,14 +1513,58 @@ impl TabDrag {
         self.state.set(None);
     }
 
-    fn blocks_click(self, tab_id: &str) -> bool {
-        (self.state)().is_some_and(|state| {
-            state.active && (state.source_id == tab_id || state.target_id == tab_id)
-        })
+    fn blocks_click(&mut self, tab_id: &str) -> bool {
+        let Some(block) = (self.click_block)() else {
+            return false;
+        };
+        if block.source_id != tab_id && block.target_id != tab_id {
+            return false;
+        }
+        self.click_block.set(None);
+        true
     }
 
     fn targets(self, tab_id: &str) -> bool {
         (self.state)().is_some_and(|state| state.active && state.target_id == tab_id)
+    }
+
+    fn source_style(self, tab_id: &str) -> String {
+        let Some(state) = (self.state)() else {
+            return String::new();
+        };
+        if !state.active || state.source_id != tab_id {
+            return String::new();
+        }
+        let offset_x = state.current_x - state.start_x;
+        format!("transform:translate3d({offset_x}px,0,0);z-index:20;pointer-events:none;")
+    }
+
+    fn activate(&mut self, tab_id: String) {
+        if (self.host_active)().as_deref() != Some(tab_id.as_str()) {
+            self.optimistic_active.set(Some(tab_id.clone()));
+        }
+        let _ = send(&TabsCommandEvent {
+            command: "switch".to_string(),
+            tab_id: Some(tab_id),
+            target_tab_id: None,
+        });
+    }
+
+    fn acknowledge_active(&mut self, host_active_tab_id: Option<String>) {
+        self.host_active.set(host_active_tab_id.clone());
+        let Some(optimistic) = (self.optimistic_active)() else {
+            return;
+        };
+        if host_active_tab_id.as_deref() == Some(optimistic.as_str()) {
+            self.optimistic_active.set(None);
+        }
+    }
+
+    fn is_active(self, tab_id: &str, host_active: bool) -> bool {
+        match (self.optimistic_active)() {
+            Some(active_id) => active_id == tab_id,
+            None => host_active,
+        }
     }
 }
 
@@ -1516,7 +1593,7 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
     };
 
     let trunc = dir_truncate_class(&display_title);
-    let (tab_style, tab_class, title_class, close_class) = if is_active {
+    let (mut tab_style, tab_class, title_class, close_class) = if is_active {
         (
             "--tab-bg:var(--glass);".to_string(),
             cn([
@@ -1542,6 +1619,7 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
             "flex h-4 w-4 cursor-pointer shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10".to_string(),
         )
     };
+    tab_style.push_str(&drag.source_style(&tab.id));
 
     let bookmark_metadata = PageMetadata {
         title: display_title.clone(),
@@ -1572,11 +1650,7 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
                     event.stop_propagation();
                     return;
                 }
-                let _ = send(&TabsCommandEvent {
-                    command: "switch".to_string(),
-                    tab_id: Some(id_switch.clone()),
-                    target_tab_id: None,
-                });
+                drag.activate(id_switch.clone());
             },
             div {
                 title: "{tooltip}",

@@ -25,6 +25,7 @@ use vmux_core::knowledge::{
 use vmux_core::tools::{TOOLS_SNAPSHOT_EVENT, ToolCategory, ToolItem, ToolStatus, ToolsSnapshot};
 use vmux_core::{PageIcon, PageMetadata};
 use vmux_ui::components::avatar::Avatar;
+use vmux_ui::components::composer_bar::{StatusDot, WorkspaceBadges};
 use vmux_ui::components::context_menu::{
     ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 };
@@ -39,7 +40,7 @@ use vmux_ui::components::tree_row::{
 use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
-use vmux_ui::icon::PageIconView;
+use vmux_ui::icon::{BuiltinIconView, LineIcon, LineIconView, PageIconView};
 use vmux_ui::platform::sleep_ms;
 use vmux_ui::scroll::ScrollIntoView;
 use vmux_ui::util::cn;
@@ -163,6 +164,9 @@ pub fn Page() -> Element {
     let state = layout_state();
     let stacks = stacks_state();
     let tabs = tabs_state();
+    let projects = projects_state();
+    let team = team_state();
+    let remote = remote_state();
     let PaneTreeEvent { panes } = pane_tree_state();
     let active_space = spaces_state().spaces.into_iter().find(|s| s.is_active);
     let layout_error = (layout_listener.error)();
@@ -230,9 +234,10 @@ pub fn Page() -> Element {
                         SideSheetView {
                             panes,
                             active_space,
-                            remote: remote_state(),
                             bookmarks: bookmarks_state(),
-                            projects: projects_state().projects,
+                            projects: projects.projects.clone(),
+                            boundary: projects.boundary,
+                            team: team.members.clone(),
                             knowledge: knowledge_state(),
                             knowledge_loaded: knowledge_state_received(),
                             tools: tools_state(),
@@ -253,8 +258,9 @@ pub fn Page() -> Element {
                         stacks_state: stacks,
                         tabs_state: tabs,
                         bookmarks: bookmarks_state(),
-                        team: team_state().members,
+                        team: team.members,
                         extensions: extensions_state().extensions,
+                        remote,
                         reload_key: reload_key(),
                         stacks_error: stacks_error.clone(),
                         tabs_error: tabs_error.clone(),
@@ -358,9 +364,10 @@ impl StackReveal {
 fn SideSheetView(
     panes: Vec<PaneNode>,
     active_space: Option<vmux_core::event::space::SpaceRow>,
-    remote: RemoteStateEvent,
     bookmarks: BookmarksHostEvent,
     projects: Vec<vmux_core::event::ProjectRow>,
+    boundary: Option<crate::event::TabBoundary>,
+    team: Vec<TeamMemberRow>,
     knowledge: KnowledgeTreeEvent,
     knowledge_loaded: bool,
     tools: ToolsSnapshot,
@@ -395,7 +402,12 @@ fn SideSheetView(
             if let Some(space) = active_space {
                 div { class: "glass mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg",
                     SideSheetSpaceRow { key: "{space.id}", space: space.clone() }
-                    RemotePanel { remote: remote.clone() }
+                    ActiveSessionPanel {
+                        active_page: active_page.clone(),
+                        team: team.clone(),
+                        projects: projects.clone(),
+                        boundary: boundary.clone(),
+                    }
                 }
             }
             if let Some(pane) = active_pane {
@@ -496,6 +508,7 @@ fn HeaderView(
     bookmarks: BookmarksHostEvent,
     team: Vec<TeamMemberRow>,
     extensions: Vec<ExtRow>,
+    remote: RemoteStateEvent,
     reload_key: u32,
     stacks_error: Option<String>,
     tabs_error: Option<String>,
@@ -677,6 +690,7 @@ fn HeaderView(
                     }
                     TeamFacepile { members: team }
                     ExtensionBar { extensions }
+                    RemoteControl { remote }
                 }
             }
         }
@@ -773,6 +787,198 @@ fn dir_truncate_class(title: &str) -> &'static str {
     }
 }
 
+#[derive(Clone, PartialEq)]
+struct ActiveSessionInfo {
+    page: StackNode,
+    agent: Option<TeamMemberRow>,
+    project: Option<vmux_core::event::ProjectRow>,
+    boundary: Option<crate::event::TabBoundary>,
+}
+
+impl ActiveSessionInfo {
+    fn of(
+        page: Option<StackNode>,
+        team: &[TeamMemberRow],
+        projects: &[vmux_core::event::ProjectRow],
+        boundary: Option<crate::event::TabBoundary>,
+    ) -> Option<Self> {
+        let page = page?;
+        let agent = Self::agent_for(&page.url, team);
+        let project = projects
+            .iter()
+            .find(|project| project.depth == 0 && project.is_active)
+            .cloned();
+        Some(Self {
+            page,
+            agent,
+            project,
+            boundary,
+        })
+    }
+
+    fn agent_for(url: &str, team: &[TeamMemberRow]) -> Option<TeamMemberRow> {
+        for member in team.iter().filter(|member| !member.is_user) {
+            if member.sid.is_empty() {
+                continue;
+            }
+            let segment = format!("/{}", member.sid);
+            if url.ends_with(&segment) || url.contains(&format!("{segment}/")) {
+                return Some(member.clone());
+            }
+        }
+        team.iter()
+            .filter(|member| !member.is_user && !member.url.is_empty())
+            .find(|member| url.trim_end_matches('/') == member.url.trim_end_matches('/'))
+            .cloned()
+    }
+}
+
+#[component]
+fn ActiveSessionPanel(
+    active_page: Option<StackNode>,
+    team: Vec<TeamMemberRow>,
+    projects: Vec<vmux_core::event::ProjectRow>,
+    boundary: Option<crate::event::TabBoundary>,
+) -> Element {
+    let Some(session) = ActiveSessionInfo::of(active_page, &team, &projects, boundary) else {
+        return rsx! {};
+    };
+    let ActiveSessionInfo {
+        page,
+        agent,
+        project,
+        boundary,
+    } = session;
+    let title = if page.title.trim().is_empty() {
+        page.url.clone()
+    } else {
+        page.title.clone()
+    };
+    let status = agent.as_ref().map(|agent| {
+        if agent.is_running {
+            ("streaming", translate("agent-status-running"))
+        } else if agent.is_done_unseen {
+            ("idle", translate("agent-status-done"))
+        } else {
+            ("idle", translate("common-current"))
+        }
+    });
+    rsx! {
+        div { class: "border-t border-foreground/10 px-2.5 py-2.5",
+            div { class: "flex min-w-0 items-center gap-2.5",
+                div { class: "flex size-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.055]",
+                    PageIconView {
+                        icon: page.icon.clone(),
+                        url: page.url.clone(),
+                        img_class: "size-4 shrink-0 rounded-sm object-contain".to_string(),
+                        icon_class: "size-4 shrink-0 text-muted-foreground".to_string(),
+                    }
+                }
+                div { class: "min-w-0 flex-1",
+                    div { class: "truncate text-ui font-semibold text-foreground", title: "{title}", "{title}" }
+                    div { class: "truncate text-[10px] text-muted-foreground", title: "{page.url}", "{page.url}" }
+                }
+            }
+            div { class: "mt-2 flex flex-col gap-1",
+                if let Some(agent) = agent {
+                    div { class: "flex min-w-0 items-center gap-2 rounded-md bg-foreground/[0.035] px-2 py-1.5",
+                        Avatar {
+                            src: agent.icon.clone(),
+                            fallback: agent.initials.clone(),
+                            background: agent.color.clone(),
+                            alt: agent.name.clone(),
+                            class: "size-4 text-[7px]",
+                            seed: None,
+                        }
+                        span { class: "min-w-0 flex-1 truncate text-[10px] font-medium text-foreground", "{agent.name}" }
+                        if let Some((status, label)) = status {
+                            span { class: "flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground",
+                                StatusDot { status: status.to_string(), size_class: "size-1.5".to_string() }
+                                "{label}"
+                            }
+                        }
+                    }
+                }
+                if let Some(project) = project {
+                    div { class: "flex min-w-0 items-center gap-2 rounded-md bg-foreground/[0.035] px-2 py-1.5",
+                        BuiltinIconView { icon: vmux_core::BuiltinIcon::Project, class: "size-3.5 shrink-0 text-muted-foreground".to_string() }
+                        span { class: "min-w-0 flex-1 truncate text-[10px] font-medium text-foreground", title: "{project.display_path}", "{project.label}" }
+                    }
+                }
+                if let Some(boundary) = boundary {
+                    if boundary.is_git_repo {
+                        div { class: "flex min-w-0 items-center gap-2 rounded-md bg-foreground/[0.035] px-2 py-1.5",
+                            LineIconView { icon: LineIcon::GitBranch, class: "size-3.5 shrink-0 text-muted-foreground".to_string() }
+                            span { class: "min-w-0 flex-1 truncate font-mono text-[10px] text-foreground",
+                                if boundary.branch.is_empty() { {translate("composer-git-repository")} } else { "{boundary.branch}" }
+                            }
+                            WorkspaceBadges {
+                                is_git_repo: true,
+                                workspace_known: true,
+                                uncommitted: boundary.uncommitted,
+                                ahead: boundary.ahead,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn RemoteControl(remote: RemoteStateEvent) -> Element {
+    let mut open = use_signal(|| false);
+    rsx! {
+        div { class: "relative ml-1 shrink-0",
+            div {
+                class: if remote.enabled {
+                    "flex h-7 items-center overflow-hidden rounded-full border border-success/25 bg-success/10 text-success"
+                } else {
+                    "flex h-7 items-center overflow-hidden rounded-full border border-foreground/10 bg-foreground/[0.04] text-muted-foreground"
+                },
+                button {
+                    r#type: "button",
+                    class: "flex h-full items-center gap-1.5 pl-2 pr-1.5 text-[10px] font-semibold hover:bg-foreground/[0.06]",
+                    aria_label: "Live",
+                    onclick: move |_| open.set(!open()),
+                    span { class: if remote.enabled { "size-1.5 rounded-full bg-success" } else { "size-1.5 rounded-full bg-muted-foreground/50" } }
+                    "Live"
+                }
+                button {
+                    r#type: "button",
+                    class: "relative mx-1 h-4 w-7 shrink-0 rounded-full bg-foreground/15",
+                    aria_label: "Toggle Live",
+                    aria_pressed: remote.enabled,
+                    onclick: move |_| {
+                        let _ = send(&RemoteCommandEvent {
+                            enabled: !remote.enabled,
+                        });
+                    },
+                    span {
+                        class: if remote.enabled {
+                            "absolute left-3.5 top-0.5 size-3 rounded-full bg-white shadow-sm transition-all"
+                        } else {
+                            "absolute left-0.5 top-0.5 size-3 rounded-full bg-foreground/70 shadow-sm transition-all"
+                        }
+                    }
+                }
+            }
+            if open() {
+                button {
+                    r#type: "button",
+                    class: "fixed inset-0 z-[998] cursor-default",
+                    aria_label: translate("common-close"),
+                    onclick: move |_| open.set(false),
+                }
+                div { class: "glass absolute right-0 top-9 z-[999] w-72 overflow-hidden rounded-xl border border-border/80 bg-background/95 shadow-2xl backdrop-blur-xl",
+                    RemotePanel { remote: remote.clone() }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn RemotePanel(remote: RemoteStateEvent) -> Element {
     let mut show_pairing = use_signal(|| false);
@@ -797,12 +1003,7 @@ fn RemotePanel(remote: RemoteStateEvent) -> Element {
         None
     };
     rsx! {
-        div {
-            class: if remote.enabled {
-                "border-t border-success/30 bg-success/10 px-2.5 py-2.5"
-            } else {
-                "border-t border-foreground/10 px-2.5 py-2.5"
-            },
+        div { class: "p-3",
             div { class: "flex items-center gap-2",
                 div {
                     class: if remote.enabled {
@@ -3601,6 +3802,31 @@ fn SheetNewButton(label: String, icon: Element, onclick: EventHandler<MouseEvent
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn active_session_matches_the_agent_by_session_id() {
+        let team = vec![
+            TeamMemberRow {
+                id: "first".into(),
+                name: "Codex one".into(),
+                url: "vmux://sessions/codex/".into(),
+                sid: "session-one".into(),
+                ..Default::default()
+            },
+            TeamMemberRow {
+                id: "second".into(),
+                name: "Codex two".into(),
+                url: "vmux://sessions/codex/".into(),
+                sid: "session-two".into(),
+                ..Default::default()
+            },
+        ];
+
+        let agent =
+            ActiveSessionInfo::agent_for("vmux://sessions/codex/cli/session-two", &team).unwrap();
+
+        assert_eq!(agent.id, "second");
+    }
 
     #[test]
     fn download_pct_clamps_and_handles_zero_total() {

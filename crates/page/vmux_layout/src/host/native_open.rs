@@ -122,6 +122,15 @@ mod tests {
     }
 
     #[test]
+    fn matching_ignores_query_and_fragment_without_widening_the_subtree() {
+        let page = NativelyHosted::subtree("vmux://debug/", "Debug");
+
+        assert!(page.answers_for("vmux://debug/?section=input#keyboard"));
+        assert!(page.answers_for("vmux://debug/panel?section=input#keyboard"));
+        assert!(!page.answers_for("vmux://debugger/?section=input"));
+    }
+
+    #[test]
     fn page_manifest_icon_reaches_opened_stack() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)

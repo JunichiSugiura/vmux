@@ -72,8 +72,19 @@ impl NativelyHosted {
     }
 
     pub fn answers_for(&self, url: &str) -> bool {
-        self.url.trim_end_matches('/') == url.trim_end_matches('/')
-            || (self.owns_subtree && url.starts_with(self.url))
+        let (Ok(base), Ok(candidate)) = (url::Url::parse(self.url), url::Url::parse(url)) else {
+            return false;
+        };
+        if base.scheme() != candidate.scheme() || base.host_str() != candidate.host_str() {
+            return false;
+        }
+        let base_path = base.path().trim_end_matches('/');
+        let candidate_path = candidate.path().trim_end_matches('/');
+        candidate_path == base_path
+            || (self.owns_subtree
+                && candidate_path
+                    .strip_prefix(base_path)
+                    .is_some_and(|suffix| suffix.starts_with('/')))
     }
 }
 

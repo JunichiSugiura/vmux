@@ -78,14 +78,23 @@ struct ReportedWindowDragRegions(
     std::collections::BTreeMap<(Entity, String), WindowDragRegionEvent>,
 );
 
+impl ReportedWindowDragRegions {
+    fn update(&mut self, webview: Entity, region: WindowDragRegionEvent) {
+        let key = (webview, region.id.clone());
+        if region.removed {
+            self.0.remove(&key);
+        } else {
+            self.0.insert(key, region);
+        }
+    }
+}
+
 fn on_window_drag_region(
     trigger: On<BinReceive<WindowDragRegionEvent>>,
     mut reported: ResMut<ReportedWindowDragRegions>,
 ) {
     let region = trigger.event().payload.clone();
-    reported
-        .0
-        .insert((trigger.event().webview, region.id.clone()), region);
+    reported.update(trigger.event().webview, region);
 }
 
 fn publish_window_drag_region(
@@ -153,6 +162,7 @@ mod tests {
         let header = HeaderNode::at(Vec2::new(16.0, 16.0), Vec2::new(2000.0, 168.0), 0.5);
         let reported = WindowDragRegionEvent {
             id: "trailing".to_string(),
+            removed: false,
             left: 300.0,
             top: 8.0,
             width: 400.0,
@@ -177,6 +187,7 @@ mod tests {
         let region = WindowDragRegion::of(
             WindowDragRegionEvent {
                 id: "trailing".to_string(),
+                removed: false,
                 left: 400.0,
                 top: 0.0,
                 width: 400.0,
@@ -198,6 +209,7 @@ mod tests {
             WindowDragRegion::of(
                 WindowDragRegionEvent {
                     id: "trailing".to_string(),
+                    removed: false,
                     left: 400.0,
                     top: 0.0,
                     width: 100.0,
@@ -211,6 +223,7 @@ mod tests {
             WindowDragRegion::of(
                 WindowDragRegionEvent {
                     id: "trailing".to_string(),
+                    removed: false,
                     left: 10.0,
                     top: 0.0,
                     width: 0.0,
@@ -220,5 +233,27 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn removing_a_reported_region_drops_it_from_the_next_publish() {
+        let mut reported = ReportedWindowDragRegions::default();
+        let webview = Entity::from_bits(1);
+        reported.update(webview, WindowDragRegionEvent {
+            id: "leading".to_string(),
+            removed: false,
+            left: 10.0,
+            top: 0.0,
+            width: 20.0,
+            height: 40.0,
+        });
+
+        reported.update(webview, WindowDragRegionEvent {
+            id: "leading".to_string(),
+            removed: true,
+            ..Default::default()
+        });
+
+        assert!(reported.0.is_empty());
     }
 }

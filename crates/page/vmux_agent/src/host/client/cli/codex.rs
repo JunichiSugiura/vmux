@@ -185,6 +185,8 @@ struct CodexModel {
     display_name: String,
     #[serde(default)]
     description: String,
+    #[serde(default)]
+    visibility: String,
 }
 
 struct CodexModels;
@@ -201,6 +203,13 @@ impl CodexModels {
     }
 
     fn from_config(path: &Path) -> CliModelCatalog {
+        Self::from_config_with_fallback(path, Self::bundled_catalog)
+    }
+
+    fn from_config_with_fallback(
+        path: &Path,
+        fallback: impl FnOnce() -> Vec<vmux_wire::room::ModelOptionEntry>,
+    ) -> CliModelCatalog {
         let config = std::fs::read_to_string(path)
             .ok()
             .and_then(|text| toml::from_str::<CodexConfig>(&text).ok())
@@ -208,20 +217,8 @@ impl CodexModels {
         let mut models = config
             .model_catalog_json
             .as_deref()
-            .and_then(|path| std::fs::read(path).ok())
-            .and_then(|bytes| serde_json::from_slice::<CodexModelFile>(&bytes).ok())
-            .map(|catalog| {
-                catalog
-                    .models
-                    .into_iter()
-                    .map(|model| vmux_wire::room::ModelOptionEntry {
-                        id: model.slug,
-                        name: model.display_name,
-                        description: model.description,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+            .and_then(Self::read_catalog)
+            .unwrap_or_else(fallback);
         let selected = config.model.unwrap_or_default();
         if !selected.is_empty() && !models.iter().any(|model| model.id == selected) {
             models.insert(
@@ -242,6 +239,49 @@ impl CodexModels {
             selected
         };
         CliModelCatalog { selected, models }
+    }
+
+    fn bundled_catalog() -> Vec<vmux_wire::room::ModelOptionEntry> {
+        let Some(codex) = crate::exec::find_executable("codex") else {
+            return Vec::new();
+        };
+        let Ok(output) = std::process::Command::new(codex)
+            .args([
+                "-c",
+                "model_catalog_json=null",
+                "debug",
+                "models",
+                "--bundled",
+            ])
+            .output()
+        else {
+            return Vec::new();
+        };
+        if !output.status.success() {
+            return Vec::new();
+        }
+        Self::parse_catalog(&output.stdout).unwrap_or_default()
+    }
+
+    fn read_catalog(path: &Path) -> Option<Vec<vmux_wire::room::ModelOptionEntry>> {
+        let bytes = std::fs::read(path).ok()?;
+        Self::parse_catalog(&bytes)
+    }
+
+    fn parse_catalog(bytes: &[u8]) -> Option<Vec<vmux_wire::room::ModelOptionEntry>> {
+        let catalog = serde_json::from_slice::<CodexModelFile>(bytes).ok()?;
+        Some(
+            catalog
+                .models
+                .into_iter()
+                .filter(|model| model.visibility.is_empty() || model.visibility == "list")
+                .map(|model| vmux_wire::room::ModelOptionEntry {
+                    id: model.slug,
+                    name: model.display_name,
+                    description: model.description,
+                })
+                .collect(),
+        )
     }
 }
 
@@ -782,6 +822,26 @@ mod tests {
             CodexStrategy.model_args("gpt-next"),
             ["--model", "gpt-next"]
         );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn model_catalog_uses_bundled_models_without_configured_fields() {
+        let tmp = unique_tmp("codex-model-fallback");
+        let config = tmp.join("config.toml");
+        std::fs::write(&config, "").unwrap();
+        let fallback = || {
+            CodexModels::parse_catalog(
+                br#"{"models":[{"slug":"gpt-bundled","display_name":"GPT Bundled","description":"Built in","visibility":"list"},{"slug":"review-only","display_name":"Review","visibility":"hide"}]}"#,
+            )
+            .unwrap()
+        };
+
+        let models = CodexModels::from_config_with_fallback(&config, fallback);
+
+        assert_eq!(models.selected, "gpt-bundled");
+        assert_eq!(models.models.len(), 1);
+        assert_eq!(models.models[0].name, "GPT Bundled");
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

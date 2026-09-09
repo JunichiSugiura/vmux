@@ -179,6 +179,8 @@ impl SideSheetResizeEvent {
 )]
 pub struct WindowDragRegionEvent {
     pub id: String,
+    #[serde(default)]
+    pub removed: bool,
     pub left: f32,
     pub top: f32,
     pub width: f32,
@@ -374,13 +376,14 @@ mod tests {
         let original = TabsCommandEvent {
             command: "switch-tab".into(),
             tab_id: Some("work".into()),
-            target_tab_id: None,
+            target_tab_id: Some("home".into()),
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&original).expect("ser");
         let recovered =
             rkyv::from_bytes::<TabsCommandEvent, rkyv::rancor::Error>(&bytes).expect("de");
         assert_eq!(recovered.command, "switch-tab");
         assert_eq!(recovered.tab_id.as_deref(), Some("work"));
+        assert_eq!(recovered.target_tab_id.as_deref(), Some("home"));
     }
 }
 #[derive(

@@ -141,7 +141,7 @@ fn group_turns_page_with_total(
                 builder.start_turn(created_at_ms);
             }
             Message::Assistant { blocks } => {
-                builder.start_turn(created_at_ms);
+                builder.start_agent_turn(created_at_ms);
                 if let Some(turn) = builder.current.as_mut() {
                     push_assistant_blocks(turn, blocks);
                 }
@@ -151,7 +151,7 @@ fn group_turns_page_with_total(
                 content,
                 is_error,
             } => {
-                builder.start_turn(created_at_ms);
+                builder.start_agent_turn(created_at_ms);
                 if let Some(turn) = builder.current.as_mut() {
                     turn.blocks.push(ChatBlock::ToolResult {
                         call_id: call_id.clone(),
@@ -186,6 +186,7 @@ struct PageBuilder<'a> {
     turn_ordinal: usize,
     durations: &'a [u32],
     current_exists: bool,
+    current_has_agent_event: bool,
     current: Option<ChatTurn>,
 }
 
@@ -199,6 +200,7 @@ impl<'a> PageBuilder<'a> {
             turn_ordinal: 0,
             durations,
             current_exists: false,
+            current_has_agent_event: false,
             current: None,
         }
     }
@@ -209,11 +211,6 @@ impl<'a> PageBuilder<'a> {
 
     fn start_turn(&mut self, created_at_ms: u64) {
         if self.current_exists {
-            if created_at_ms != 0
-                && let Some(turn) = self.current.as_mut()
-            {
-                turn.created_at_ms = created_at_ms;
-            }
             return;
         }
         self.current_exists = true;
@@ -222,6 +219,17 @@ impl<'a> PageBuilder<'a> {
                 created_at_ms,
                 ..ChatTurn::default()
             });
+        }
+    }
+
+    fn start_agent_turn(&mut self, created_at_ms: u64) {
+        self.start_turn(created_at_ms);
+        if self.current_has_agent_event {
+            return;
+        }
+        self.current_has_agent_event = true;
+        if let Some(turn) = self.current.as_mut() {
+            turn.created_at_ms = created_at_ms;
         }
     }
 
@@ -268,6 +276,7 @@ impl<'a> PageBuilder<'a> {
             self.items.push(ChatItem::Turn(turn));
         }
         self.current_exists = false;
+        self.current_has_agent_event = false;
         self.turn_ordinal += 1;
         self.item_index += 1;
     }
@@ -515,6 +524,31 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            &items[1],
+            ChatItem::Turn(ChatTurn {
+                created_at_ms: 20,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn a_turn_keeps_its_first_agent_event_timestamp() {
+        let messages = vec![
+            Message::user("question"),
+            assistant(vec![AssistantBlock::Thinking("thinking".into())]),
+            Message::ToolResult {
+                call_id: "call-1".into(),
+                content: "output".into(),
+                is_error: false,
+            },
+            assistant(vec![AssistantBlock::Text("answer".into())]),
+        ];
+
+        let items =
+            group_turns_page(&[], &messages, &[10, 20, 30, 40], &[], false, 0, usize::MAX).items;
+
         assert!(matches!(
             &items[1],
             ChatItem::Turn(ChatTurn {

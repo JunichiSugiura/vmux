@@ -23,7 +23,8 @@ pub struct TeamPlugin;
 impl Plugin for TeamPlugin {
     fn build(&self, app: &mut App) {
         app.world_mut().spawn(crate::PAGE_MANIFEST);
-        app.add_message::<ProfileSwitchRequested>()
+        app.init_resource::<ProfileRows>()
+            .add_message::<ProfileSwitchRequested>()
             .add_systems(Startup, spawn_user_profile)
             .add_systems(Update, (sync_user_profile_name, emit_team).chain())
             .add_systems(Update, answer_list_team)
@@ -62,6 +63,38 @@ impl HostedPage for Team {
 
 #[derive(Component)]
 struct TeamListSent;
+
+#[derive(Resource)]
+struct ProfileRows(Vec<ProfileRow>);
+
+impl Default for ProfileRows {
+    fn default() -> Self {
+        Self::load()
+    }
+}
+
+impl ProfileRows {
+    fn load() -> Self {
+        Self(build_profiles())
+    }
+
+    fn refresh(&mut self) {
+        *self = Self::load();
+    }
+
+    fn select(&mut self, profile_id: &str) {
+        for profile in &mut self.0 {
+            profile.is_active = profile.id == profile_id;
+        }
+        self.0.sort_by(|left, right| {
+            right
+                .is_active
+                .cmp(&left.is_active)
+                .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+    }
+}
 
 fn spawn_user_profile(mut commands: Commands) {
     let mut identity = commands.spawn((Profile::user(), User, Name::new("Profile: User")));
@@ -288,6 +321,7 @@ fn emit_team(
     space_marker: Query<(), With<Space>>,
     meta_q: Query<&PageMetadata>,
     children_q: Query<&Children>,
+    profiles: Res<ProfileRows>,
     mut last: Local<std::collections::HashMap<Entity, TeamEvent>>,
     mut commands: Commands,
 ) {
@@ -319,7 +353,7 @@ fn emit_team(
                 &meta_q,
                 &children_q,
             ),
-            profiles: build_profiles(),
+            profiles: profiles.0.clone(),
         };
         if !pending && last.get(&entity) == Some(&payload) {
             continue;
@@ -376,6 +410,7 @@ fn on_team_command(
     mut space_profiles: Query<&mut vmux_layout::profile::Profile, With<Space>>,
     mut active_record: Option<ResMut<vmux_space::ActiveSpace>>,
     mut profile_switches: MessageWriter<ProfileSwitchRequested>,
+    mut profiles: ResMut<ProfileRows>,
     mut commands: Commands,
 ) {
     let event = &trigger.event().payload;
@@ -386,6 +421,8 @@ fn on_team_command(
             };
             match vmux_core::profile::create_profile(name) {
                 Ok(profile) => {
+                    profiles.refresh();
+                    profiles.select(&profile.id);
                     profile_switches.write(ProfileSwitchRequested {
                         profile_id: profile.id,
                     });
@@ -402,6 +439,7 @@ fn on_team_command(
             if profile_id != vmux_core::profile::active_profile_name()
                 && vmux_core::profile::profile_exists(&profile_id)
             {
+                profiles.select(&profile_id);
                 profile_switches.write(ProfileSwitchRequested { profile_id });
             }
             return;
@@ -417,6 +455,7 @@ fn on_team_command(
                 bevy::log::warn!("profile update failed: {error}");
                 return;
             }
+            profiles.refresh();
             if profile_id == vmux_core::profile::active_profile_name() {
                 let name = name.trim().to_string();
                 for mut profile in &mut space_profiles {
@@ -580,7 +619,8 @@ mod tests {
 
     fn command_app() -> App {
         let mut app = App::new();
-        app.add_message::<AppCommand>()
+        app.init_resource::<ProfileRows>()
+            .add_message::<AppCommand>()
             .add_message::<vmux_command::CommandIssued>()
             .add_message::<ProfileSwitchRequested>()
             .add_observer(on_team_command);

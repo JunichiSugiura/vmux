@@ -1398,10 +1398,12 @@ impl TabDrag {
         let mut advancing = self;
         let mut finishing = self;
         let mut cancelling = self;
+        let mut leaving = self;
         vec![
             dioxus_elements::events::onpointermove(move |event| advancing.advance(&event)),
             dioxus_elements::events::onpointerup(move |event| finishing.finish(&event)),
             dioxus_elements::events::onpointercancel(move |_| cancelling.cancel()),
+            dioxus_elements::events::onpointerleave(move |_| leaving.cancel()),
         ]
     }
 
@@ -1477,7 +1479,9 @@ impl TabDrag {
     }
 
     fn blocks_click(self, tab_id: &str) -> bool {
-        (self.state)().is_some_and(|state| state.active && state.source_id == tab_id)
+        (self.state)().is_some_and(|state| {
+            state.active && (state.source_id == tab_id || state.target_id == tab_id)
+        })
     }
 
     fn targets(self, tab_id: &str) -> bool {
@@ -1710,6 +1714,7 @@ fn WindowDragRegion(id: &'static str, class: &'static str, style: &'static str) 
             };
             let _ = send(&WindowDragRegionEvent {
                 id: id.to_string(),
+                removed: false,
                 left: rect.origin.x as f32,
                 top: rect.origin.y as f32,
                 width: rect.size.width as f32,
@@ -1717,6 +1722,13 @@ fn WindowDragRegion(id: &'static str, class: &'static str, style: &'static str) 
             });
         });
     };
+    use_drop(move || {
+        let _ = send(&WindowDragRegionEvent {
+            id: id.to_string(),
+            removed: true,
+            ..Default::default()
+        });
+    });
 
     rsx! {
         div {

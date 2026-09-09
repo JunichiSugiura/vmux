@@ -451,7 +451,7 @@ fn command_with_marker(shell: &str, command: &str, token: &str, env: PagerEnv) -
     let osc = vmux_service::run_marker::VMUX_RUN_OSC;
     match base {
         "nu" | "nushell" => format!(
-            "{pager}{command}\rprint -rn $\"\\u{{1b}}]{osc};{token};($env.LAST_EXIT_CODE)\\u{{7}}\""
+            "{pager}$env.LAST_EXIT_CODE = 0; let __vmux_status = try {{ {command}; $env.LAST_EXIT_CODE }} catch {{|error| $error.exit_code? | default 1 }}; print -rn $\"\\u{{1b}}]{osc};{token};($__vmux_status)\\u{{7}}\""
         ),
         "fish" => format!(
             "{pager}{command}; set __vmux_status $status; printf '\\033]{osc};{token};%s\\007' $__vmux_status"
@@ -674,7 +674,7 @@ mod tests {
 
         assert!(primed.starts_with("$env.GIT_PAGER"), "got: {primed}");
         assert!(
-            later.starts_with("ls\rprint -rn"),
+            later.starts_with("$env.LAST_EXIT_CODE = 0; let __vmux_status = try { ls;"),
             "the shell keeps its environment between commands, so repeating the assignment only \
              buries the command the reader is looking at: {later}"
         );
@@ -685,7 +685,7 @@ mod tests {
     pub(crate) fn command_with_marker_is_shell_aware() {
         assert_eq!(
             command_with_marker("/opt/homebrew/bin/nu", "ls", "abc", PagerEnv::Set),
-            "$env.GIT_PAGER = \"cat\"; $env.PAGER = \"cat\"; $env.LESS = \"FRX\"; ls\rprint -rn $\"\\u{1b}]6973;abc;($env.LAST_EXIT_CODE)\\u{7}\""
+            "$env.GIT_PAGER = \"cat\"; $env.PAGER = \"cat\"; $env.LESS = \"FRX\"; $env.LAST_EXIT_CODE = 0; let __vmux_status = try { ls; $env.LAST_EXIT_CODE } catch {|error| $error.exit_code? | default 1 }; print -rn $\"\\u{1b}]6973;abc;($__vmux_status)\\u{7}\""
         );
         assert_eq!(
             command_with_marker("/usr/local/bin/fish", "ls", "abc", PagerEnv::Set),
@@ -743,24 +743,23 @@ mod tests {
 
         assert_eq!(shell.as_str(), "/opt/homebrew/bin/nu");
         let input = String::from_utf8(input).unwrap();
-        assert!(input.contains("cd /tmp\rprint -rn"), "got: {input}");
+        assert!(
+            input.contains("cd /tmp; $env.LAST_EXIT_CODE"),
+            "got: {input}"
+        );
         assert!(input.contains("]6973;tok9;"), "got: {input}");
         assert!(input.ends_with('\r'));
+        assert_eq!(input.matches('\r').count(), 1);
         assert!(!input.contains("export GIT_PAGER"), "got: {input}");
     }
 
     #[test]
-    pub(crate) fn nushell_marker_is_a_separate_submission_from_the_command() {
-        let line = command_with_marker(
-            "/opt/homebrew/bin/nu",
-            "bash -c \"linear issue query --sort priority\"}",
-            "tok",
-            PagerEnv::Inherited,
-        );
+    pub(crate) fn nushell_marker_shares_one_submission_with_a_stdin_command() {
+        let line = command_with_marker("/opt/homebrew/bin/nu", "input", "tok", PagerEnv::Inherited);
 
-        assert_eq!(line.matches('\r').count(), 1);
-        assert!(line.starts_with("bash -c \"linear issue query --sort priority\"}\r"));
-        assert!(line.ends_with("($env.LAST_EXIT_CODE)\\u{7}\""));
+        assert_eq!(line.matches('\r').count(), 0);
+        assert!(line.contains("try { input; $env.LAST_EXIT_CODE }"));
+        assert!(line.ends_with("($__vmux_status)\\u{7}\""));
     }
 
     #[test]
@@ -1203,7 +1202,11 @@ mod tests {
 
         assert_eq!(picked, Some(terminal));
         let input = String::from_utf8(terminal_spawns[0].pending_input.clone().unwrap()).unwrap();
-        assert!(input.starts_with("one\rpwd\r"), "got: {input}");
+        assert!(
+            input.starts_with("one\r$env.LAST_EXIT_CODE = 0; let __vmux_status"),
+            "got: {input}"
+        );
+        assert_eq!(input.matches('\r').count(), 2);
         assert!(input.contains("print -rn"), "got: {input}");
         assert!(input.contains("]6973;tok2;"), "got: {input}");
         assert_eq!(terminal_spawns.len(), 1);

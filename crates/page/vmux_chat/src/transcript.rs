@@ -93,13 +93,35 @@ fn MessageMeta(text: String, created_at_ms: u64, #[props(default)] right: bool) 
 }
 
 fn message_timestamp(created_at_ms: u64) -> Option<String> {
+    if created_at_ms == 0 {
+        return None;
+    }
     let timestamp = i64::try_from(created_at_ms).ok()?;
     let utc = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp)?;
     Some(
         utc.with_timezone(&chrono::Local)
-            .format("%Y-%m-%d %H:%M")
+            .format("%H:%M")
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod timestamp_tests {
+    use super::*;
+
+    #[test]
+    fn message_timestamp_is_local_clock_time() {
+        let timestamp = message_timestamp(1_788_979_740_000).expect("timestamp");
+
+        assert_eq!(timestamp.len(), 5);
+        assert_eq!(timestamp.as_bytes()[2], b':');
+        assert!(!timestamp.contains('-'));
+    }
+
+    #[test]
+    fn missing_message_timestamp_stays_hidden() {
+        assert_eq!(message_timestamp(0), None);
+    }
 }
 
 #[component]

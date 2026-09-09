@@ -47,14 +47,8 @@ pub fn group_turns_tail(
     limit: usize,
 ) -> ChatItemPage {
     let total = grouped_item_count(imported, live);
-    group_turns_page_with_total(
-        imported,
-        live,
-        message_times,
-        durations,
-        running,
-        PageRange::new(total.saturating_sub(limit), total, total),
-    )
+    let range = PageRange::new(total.saturating_sub(limit), total, total);
+    group_turns_page_with_total(imported, live, message_times, durations, running, range)
 }
 
 pub fn group_turns_before(
@@ -68,14 +62,8 @@ pub fn group_turns_before(
 ) -> ChatItemPage {
     let total = grouped_item_count(imported, live);
     let end = before.min(total);
-    group_turns_page_with_total(
-        imported,
-        live,
-        message_times,
-        durations,
-        running,
-        PageRange::new(end.saturating_sub(limit), end, total),
-    )
+    let range = PageRange::new(end.saturating_sub(limit), end, total);
+    group_turns_page_with_total(imported, live, message_times, durations, running, range)
 }
 
 #[cfg(test)]
@@ -89,14 +77,8 @@ fn group_turns_page(
     end: usize,
 ) -> ChatItemPage {
     let total = grouped_item_count(imported, live);
-    group_turns_page_with_total(
-        imported,
-        live,
-        message_times,
-        durations,
-        running,
-        PageRange::new(start, end, total),
-    )
+    let range = PageRange::new(start, end, total);
+    group_turns_page_with_total(imported, live, message_times, durations, running, range)
 }
 
 struct PageRange {

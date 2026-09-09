@@ -165,6 +165,11 @@ pub fn Page() -> Element {
                                         span { class: "shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground/70", "{format_time(entry.visit_created_at)}" }
                                         button {
                                             class: "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-destructive/10 hover:text-destructive",
+                                            aria_label: format!(
+                                                "{}: {}",
+                                                translate("common-remove"),
+                                                if entry.title.is_empty() { entry.url.as_str() } else { entry.title.as_str() },
+                                            ),
                                             onclick: {
                                                 let url_bits = entry.url_entity_bits;
                                                 move |e: Event<MouseData>| {

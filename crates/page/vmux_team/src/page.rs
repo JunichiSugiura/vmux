@@ -122,6 +122,7 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                                 let name = profile.name.clone();
                                 move |_| {
                                     draft.set(name.clone());
+                                    creating.set(false);
                                     editing.set(Some(id.clone()));
                                 }
                             },
@@ -148,6 +149,7 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                         class: "flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-foreground/[0.035] hover:text-foreground",
                         onclick: move |_| {
                             draft.set(String::new());
+                            editing.set(None);
                             creating.set(true);
                         },
                         svg { class: "size-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "1.8",

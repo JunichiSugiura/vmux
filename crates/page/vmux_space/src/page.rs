@@ -20,7 +20,6 @@ pub fn Page() -> Element {
     use_theme();
     let mut state = use_signal(SpacesListEvent::default);
     let mut selected = use_signal(|| 0usize);
-    let mut new_name = use_signal(String::new);
     let team = use_event::<TeamEvent>(TEAM_EVENT, TeamEvent::default);
 
     let _listener = use_listener::<SpacesListEvent, _>(SPACES_LIST_EVENT, move |data| {
@@ -77,45 +76,21 @@ pub fn Page() -> Element {
                     h1 { class: "text-lg font-semibold", {translate("spaces-title")} }
                     div { class: "mt-1 truncate text-xs text-muted-foreground", "{active_name}" }
                 }
-                div { class: "flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2",
+                div { class: "w-40 max-w-full shrink-0",
                     if !profile_items.is_empty() {
-                        div { class: "w-40",
-                            ManagerSelect {
-                                items: profile_items,
-                                value: active_profile,
-                                placeholder: translate("team-profile-name"),
-                                onselect: move |profile_id| {
-                                    let _ = send(&TeamCommandEvent {
-                                        command: "switch_profile".to_string(),
-                                        member_id: None,
-                                        profile_id: Some(profile_id),
-                                        profile_name: None,
-                                    });
-                                },
-                            }
+                        ManagerSelect {
+                            items: profile_items,
+                            value: active_profile,
+                            placeholder: translate("team-profile-name"),
+                            onselect: move |profile_id| {
+                                let _ = send(&TeamCommandEvent {
+                                    command: "switch_profile".to_string(),
+                                    member_id: None,
+                                    profile_id: Some(profile_id),
+                                    profile_name: None,
+                                });
+                            },
                         }
-                    }
-                    input {
-                        class: "w-44 rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-cyan-400/50",
-                        r#type: "text",
-                        placeholder: translate("spaces-new-placeholder"),
-                        value: "{new_name}",
-                        oninput: move |e| new_name.set(e.value()),
-                        onkeydown: move |e| {
-                            e.stop_propagation();
-                            if e.key() == Key::Enter {
-                                emit_command("new", None, Some(new_space_name(&new_name(), count)));
-                                new_name.set(String::new());
-                            }
-                        },
-                    }
-                    button {
-                        class: "rounded-md border border-border bg-card px-3 py-1.5 text-sm text-foreground transition-colors hover:border-cyan-400/40 hover:bg-foreground/[0.04]",
-                        onclick: move |_| {
-                            emit_command("new", None, Some(new_space_name(&new_name(), count)));
-                            new_name.set(String::new());
-                        },
-                        {translate("common-new")}
                     }
                 }
             }
@@ -124,7 +99,7 @@ pub fn Page() -> Element {
                     if spaces.is_empty() {
                         div { class: "flex min-h-72 items-center justify-center text-sm text-muted-foreground", {translate("spaces-empty")} }
                     } else {
-                        div { class: "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3",
+                        div { class: "grid grid-cols-[repeat(auto-fit,minmax(14rem,18rem))] justify-center gap-3",
                             for (index, space) in spaces.iter().enumerate() {
                                 SpaceRowView {
                                     key: "{space.id}",
@@ -133,6 +108,7 @@ pub fn Page() -> Element {
                                     deletable: count > 1,
                                 }
                             }
+                            NewSpaceCard { count }
                         }
                     }
                 }
@@ -318,6 +294,44 @@ fn SpaceRowView(space: SpaceRow, selected: bool, deletable: bool) -> Element {
                     {translate("spaces-delete")}
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn NewSpaceCard(count: usize) -> Element {
+    let mut creating = use_signal(|| false);
+    let mut draft = use_signal(String::new);
+
+    if creating() {
+        return rsx! {
+            div { class: "glass flex min-h-24 items-center rounded-xl border border-border/70 p-2",
+                InlineEdit {
+                    draft,
+                    class: "m-1 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50".to_string(),
+                    placeholder: translate("spaces-new-placeholder"),
+                    on_commit: move |name: String| {
+                        creating.set(false);
+                        emit_command("new", None, Some(new_space_name(&name, count)));
+                    },
+                    on_cancel: move |_| creating.set(false),
+                }
+            }
+        };
+    }
+
+    rsx! {
+        button {
+            r#type: "button",
+            class: "flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-foreground/[0.035] hover:text-foreground",
+            onclick: move |_| {
+                draft.set(String::new());
+                creating.set(true);
+            },
+            svg { class: "size-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "1.8",
+                path { d: "M12 5v14M5 12h14" }
+            }
+            {translate("common-new")}
         }
     }
 }

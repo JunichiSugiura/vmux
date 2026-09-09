@@ -420,7 +420,7 @@ mod tests {
             PageMetadata {
                 title: "A".into(),
                 url: "https://a.test".into(),
-                icon: vmux_core::icon::PageIcon::default(),
+                icon: vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Smartphone),
                 bg_color: None,
             },
             BookmarkOrder(1),
@@ -460,15 +460,20 @@ mod tests {
 
         let bookmarks = load_app
             .world_mut()
-            .query_filtered::<Entity, With<Bookmark>>()
+            .query_filtered::<&PageMetadata, With<Bookmark>>()
             .iter(load_app.world())
-            .count();
+            .cloned()
+            .collect::<Vec<_>>();
         let folders = load_app
             .world_mut()
             .query_filtered::<Entity, With<Folder>>()
             .iter(load_app.world())
             .count();
-        assert_eq!(bookmarks, 1, "bookmark rebuilt");
+        assert_eq!(bookmarks.len(), 1, "bookmark rebuilt");
+        assert_eq!(
+            bookmarks[0].icon,
+            vmux_core::PageIcon::Builtin(vmux_core::BuiltinIcon::Smartphone)
+        );
         assert_eq!(folders, 1, "folder rebuilt");
         let excluded = load_app
             .world_mut()

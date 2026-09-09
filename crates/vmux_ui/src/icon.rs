@@ -188,6 +188,10 @@ mod wasm {
                 rect { x: "3", y: "5", width: "18", height: "14", rx: "2" }
                 path { d: "M7 9h.01M11 9h.01M15 9h.01M19 9h.01M7 13h.01M11 13h.01M15 13h.01M8 17h8" }
             } },
+            BuiltinIcon::Smartphone => rsx! { Icon { class: "{class}",
+                rect { x: "5", y: "2", width: "14", height: "20", rx: "2" }
+                path { d: "M12 18h.01" }
+            } },
             BuiltinIcon::Clock => rsx! { Icon { class: "{class}",
                 circle { cx: "12", cy: "12", r: "10" }
                 path { d: "M12 6v6l4 2" }

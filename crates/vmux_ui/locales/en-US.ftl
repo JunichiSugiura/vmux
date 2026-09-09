@@ -183,6 +183,8 @@ team-title = Team
 simulator-title = Simulator
 simulator-keyboard = Keyboard
 simulator-keyboard-placeholder = Type or paste into iPhone
+simulator-copy = Copy
+simulator-paste = Paste
 team-just-you = Just you in this space
 team-agents = { $count ->
     [one] You and 1 agent

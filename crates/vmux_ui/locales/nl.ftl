@@ -170,6 +170,8 @@ team-title = Team
 simulator-title = Simulator
 simulator-keyboard = Toetsenbord
 simulator-keyboard-placeholder = Typ of plak in de iPhone
+simulator-copy = Kopiëren
+simulator-paste = Plakken
 team-just-you = Alleen jij in deze werkruimte
 team-agents = { $count ->
     [one] Jij en 1 agent

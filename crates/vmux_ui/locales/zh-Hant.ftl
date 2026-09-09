@@ -170,6 +170,8 @@ team-title = 團隊
 simulator-title = 模擬器
 simulator-keyboard = 鍵盤
 simulator-keyboard-placeholder = 在 iPhone 中輸入或貼上
+simulator-copy = 複製
+simulator-paste = 貼上
 team-just-you = 這個工作區只有你
 team-agents = { $count ->
     [one] 你和 1 個 Agent

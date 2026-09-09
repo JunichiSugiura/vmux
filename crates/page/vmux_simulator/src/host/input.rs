@@ -1,7 +1,10 @@
 use super::device::{Axe, SimulatorDevice};
 use super::hid::{HidBroker, HidRequest};
-use crate::event::{SimulatorKey, SimulatorTouch, SimulatorTouchPhase};
+use crate::event::{SimulatorClipboardAction, SimulatorKey, SimulatorTouch, SimulatorTouchPhase};
 use bevy::prelude::Resource;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::sync::{LazyLock, mpsc};
 
 pub struct DeviceTouch {
     point: (f32, f32),
@@ -116,6 +119,99 @@ pub struct DeviceTouchSession {
 pub struct DeviceKey {
     udid: String,
     key: SimulatorKey,
+}
+
+pub struct DeviceClipboard {
+    axe: PathBuf,
+    udid: String,
+    action: SimulatorClipboardAction,
+}
+
+impl DeviceClipboard {
+    pub fn resolve(action: SimulatorClipboardAction, device: &SimulatorDevice, axe: &Axe) -> Self {
+        Self {
+            axe: axe.path().to_path_buf(),
+            udid: device.udid.clone(),
+            action,
+        }
+    }
+
+    pub fn dispatch(self) {
+        if Self::sender().send(self).is_err() {
+            bevy::log::error!("simulator clipboard worker stopped");
+        }
+    }
+
+    fn sender() -> &'static mpsc::Sender<Self> {
+        static SENDER: LazyLock<mpsc::Sender<DeviceClipboard>> = LazyLock::new(|| {
+            let (sender, receiver) = mpsc::channel::<DeviceClipboard>();
+            let spawned = std::thread::Builder::new()
+                .name("vmux-simulator-clipboard".into())
+                .spawn(move || {
+                    for request in receiver {
+                        if let Err(error) = request.run() {
+                            bevy::log::error!("simulator clipboard failed: {error}");
+                        }
+                    }
+                });
+            if let Err(error) = spawned {
+                bevy::log::error!("could not start simulator clipboard worker: {error}");
+            }
+            sender
+        });
+        &SENDER
+    }
+
+    fn run(&self) -> Result<(), String> {
+        match self.action {
+            SimulatorClipboardAction::Copy => {
+                self.key_combo(6)?;
+                self.sync(&self.udid, "host")
+            }
+            SimulatorClipboardAction::Paste => {
+                self.sync("host", &self.udid)?;
+                self.key_combo(25)
+            }
+        }
+    }
+
+    fn key_combo(&self, key: u8) -> Result<(), String> {
+        let output = Command::new(&self.axe)
+            .args([
+                "key-combo",
+                "--modifiers",
+                "227",
+                "--key",
+                &key.to_string(),
+                "--udid",
+                &self.udid,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("could not send simulator clipboard shortcut: {error}"))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "could not send simulator clipboard shortcut: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
+
+    fn sync(&self, source: &str, destination: &str) -> Result<(), String> {
+        let output = Command::new("xcrun")
+            .args(["simctl", "pbsync", source, destination])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| format!("could not sync simulator clipboard: {error}"))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "could not sync simulator clipboard: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 impl DeviceKey {

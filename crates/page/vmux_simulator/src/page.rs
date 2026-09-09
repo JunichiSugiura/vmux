@@ -1,8 +1,8 @@
 #![allow(non_snake_case)]
 
 use crate::event::{
-    HardwareButton, SIMULATOR_READY_EVENT, SimulatorKey, SimulatorReady, SimulatorTouch,
-    SimulatorTouchPhase,
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
+    SimulatorKey, SimulatorReady, SimulatorTouch, SimulatorTouchPhase,
 };
 use crate::url::SimulatorRoute;
 use dioxus::html::geometry::ClientPoint;
@@ -79,6 +79,11 @@ fn Mirror(port: u16, device_name: String) -> Element {
                 });
             },
             onkeydown: move |event| {
+                if let Some(action) = ClipboardShortcut::of(&event) {
+                    event.prevent_default();
+                    let _ = send(&SimulatorClipboard { action });
+                    return;
+                }
                 let Some(key) = Keystroke::of(&event) else {
                     return;
                 };
@@ -203,6 +208,8 @@ fn Mirror(port: u16, device_name: String) -> Element {
 #[component]
 fn KeyboardCapture(on_close: EventHandler<()>) -> Element {
     let mut draft = use_signal(KeyboardDraft::default);
+    let copy_title = format!("{} (⌘C)", translate("simulator-copy"));
+    let paste_title = format!("{} (⌘V)", translate("simulator-paste"));
 
     rsx! {
         div {
@@ -231,6 +238,11 @@ fn KeyboardCapture(on_close: EventHandler<()>) -> Element {
                 },
                 onkeydown: move |event: Event<KeyboardData>| {
                     event.stop_propagation();
+                    if let Some(action) = ClipboardShortcut::of(&event) {
+                        event.prevent_default();
+                        let _ = send(&SimulatorClipboard { action });
+                        return;
+                    }
                     match event.key() {
                         Key::Escape => {
                             event.prevent_default();
@@ -270,10 +282,44 @@ fn KeyboardCapture(on_close: EventHandler<()>) -> Element {
             }
             button {
                 r#type: "button",
+                title: "{copy_title}",
+                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
+                onclick: move |_| {
+                    let _ = send(&SimulatorClipboard { action: SimulatorClipboardAction::Copy });
+                },
+                {translate("simulator-copy")}
+            }
+            button {
+                r#type: "button",
+                title: "{paste_title}",
+                class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
+                onclick: move |_| {
+                    let _ = send(&SimulatorClipboard { action: SimulatorClipboardAction::Paste });
+                },
+                {translate("simulator-paste")}
+            }
+            button {
+                r#type: "button",
                 class: "h-9 shrink-0 rounded-xl px-3 text-xs font-semibold text-zinc-300 transition-colors hover:bg-white/10 hover:text-white active:bg-white/15",
                 onclick: move |_| on_close.call(()),
                 {translate("common-done")}
             }
+        }
+    }
+}
+
+struct ClipboardShortcut;
+
+impl ClipboardShortcut {
+    fn of(event: &Event<KeyboardData>) -> Option<SimulatorClipboardAction> {
+        let modifiers = event.modifiers();
+        if !modifiers.meta() || modifiers.ctrl() || modifiers.alt() || modifiers.shift() {
+            return None;
+        }
+        match event.key().to_string().to_ascii_lowercase().as_str() {
+            "c" => Some(SimulatorClipboardAction::Copy),
+            "v" => Some(SimulatorClipboardAction::Paste),
+            _ => None,
         }
     }
 }

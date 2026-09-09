@@ -89,6 +89,39 @@ pub enum HardwareButton {
     Siri,
 }
 
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum SimulatorClipboardAction {
+    Copy,
+    Paste,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct SimulatorClipboard {
+    pub action: SimulatorClipboardAction,
+}
+
 impl HardwareButton {
     pub fn as_arg(&self) -> &'static str {
         match self {

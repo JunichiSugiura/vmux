@@ -234,7 +234,8 @@ The simulator page is a native pane backed by `axe`. The host attaches to a matc
 Simulator or boots the latest available device, copies its MJPEG stream to a loopback socket, and
 turns normalized pointer and keyboard events from the page into guest input. MCP exposes the same
 attached device through screenshots, pixel-addressed taps and swipes, text and key input, and
-hardware buttons. The Simulator.app window is not captured or driven.
+hardware buttons. Copy and paste synchronize the host and guest pasteboards before sending the
+matching iOS keyboard shortcut. The Simulator.app window is not captured or driven.
 
 Because the shell draws its own titlebar and resize edges rather than letting AppKit draw
 them, it watches mouse-downs app-wide and turns the ones that land in the drag region into

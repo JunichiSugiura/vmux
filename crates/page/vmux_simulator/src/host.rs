@@ -4,7 +4,8 @@ mod input;
 mod stream;
 
 use crate::event::{
-    HardwareButton, SIMULATOR_READY_EVENT, SimulatorKey, SimulatorReady, SimulatorTouch,
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
+    SimulatorKey, SimulatorReady, SimulatorTouch,
 };
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
 use bevy::platform::collections::HashMap;
@@ -12,7 +13,7 @@ use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
 use hid::{HidBroker, HidRequest};
-use input::{DeviceCoordinates, DeviceKey, DeviceTouch, DeviceTouchSession};
+use input::{DeviceClipboard, DeviceCoordinates, DeviceKey, DeviceTouch, DeviceTouchSession};
 use std::sync::{Arc, Mutex};
 use stream::StreamServer;
 use vmux_core::PageMetadata;
@@ -34,6 +35,7 @@ impl Plugin for SimulatorPlugin {
             .init_resource::<Announced>()
             .init_resource::<DeviceTouchSession>()
             .add_message::<HardwareButtonRequest>()
+            .add_message::<SimulatorClipboardRequest>()
             .add_message::<SimulatorControlRequest>()
             .add_message::<SimulatorControlResponse>()
             .add_message::<SimulatorScreenshotRequest>()
@@ -43,22 +45,29 @@ impl Plugin for SimulatorPlugin {
                 Update,
                 (
                     Self::handle_button_requests,
+                    Self::handle_clipboard_requests,
                     Self::handle_control_requests,
                     Self::handle_screenshot_requests,
                 )
                     .in_set(SimulatorInputSet),
             )
-            .add_plugins(
-                BinEventEmitterPlugin::<(SimulatorTouch, SimulatorKey)>::for_hosts(&[PAGE_HOST]),
-            )
+            .add_plugins(BinEventEmitterPlugin::<(
+                SimulatorTouch,
+                SimulatorKey,
+                SimulatorClipboard,
+            )>::for_hosts(&[PAGE_HOST]))
             .add_observer(Self::on_touch)
             .add_observer(Self::on_key)
+            .add_observer(Self::on_clipboard)
             .add_observer(Self::forget_on_reload);
     }
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HardwareButtonRequest(pub HardwareButton);
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SimulatorClipboardRequest(pub SimulatorClipboardAction);
 
 #[derive(Message, Clone)]
 pub struct SimulatorControlRequest {
@@ -271,6 +280,17 @@ impl SimulatorPlugin {
         DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
     }
 
+    fn on_clipboard(
+        trigger: On<BinReceive<SimulatorClipboard>>,
+        device: Option<Res<SimulatorDevice>>,
+        axe: Option<Res<Axe>>,
+    ) {
+        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
+            return;
+        };
+        DeviceClipboard::resolve(trigger.event().payload.action, device, axe).dispatch();
+    }
+
     fn handle_button_requests(
         mut requests: MessageReader<HardwareButtonRequest>,
         device: Option<Res<SimulatorDevice>>,
@@ -281,6 +301,19 @@ impl SimulatorPlugin {
         };
         for request in requests.read() {
             DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
+        }
+    }
+
+    fn handle_clipboard_requests(
+        mut requests: MessageReader<SimulatorClipboardRequest>,
+        device: Option<Res<SimulatorDevice>>,
+        axe: Option<Res<Axe>>,
+    ) {
+        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
+            return;
+        };
+        for request in requests.read() {
+            DeviceClipboard::resolve(request.0, device, axe).dispatch();
         }
     }
 

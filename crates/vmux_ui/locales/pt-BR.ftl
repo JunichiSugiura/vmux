@@ -170,6 +170,8 @@ team-title = Equipe
 simulator-title = Simulador
 simulator-keyboard = Teclado
 simulator-keyboard-placeholder = Digite ou cole no iPhone
+simulator-copy = Copiar
+simulator-paste = Colar
 team-just-you = Só você neste espaço
 team-agents = { $count ->
     [one] Você e 1 agente

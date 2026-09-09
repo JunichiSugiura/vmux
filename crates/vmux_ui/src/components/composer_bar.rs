@@ -584,9 +584,13 @@ impl ComposerMenu {
     }
 
     pub fn toggle(&self, kind: ComposerMenuKind) -> bool {
+        self.toggle_at(kind, 0)
+    }
+
+    pub fn toggle_at(&self, kind: ComposerMenuKind, index: usize) -> bool {
         let mut open = self.open;
         let mut cursor = self.cursor;
-        cursor.set(0);
+        cursor.set(index);
         if *open.peek() == Some(kind) {
             open.set(None);
             return false;

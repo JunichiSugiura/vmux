@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 pub enum BuiltinIcon {
     Terminal,
     Files,
+    Project,
+    Brain,
     Server,
     Settings,
     Clock,

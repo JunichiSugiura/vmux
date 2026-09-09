@@ -42,33 +42,35 @@ pub fn Page() -> Element {
                     }
                 }
             }
-            div { class: "min-h-0 flex-1 overflow-y-auto px-3 py-3",
-                ProfileSection { profiles }
-                if members.is_empty() {
-                    div { class: "flex h-full flex-col items-center justify-center gap-2 text-muted-foreground",
-                        div { class: "flex size-12 items-center justify-center rounded-full border border-dashed border-border",
-                            svg {
-                                class: "size-5",
-                                view_box: "0 0 24 24",
-                                fill: "none",
-                                stroke: "currentColor",
-                                stroke_width: "1.5",
-                                path { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }
-                                circle { cx: "9", cy: "7", r: "4" }
-                                path { d: "M22 21v-2a4 4 0 0 0-3-3.87" }
+            div { class: "min-h-0 flex-1 overflow-y-auto px-5 py-5",
+                div { class: "mx-auto w-full max-w-4xl",
+                    ProfileSection { profiles }
+                    if members.is_empty() {
+                        div { class: "flex min-h-72 flex-col items-center justify-center gap-2 text-muted-foreground",
+                            div { class: "flex size-12 items-center justify-center rounded-full border border-dashed border-border",
+                                svg {
+                                    class: "size-5",
+                                    view_box: "0 0 24 24",
+                                    fill: "none",
+                                    stroke: "currentColor",
+                                    stroke_width: "1.5",
+                                    path { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" }
+                                    circle { cx: "9", cy: "7", r: "4" }
+                                    path { d: "M22 21v-2a4 4 0 0 0-3-3.87" }
+                                }
                             }
+                            span { class: "text-sm", {translate("team-empty")} }
                         }
-                        span { class: "text-sm", {translate("team-empty")} }
-                    }
-                } else {
-                    div { class: "flex flex-col gap-0.5",
-                        if let Some(user) = user.clone() {
-                            TeamRow { member: user }
-                        }
-                        if !agents.is_empty() {
-                            div { class: "ml-6 flex flex-col gap-0.5 border-l border-border/60 pl-3",
-                                for agent in agents.iter() {
-                                    TeamRow { key: "{agent.id}", member: agent.clone() }
+                    } else {
+                        div { class: "flex flex-col gap-0.5",
+                            if let Some(user) = user.clone() {
+                                TeamRow { member: user }
+                            }
+                            if !agents.is_empty() {
+                                div { class: "ml-6 flex flex-col gap-0.5 border-l border-border/60 pl-3",
+                                    for agent in agents.iter() {
+                                        TeamRow { key: "{agent.id}", member: agent.clone() }
+                                    }
                                 }
                             }
                         }
@@ -87,33 +89,25 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
     let profile_count = profiles.len();
 
     rsx! {
-        section { class: "mb-4 overflow-hidden rounded-xl border border-border bg-card/40",
-            div { class: "flex items-center justify-between border-b border-border px-3 py-2.5",
+        section { class: "mb-6",
+            div { class: "mb-2.5 flex items-center justify-between px-0.5",
                 div { class: "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground", {translate("team-profiles")} }
-                button {
-                    r#type: "button",
-                    class: "rounded-md px-2 py-1 text-xs font-medium text-foreground hover:bg-foreground/[0.07]",
-                    onclick: move |_| {
-                        draft.set(String::new());
-                        creating.set(true);
-                    },
-                    {translate("team-new-profile")}
-                }
             }
-            div { class: "flex flex-col p-1.5",
+            div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3",
                 for profile in profiles.iter() {
                     if editing().as_deref() == Some(profile.id.as_str()) {
-                        ProfileNameEditor {
-                            key: "edit-{profile.id}",
-                            draft,
-                            on_commit: {
-                                let id = profile.id.clone();
-                                move |name| {
-                                    editing.set(None);
-                                    emit_profile_command("update_profile", Some(id.clone()), Some(name));
-                                }
-                            },
-                            on_cancel: move |_| editing.set(None),
+                        div { key: "edit-{profile.id}", class: "glass flex min-h-24 items-center rounded-xl border border-border/70 p-2",
+                            ProfileNameEditor {
+                                draft,
+                                on_commit: {
+                                    let id = profile.id.clone();
+                                    move |name| {
+                                        editing.set(None);
+                                        emit_profile_command("update_profile", Some(id.clone()), Some(name));
+                                    }
+                                },
+                                on_cancel: move |_| editing.set(None),
+                            }
                         }
                     } else {
                         ProfileRowView {
@@ -131,14 +125,28 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                     }
                 }
                 if creating() {
-                    ProfileNameEditor {
-                        key: "create-{profile_count}",
-                        draft,
-                        on_commit: move |name| {
-                            creating.set(false);
-                            emit_profile_command("create_profile", None, Some(name));
+                    div { key: "create-{profile_count}", class: "glass flex min-h-24 items-center rounded-xl border border-border/70 p-2",
+                        ProfileNameEditor {
+                            draft,
+                            on_commit: move |name| {
+                                creating.set(false);
+                                emit_profile_command("create_profile", None, Some(name));
+                            },
+                            on_cancel: move |_| creating.set(false),
+                        }
+                    }
+                } else {
+                    button {
+                        r#type: "button",
+                        class: "flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-foreground/[0.035] hover:text-foreground",
+                        onclick: move |_| {
+                            draft.set(String::new());
+                            creating.set(true);
                         },
-                        on_cancel: move |_| creating.set(false),
+                        svg { class: "size-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "1.8",
+                            path { d: "M12 5v14M5 12h14" }
+                        }
+                        {translate("team-new-profile")}
                     }
                 }
             }
@@ -158,20 +166,31 @@ fn ProfileRowView(profile: ProfileRow, on_edit: EventHandler<()>) -> Element {
         )
     };
     rsx! {
-        div { class: "group flex items-center gap-2 rounded-lg hover:bg-foreground/[0.04]",
+        div { class: if profile.is_active {
+                "glass group relative min-h-24 overflow-hidden rounded-xl border border-blue-400/25 bg-blue-400/[0.06] ring-1 ring-inset ring-blue-400/10"
+            } else {
+                "glass group relative min-h-24 overflow-hidden rounded-xl border border-border/70 transition-colors hover:bg-glass-hover"
+            },
             button {
                 r#type: "button",
                 disabled: profile.is_active,
                 title,
-                class: "flex min-w-0 flex-1 items-center gap-2.5 px-2.5 py-2 text-left disabled:cursor-default",
+                class: "flex h-full min-h-24 w-full min-w-0 items-center gap-3 p-3 pr-10 text-left disabled:cursor-default",
                 onclick: move |_| emit_profile_command("switch_profile", Some(switch_id.clone()), None),
-                div { class: "flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-xs font-semibold text-foreground",
+                div { class: if profile.is_active {
+                        "flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-500/15 text-sm font-semibold text-blue-600 dark:text-blue-300"
+                    } else {
+                        "flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground/[0.07] text-sm font-semibold text-foreground"
+                    },
                     {profile.name.chars().next().unwrap_or('P').to_uppercase().to_string()}
                 }
-                span { class: "min-w-0 flex-1 truncate text-sm font-medium text-foreground", "{profile.name}" }
-                if profile.is_active {
-                    Badge { class: "rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-600 dark:text-blue-300",
-                        {translate("common-active")}
+                div { class: "flex min-w-0 flex-1 flex-col gap-1",
+                    span { class: "truncate text-sm font-semibold text-foreground", "{profile.name}" }
+                    span { class: "truncate font-mono text-[10px] text-muted-foreground", "{profile.id}" }
+                    if profile.is_active {
+                        Badge { class: "w-fit rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-300",
+                            {translate("common-active")}
+                        }
                     }
                 }
             }
@@ -179,7 +198,7 @@ fn ProfileRowView(profile: ProfileRow, on_edit: EventHandler<()>) -> Element {
                 r#type: "button",
                 aria_label: translate("team-edit-profile"),
                 title: translate("team-edit-profile"),
-                class: "mr-1.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground",
+                class: "absolute right-2 top-2 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/[0.08] hover:text-foreground",
                 onclick: move |_| on_edit.call(()),
                 svg { class: "size-3.5", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2", stroke_linecap: "round", stroke_linejoin: "round",
                     path { d: "M12 20h9" }

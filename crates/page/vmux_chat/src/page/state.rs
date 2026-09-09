@@ -665,19 +665,33 @@ impl Chat {
             return Some(ComposerChip::loading());
         }
         let context = (self.slash.composer_context)();
-        let label = if context.workspace_selected && !context.workspace_name.is_empty() {
+        let active_project = context.projects.iter().find(|project| project.is_active);
+        let label = if let Some(project) = active_project {
+            project.label.clone()
+        } else if context.workspace_selected && !context.workspace_name.is_empty() {
             context.workspace_name.clone()
         } else {
             translate("agent-project-select")
         };
         if context.can_manage_workspace {
-            let title = if context.cwd.is_empty() {
+            let workspace_path = active_project
+                .map(|project| project.path.as_str())
+                .filter(|path| !path.is_empty())
+                .unwrap_or(&context.cwd);
+            let title = if workspace_path.is_empty() {
                 translate("agent-project-choose")
             } else {
-                format!("{} · {}", translate("agent-project-choose"), context.cwd)
+                format!("{} · {}", translate("agent-project-choose"), workspace_path)
             };
+            let selected = context
+                .projects
+                .iter()
+                .filter(|project| project.depth == 0)
+                .position(|project| project.is_active)
+                .unwrap_or(0);
             let chat = *self;
-            let open = EventHandler::new(move |()| chat.open_menu(ComposerMenuKind::Project));
+            let open =
+                EventHandler::new(move |()| chat.open_menu_at(ComposerMenuKind::Project, selected));
             return Some(ComposerChip::ready(label, title).opens(open));
         }
         if context.cwd.is_empty() {
@@ -895,10 +909,14 @@ impl Chat {
     }
 
     pub fn open_menu(&self, kind: ComposerMenuKind) {
+        self.open_menu_at(kind, 0);
+    }
+
+    pub fn open_menu_at(&self, kind: ComposerMenuKind, index: usize) {
         if self.selector_open() {
             self.dismiss_selector();
         }
-        self.menu.toggle(kind);
+        self.menu.toggle_at(kind, index);
     }
 
     pub fn dismiss_selector(&self) {

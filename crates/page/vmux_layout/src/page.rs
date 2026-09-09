@@ -2773,6 +2773,60 @@ fn SmartProjectRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Eleme
     let forget = project.path.clone();
     let forget_title = translate("layout-project-forget");
     let activate_title = translate("layout-project-activate");
+    if root {
+        return rsx! {
+            div { class: if project.is_active {
+                    "group/row mb-1 flex min-w-0 items-center rounded-lg border border-cyan-400/20 bg-cyan-400/[0.07]"
+                } else {
+                    "group/row mb-1 flex min-w-0 items-center rounded-lg border border-foreground/[0.07] bg-foreground/[0.025] hover:bg-glass-hover"
+                },
+                button {
+                    r#type: "button",
+                    title: "{project.display_path}",
+                    class: "flex h-11 min-w-0 flex-1 items-center gap-2 px-2 text-left text-muted-foreground hover:text-foreground",
+                    onclick: move |_| {
+                        let _ = send(&vmux_core::event::ProjectTreeToggle {
+                            path: activate.clone(),
+                            pane_id: pane_id.to_string(),
+                        });
+                    },
+                    Icon {
+                        class: if project.expanded { SIDEBAR_TREE_CHEVRON_OPEN } else { SIDEBAR_TREE_CHEVRON_CLOSED },
+                        path { d: "m9 18 6-6-6-6" }
+                    }
+                    Icon { class: "h-3.5 w-3.5 shrink-0",
+                        path { d: "M3 6.5h6l2 2h10v9.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Z" }
+                        circle { cx: "8", cy: "14", r: "1" }
+                        circle { cx: "16", cy: "14", r: "1" }
+                        path { d: "M9 14h6" }
+                    }
+                    span { class: "flex min-w-0 flex-1 flex-col",
+                        span { class: "truncate text-ui font-semibold text-foreground", "{project.label}" }
+                        if !project.branch.is_empty() {
+                            span { class: "truncate font-mono text-[9px] text-muted-foreground/70", title: "{project.branch}", "{project.branch}" }
+                        }
+                    }
+                    if project.is_active {
+                        span {
+                            aria_label: "{activate_title}",
+                            title: "{activate_title}",
+                            class: "size-1.5 shrink-0 rounded-full bg-success",
+                        }
+                    }
+                }
+                button {
+                    r#type: "button",
+                    aria_label: "{forget_title}",
+                    title: "{forget_title}",
+                    class: "mr-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground",
+                    onclick: move |_| emit_project_command("forget", Some(forget.clone())),
+                    Icon { class: "h-3 w-3 pointer-events-none",
+                        path { d: "M18 6 6 18M6 6l12 12" }
+                    }
+                }
+            }
+        };
+    }
     rsx! {
         SidebarTreeRowGroup {
             SidebarTreeRow {
@@ -2792,34 +2846,7 @@ fn SmartProjectRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Eleme
                     }
                     false => open_project_path(pane_id, activate.clone()),
                 },
-                label_suffix: rsx! {
-                    if !project.branch.is_empty() {
-                        span { class: "shrink-0 truncate font-mono text-[10px] text-muted-foreground/70", "{project.branch}" }
-                    }
-                },
-            }
-            if root {
-                if project.is_active {
-                    span {
-                        aria_label: "{activate_title}",
-                        title: "{activate_title}",
-                        class: "mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-foreground",
-                        Icon { class: "h-3.5 w-3.5 pointer-events-none",
-                            path { d: "M12 17v5" }
-                            path { d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1Z" }
-                        }
-                    }
-                }
-                button {
-                    r#type: "button",
-                    aria_label: "{forget_title}",
-                    title: "{forget_title}",
-                    class: "mr-1.5 flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10 hover:text-foreground",
-                    onclick: move |_| emit_project_command("forget", Some(forget.clone())),
-                    Icon { class: "h-3 w-3 pointer-events-none",
-                        path { d: "M18 6 6 18M6 6l12 12" }
-                    }
-                }
+                label_suffix: rsx! {},
             }
         }
     }

@@ -50,12 +50,18 @@ impl ComposerChips {
                     })),
             ),
         };
+        let project_cursor = composer
+            .projects
+            .iter()
+            .filter(|project| project.depth == 0)
+            .position(|project| project.is_active)
+            .unwrap_or(0);
         let project = ComposerChip::ready(
             composer.workspace_label.clone(),
             composer.workspace_title.clone(),
         )
         .opens(EventHandler::new(move |()| {
-            menu.toggle(ComposerMenuKind::Project);
+            menu.toggle_at(ComposerMenuKind::Project, project_cursor);
         }));
         let branch = match composer.is_git_repo {
             false => None,

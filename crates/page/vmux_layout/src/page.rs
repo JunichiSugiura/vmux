@@ -36,6 +36,7 @@ use vmux_ui::components::tree_row::{
     SidebarTreeRow, SidebarTreeRowGroup,
 };
 use vmux_ui::favicon::favicon_src_for_url;
+use vmux_ui::focus::FocusClaim;
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::icon::PageIconView;
@@ -686,6 +687,8 @@ fn SideSheetSpaceRow(space: vmux_core::event::space::SpaceRow) -> Element {
                 }
                 BookmarkNameInput {
                     draft,
+                    focus_id: "space-name-input",
+                    caret_at_end: true,
                     class: "min-w-0 flex-1 bg-transparent text-ui font-medium text-foreground outline-none".to_string(),
                     placeholder: String::new(),
                     on_commit: move |name| {
@@ -1450,7 +1453,6 @@ impl TabDrag {
     }
 
     fn finish(&mut self, event: &Event<PointerData>) {
-        self.advance(event);
         let Some(state) = (self.state)() else {
             return;
         };
@@ -1594,6 +1596,10 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
                 aria_label: translate("layout-close-tab"),
                 title: translate("layout-close-tab"),
                 class: "{close_class}",
+                onpointerdown: move |evt| {
+                    evt.prevent_default();
+                    evt.stop_propagation();
+                },
                 onmousedown: move |evt| {
                     evt.prevent_default();
                     evt.stop_propagation();
@@ -2256,6 +2262,8 @@ fn set_bookmark_context_menu_active(active: bool) {
 #[component]
 fn BookmarkNameInput(
     draft: Signal<String>,
+    #[props(default)] focus_id: &'static str,
+    #[props(default)] caret_at_end: bool,
     class: String,
     placeholder: String,
     on_commit: EventHandler<String>,
@@ -2267,6 +2275,7 @@ fn BookmarkNameInput(
 
     rsx! {
         input {
+            id: focus_id,
             r#type: "text",
             class,
             placeholder,
@@ -2278,7 +2287,7 @@ fn BookmarkNameInput(
             },
             onmounted: move |event| {
                 set_bookmark_text_input_active(true);
-                focus_and_select_inline_rename(event);
+                focus_inline_rename(event, focus_id, caret_at_end);
             },
             oninput: move |event| draft.set(event.value()),
             onkeydown: move |event: Event<KeyboardData>| match event.key() {
@@ -2319,7 +2328,14 @@ fn begin_inline_rename(mut editing: Signal<bool>, mut draft: Signal<String>, nam
     });
 }
 
-fn focus_and_select_inline_rename(_event: Event<MountedData>) {}
+fn focus_inline_rename(event: Event<MountedData>, focus_id: &'static str, caret_at_end: bool) {
+    spawn(async move {
+        let _ = event.data().set_focus(true).await;
+        if caret_at_end {
+            FocusClaim::new(focus_id).caret_at_end().request();
+        }
+    });
+}
 
 #[component]
 fn BookmarkFolder(

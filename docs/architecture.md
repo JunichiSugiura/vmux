@@ -235,8 +235,11 @@ Simulator or boots the latest available device, copies its MJPEG stream to a loo
 turns normalized pointer and keyboard events from the page into guest input. MCP exposes the same
 attached device through screenshots, pixel-addressed taps and swipes, text and key input, and
 hardware buttons. Copy and paste synchronize the host and guest pasteboards before sending the
-matching iOS keyboard shortcut. CoreSimulator presents the native iOS software keyboard while the
-page is attached. The Simulator.app window is not captured or driven.
+matching iOS keyboard shortcut. Other modified keystrokes are forwarded as HID combinations so
+native text selection and editing shortcuts behave like Simulator.app. CoreSimulator presents the
+native iOS software keyboard while the page is attached. Vmux performs that private-framework call
+in a short-lived copy of its executable so CoreSimulator does not install long-lived run-loop work
+in the desktop process. The Simulator.app window is not captured or driven.
 
 Because the shell draws its own titlebar and resize edges rather than letting AppKit draw
 them, it watches mouse-downs app-wide and turns the ones that land in the drag region into

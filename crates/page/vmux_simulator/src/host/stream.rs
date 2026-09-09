@@ -1,42 +1,77 @@
 use super::device::{Axe, SimulatorDevice};
 use bevy::prelude::*;
-use image::ExtendedColorType;
-use image::codecs::jpeg::JpegEncoder;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdout, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct StreamServer {
     port: u16,
+    capability: String,
+    stop: Arc<AtomicBool>,
+    frames: Option<Arc<EncodedFrameExchange>>,
+    capture: Option<Arc<Mutex<Child>>>,
 }
 
 impl StreamServer {
     const FPS: &'static str = "30";
-    const JPEG_QUALITY: u8 = 95;
-    const ROW_ALIGNMENT: usize = 64;
-    const SCALE: f32 = 0.5;
+    const JPEG_QUALITY: &'static str = "95";
+    const SCALE: &'static str = "0.5";
 
-    pub fn start(
-        axe: &Axe,
-        device: SimulatorDevice,
-        pixels: Option<(u32, u32)>,
-    ) -> io::Result<Self> {
+    pub fn start(axe: &Axe, device: SimulatorDevice) -> io::Result<Self> {
         let axe = axe.path().to_path_buf();
         let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0))?;
+        listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
-        let stream = Self::shared_stream(&axe, &device, pixels);
-        std::thread::Builder::new()
+        let capability = uuid::Uuid::new_v4().simple().to_string();
+        let shared = Self::shared_stream(&axe, &device);
+        let stream = shared.as_ref().map(|(stream, _)| stream.clone());
+        let frames = stream.as_ref().map(|stream| stream.frames.clone());
+        let capture = shared.map(|(_, capture)| capture);
+        let stop = Arc::new(AtomicBool::new(false));
+        let listener_stop = stop.clone();
+        let listener_capability = capability.clone();
+        let listener_thread = std::thread::Builder::new()
             .name("vmux-simulator-stream".into())
-            .spawn(move || Self::accept_loop(listener, axe, device, stream))?;
-        Ok(Self { port })
+            .spawn(move || {
+                Self::accept_loop(
+                    listener,
+                    axe,
+                    device,
+                    stream,
+                    listener_capability,
+                    listener_stop,
+                )
+            });
+        if let Err(error) = listener_thread {
+            stop.store(true, Ordering::Release);
+            if let Some(frames) = &frames {
+                frames.close();
+            }
+            if let Some(capture) = &capture {
+                Self::stop_capture(capture);
+            }
+            return Err(error);
+        }
+        Ok(Self {
+            port,
+            capability,
+            stop,
+            frames,
+            capture,
+        })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn capability(&self) -> &str {
+        &self.capability
     }
 
     fn accept_loop(
@@ -44,17 +79,28 @@ impl StreamServer {
         axe: PathBuf,
         device: SimulatorDevice,
         stream: Option<SharedStream>,
+        capability: String,
+        stop: Arc<AtomicBool>,
     ) {
-        for connection in listener.incoming() {
-            let Ok(socket) = connection else {
-                continue;
+        while !stop.load(Ordering::Acquire) {
+            let socket = match listener.accept() {
+                Ok((socket, _)) => socket,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(25));
+                    continue;
+                }
+                Err(error) => {
+                    warn!("simulator stream listener stopped: {error}");
+                    return;
+                }
             };
             let device = device.clone();
             let axe = axe.clone();
             let stream = stream.clone();
+            let capability = capability.clone();
             let spawned = std::thread::Builder::new()
                 .name("vmux-simulator-pipe".into())
-                .spawn(move || Self::pipe(socket, axe, device, stream));
+                .spawn(move || Self::pipe(socket, axe, device, stream, &capability));
             if spawned.is_err() {
                 warn!("could not spawn a stream thread");
             }
@@ -66,12 +112,13 @@ impl StreamServer {
         axe: PathBuf,
         device: SimulatorDevice,
         stream: Option<SharedStream>,
+        capability: &str,
     ) {
-        if Self::read_request(&mut socket).is_err() {
+        if Self::read_request(&mut socket, capability).is_err() {
             return;
         }
         let Some(stream) = stream else {
-            Self::pipe_screenshots(socket, axe, device);
+            Self::pipe_live_mjpeg(socket, axe, device);
             return;
         };
         Self::write_mjpeg(socket, stream);
@@ -80,47 +127,33 @@ impl StreamServer {
     fn shared_stream(
         axe: &PathBuf,
         device: &SimulatorDevice,
-        pixels: Option<(u32, u32)>,
-    ) -> Option<SharedStream> {
-        let (pixel_width, pixel_height) = pixels?;
-        let width = ((pixel_width as f32) * Self::SCALE).floor() as u32;
-        let height = ((pixel_height as f32) * Self::SCALE).floor() as u32;
-        if width == 0 || height == 0 {
-            return None;
-        }
-        let stride = (width as usize * 4).next_multiple_of(Self::ROW_ALIGNMENT);
-        let (mut child, stdout) = Self::spawn_bgra(axe, device)?;
-        let frames = Arc::new(FrameExchange::default());
-        let captured = frames.clone();
+    ) -> Option<(SharedStream, Arc<Mutex<Child>>)> {
+        let (child, stdout) = Self::spawn_mjpeg(axe, device)?;
+        let capture = Arc::new(Mutex::new(child));
+        let frames = Arc::new(EncodedFrameExchange::default());
+        let published = frames.clone();
+        let reader_capture = capture.clone();
         let reader = std::thread::Builder::new()
             .name("vmux-simulator-capture".into())
             .spawn(move || {
-                Self::read_bgra(stdout, height, stride, captured);
-                let _ = child.kill();
-                let _ = child.wait();
+                Self::read_mjpeg(stdout, published);
+                Self::stop_capture(&reader_capture);
             });
         if reader.is_err() {
             frames.close();
+            Self::stop_capture(&capture);
             return None;
         }
-        let encoded = Arc::new(EncodedFrameExchange::default());
-        let published = encoded.clone();
-        let encoder = std::thread::Builder::new()
-            .name("vmux-simulator-encode".into())
-            .spawn(move || Self::encode_frames(frames, published, width, height));
-        if encoder.is_err() {
-            encoded.close();
-            return None;
-        }
-        Some(SharedStream { frames: encoded })
+        Some((SharedStream { frames }, capture))
     }
 
-    fn spawn_bgra(axe: &PathBuf, device: &SimulatorDevice) -> Option<(Child, ChildStdout)> {
+    fn spawn_mjpeg(axe: &PathBuf, device: &SimulatorDevice) -> Option<(Child, ChildStdout)> {
         let mut child = std::process::Command::new(axe)
             .args(["stream-video", "--udid", &device.udid])
-            .args(["--format", "bgra"])
+            .args(["--format", "mjpeg"])
             .args(["--fps", Self::FPS])
-            .args(["--scale", &Self::SCALE.to_string()])
+            .args(["--quality", Self::JPEG_QUALITY])
+            .args(["--scale", Self::SCALE])
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -129,66 +162,46 @@ impl StreamServer {
         Some((child, stdout))
     }
 
-    fn read_bgra(mut stdout: ChildStdout, height: u32, stride: usize, frames: Arc<FrameExchange>) {
-        let frame_bytes = stride * height as usize;
-        let mut frame = vec![0; frame_bytes];
+    fn read_mjpeg(mut stdout: ChildStdout, frames: Arc<EncodedFrameExchange>) {
+        let mut parser = MjpegFrames::default();
+        let mut chunk = [0; 64 * 1024];
         loop {
-            if stdout.read_exact(&mut frame).is_err() {
-                frames.close();
-                return;
+            let count = match stdout.read(&mut chunk) {
+                Ok(0) | Err(_) => {
+                    frames.close();
+                    return;
+                }
+                Ok(count) => count,
+            };
+            let parsed = match parser.push(&chunk[..count]) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    warn!("simulator MJPEG stream failed: {error}");
+                    frames.close();
+                    return;
+                }
+            };
+            for frame in parsed {
+                frames.replace(frame);
             }
-            let Some(recycled) = frames.replace(frame) else {
-                return;
-            };
-            frame = recycled;
-            frame.resize(frame_bytes, 0);
         }
-    }
-
-    fn encode_frames(
-        frames: Arc<FrameExchange>,
-        encoded: Arc<EncodedFrameExchange>,
-        width: u32,
-        height: u32,
-    ) {
-        while let Some(frame) = frames.take() {
-            let result = Self::encode_bgra(&frame, width, height);
-            frames.recycle(frame);
-            let Ok(frame) = result else {
-                continue;
-            };
-            encoded.replace(frame);
-        }
-        encoded.close();
     }
 
     fn write_mjpeg(mut socket: TcpStream, stream: SharedStream) {
         let _ = socket.set_nodelay(true);
-        if socket
-            .write_all(
-                b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=vmuxframe\r\nCache-Control: no-store\r\n\r\n",
-            )
-            .is_err()
-        {
+        if Self::write_header(&mut socket).is_err() {
             return;
         }
         let mut generation = 0;
         while let Some((next_generation, encoded)) = stream.frames.after(generation) {
             generation = next_generation;
-            let header = format!(
-                "--vmuxframe\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
-                encoded.len()
-            );
-            if socket.write_all(header.as_bytes()).is_err()
-                || socket.write_all(encoded.as_ref()).is_err()
-                || socket.write_all(b"\r\n").is_err()
-            {
+            if Self::write_frame(&mut socket, &encoded).is_err() {
                 return;
             }
         }
     }
 
-    fn read_request(socket: &mut TcpStream) -> io::Result<()> {
+    fn read_request(socket: &mut TcpStream, capability: &str) -> io::Result<()> {
         socket.set_read_timeout(Some(Duration::from_secs(2)))?;
         let mut request = Vec::with_capacity(1024);
         let mut chunk = [0; 1024];
@@ -206,63 +219,134 @@ impl StreamServer {
             }
         }
         socket.set_read_timeout(None)?;
-        if !request.starts_with(b"GET / HTTP/1.1\r\n")
-            && !request.starts_with(b"GET / HTTP/1.0\r\n")
-        {
+        if !Self::request_has_capability(&request, capability) {
             return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "simulator stream expected GET /",
+                io::ErrorKind::PermissionDenied,
+                "simulator stream capability is missing or invalid",
             ));
         }
         Ok(())
     }
 
-    fn encode_bgra(bytes: &[u8], width: u32, height: u32) -> io::Result<Vec<u8>> {
-        let stride = (width as usize * 4).next_multiple_of(Self::ROW_ALIGNMENT);
-        let rgb = Self::rgb_from_bgra(bytes, width, height, stride)?;
-        let mut jpeg = Vec::new();
-        JpegEncoder::new_with_quality(&mut jpeg, Self::JPEG_QUALITY)
-            .encode(&rgb, width, height, ExtendedColorType::Rgb8)
-            .map_err(io::Error::other)?;
-        Ok(jpeg)
+    fn request_has_capability(request: &[u8], capability: &str) -> bool {
+        let expected_11 = format!("GET /{capability} HTTP/1.1\r\n");
+        let expected_10 = format!("GET /{capability} HTTP/1.0\r\n");
+        request.starts_with(expected_11.as_bytes()) || request.starts_with(expected_10.as_bytes())
     }
 
-    fn rgb_from_bgra(bytes: &[u8], width: u32, height: u32, stride: usize) -> io::Result<Vec<u8>> {
-        let row_bytes = width as usize * 4;
-        if stride < row_bytes || bytes.len() != stride * height as usize {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "simulator frame has an unexpected size",
-            ));
-        }
-        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
-        for row in bytes.chunks_exact(stride) {
-            for pixel in row[..row_bytes].chunks_exact(4) {
-                rgb.extend_from_slice(&[pixel[2], pixel[1], pixel[0]]);
-            }
-        }
-        Ok(rgb)
+    fn write_header(socket: &mut TcpStream) -> io::Result<()> {
+        socket.write_all(
+            b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=vmuxframe\r\nCache-Control: no-store\r\n\r\n",
+        )
     }
 
-    fn pipe_screenshots(mut socket: TcpStream, axe: PathBuf, device: SimulatorDevice) {
-        let child = std::process::Command::new(axe)
-            .args(["stream-video", "--udid", &device.udid])
-            .args(["--format", "mjpeg"])
-            .args(["--fps", Self::FPS])
-            .args(["--quality", &Self::JPEG_QUALITY.to_string()])
-            .args(["--scale", &Self::SCALE.to_string()])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn();
-        let Ok(mut child) = child else {
-            warn!("could not start `{} stream-video`", Axe::BIN);
+    fn write_frame(socket: &mut TcpStream, encoded: &[u8]) -> io::Result<()> {
+        let header = format!(
+            "--vmuxframe\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\n\r\n",
+            encoded.len()
+        );
+        socket.write_all(header.as_bytes())?;
+        socket.write_all(encoded)?;
+        socket.write_all(b"\r\n")
+    }
+
+    fn pipe_live_mjpeg(mut socket: TcpStream, axe: PathBuf, device: SimulatorDevice) {
+        let Some((mut child, mut stdout)) = Self::spawn_mjpeg(&axe, &device) else {
             return;
         };
-        if let Some(mut stdout) = child.stdout.take() {
-            let _ = io::copy(&mut stdout, &mut socket);
+        if Self::write_header(&mut socket).is_err() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return;
+        }
+        let mut parser = MjpegFrames::default();
+        let mut chunk = [0; 64 * 1024];
+        'stream: loop {
+            let count = match stdout.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => count,
+            };
+            let Ok(frames) = parser.push(&chunk[..count]) else {
+                break;
+            };
+            for frame in frames {
+                if Self::write_frame(&mut socket, &frame).is_err() {
+                    break 'stream;
+                }
+            }
         }
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    fn stop_capture(capture: &Mutex<Child>) {
+        let Ok(mut child) = capture.lock() else {
+            return;
+        };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
+impl Drop for StreamServer {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(frames) = &self.frames {
+            frames.close();
+        }
+        if let Some(capture) = &self.capture {
+            Self::stop_capture(capture);
+        }
+    }
+}
+
+#[derive(Default)]
+struct MjpegFrames {
+    bytes: Vec<u8>,
+}
+
+impl MjpegFrames {
+    const MAX_FRAME_BYTES: usize = 32 * 1024 * 1024;
+
+    fn push(&mut self, chunk: &[u8]) -> io::Result<Vec<Vec<u8>>> {
+        self.bytes.extend_from_slice(chunk);
+        let mut frames = Vec::new();
+        loop {
+            let Some(start) = Self::marker(&self.bytes, [0xff, 0xd8]) else {
+                if self.bytes.len() > Self::MAX_FRAME_BYTES {
+                    self.bytes.clear();
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "simulator MJPEG stream has no frame start",
+                    ));
+                }
+                if self.bytes.last() == Some(&0xff) {
+                    self.bytes.drain(..self.bytes.len() - 1);
+                } else {
+                    self.bytes.clear();
+                }
+                return Ok(frames);
+            };
+            if start > 0 {
+                self.bytes.drain(..start);
+            }
+            let Some(end) = Self::marker(&self.bytes[2..], [0xff, 0xd9]) else {
+                if self.bytes.len() > Self::MAX_FRAME_BYTES {
+                    self.bytes.clear();
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "simulator MJPEG frame is too large",
+                    ));
+                }
+                return Ok(frames);
+            };
+            let end = end + 4;
+            frames.push(self.bytes.drain(..end).collect());
+        }
+    }
+
+    fn marker(bytes: &[u8], marker: [u8; 2]) -> Option<usize> {
+        bytes.windows(2).position(|window| window == marker)
     }
 }
 
@@ -316,100 +400,39 @@ struct EncodedFrameState {
     closed: bool,
 }
 
-#[derive(Default)]
-struct FrameExchange {
-    state: Mutex<FrameState>,
-    ready: Condvar,
-}
-
-impl FrameExchange {
-    fn replace(&self, frame: Vec<u8>) -> Option<Vec<u8>> {
-        let Ok(mut state) = self.state.lock() else {
-            return None;
-        };
-        if state.closed {
-            return None;
-        }
-        let recycled = state.latest.replace(frame).or_else(|| state.recycled.pop());
-        self.ready.notify_one();
-        Some(recycled.unwrap_or_default())
-    }
-
-    fn take(&self) -> Option<Vec<u8>> {
-        let mut state = self.state.lock().ok()?;
-        while state.latest.is_none() && !state.closed {
-            state = self.ready.wait(state).ok()?;
-        }
-        state.latest.take()
-    }
-
-    fn recycle(&self, frame: Vec<u8>) {
-        if let Ok(mut state) = self.state.lock() {
-            state.recycled.push(frame);
-        }
-    }
-
-    fn close(&self) {
-        if let Ok(mut state) = self.state.lock() {
-            state.closed = true;
-            self.ready.notify_all();
-        }
-    }
-}
-
-#[derive(Default)]
-struct FrameState {
-    latest: Option<Vec<u8>>,
-    recycled: Vec<Vec<u8>>,
-    closed: bool,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn a_bgra_frame_encodes_as_jpeg() {
-        let mut bytes = vec![0; StreamServer::ROW_ALIGNMENT];
-        bytes[..8].copy_from_slice(&[0, 0, 255, 255, 0, 255, 0, 255]);
+    fn mjpeg_frames_survive_chunk_boundaries() {
+        let mut parser = MjpegFrames::default();
 
-        let encoded = StreamServer::encode_bgra(&bytes, 2, 1).expect("jpeg");
-
-        assert_eq!(encoded.get(..2), Some([0xff, 0xd8].as_slice()));
+        assert!(parser.push(&[9, 0xff]).unwrap().is_empty());
+        assert!(parser.push(&[0xd8, 1, 2, 0xff]).unwrap().is_empty());
         assert_eq!(
-            encoded.get(encoded.len() - 2..),
-            Some([0xff, 0xd9].as_slice())
+            parser.push(&[0xd9, 0xff, 0xd8, 3, 0xff, 0xd9]).unwrap(),
+            [
+                vec![0xff, 0xd8, 1, 2, 0xff, 0xd9],
+                vec![0xff, 0xd8, 3, 0xff, 0xd9]
+            ]
         );
     }
 
     #[test]
-    fn a_malformed_bgra_frame_is_rejected() {
-        assert!(StreamServer::encode_bgra(&[0; 7], 2, 1).is_err());
-    }
-
-    #[test]
-    fn core_video_row_padding_is_not_encoded_as_pixels() {
-        let bytes = [
-            1, 2, 3, 255, 4, 5, 6, 255, 91, 92, 93, 94, 7, 8, 9, 255, 10, 11, 12, 255, 95, 96, 97,
-            98,
-        ];
-
-        assert_eq!(
-            StreamServer::rgb_from_bgra(&bytes, 2, 2, 12).expect("rgb"),
-            [3, 2, 1, 6, 5, 4, 9, 8, 7, 12, 11, 10]
-        );
-    }
-
-    #[test]
-    fn newer_frames_replace_stale_frames() {
-        let frames = FrameExchange::default();
-
-        let first_buffer = frames.replace(vec![1]).expect("buffer");
-        assert!(first_buffer.is_empty());
-        let second_buffer = frames.replace(vec![2]).expect("buffer");
-
-        assert_eq!(second_buffer, vec![1]);
-        assert_eq!(frames.take(), Some(vec![2]));
+    fn stream_requests_require_the_capability() {
+        assert!(StreamServer::request_has_capability(
+            b"GET /secret HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            "secret"
+        ));
+        assert!(!StreamServer::request_has_capability(
+            b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            "secret"
+        ));
+        assert!(!StreamServer::request_has_capability(
+            b"GET /secret-extra HTTP/1.1\r\nHost: localhost\r\n\r\n",
+            "secret"
+        ));
     }
 
     #[test]

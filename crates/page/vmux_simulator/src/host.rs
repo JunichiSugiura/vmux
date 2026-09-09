@@ -6,21 +6,18 @@ mod input;
 mod stream;
 
 use crate::event::{
-    HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
-    SimulatorKey, SimulatorReady, SimulatorSoftwareKeyboard, SimulatorTouch,
+    HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboardAction, SimulatorReady,
 };
 use crate::url::{PAGE_HOST, PAGE_URL, SimulatorRoute};
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy::tasks::{IoTaskPool, Task, futures_lite::future};
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use bevy_cef::prelude::*;
-use hid::{HidBroker, HidRequest};
-use input::{DeviceClipboard, DeviceCoordinates, DeviceKey, DeviceTouch, DeviceTouchSession};
-use std::sync::{Arc, Mutex};
+use hid::HidBroker;
 use stream::StreamServer;
 use vmux_core::PageMetadata;
 use vmux_core::host::page::{NativelyHosted, PageReady};
-use vmux_wire::protocol::{SimulatorAction, SimulatorButton};
+use vmux_wire::protocol::SimulatorAction;
 
 pub use device::{Axe, SimulatorDevice};
 
@@ -33,51 +30,56 @@ impl Plugin for SimulatorPlugin {
             NativelyHosted::subtree(PAGE_URL, PAGE_MANIFEST.title),
         ));
         vmux_core::register_host_spawn(app, PAGE_HOST);
-        app.init_resource::<DeviceAttachment>()
-            .init_resource::<Announced>()
-            .init_resource::<DeviceTouchSession>()
-            .init_resource::<HardwareKeyboard>()
+        app.init_resource::<ActiveSimulatorView>()
+            .configure_sets(Update, (SimulatorFocusSet, SimulatorInputSet).chain())
             .add_message::<HardwareButtonRequest>()
             .add_message::<SimulatorClipboardRequest>()
             .add_message::<SimulatorSoftwareKeyboardRequest>()
+            .add_message::<SimulatorFocusRequest>()
             .add_message::<SimulatorControlRequest>()
             .add_message::<SimulatorControlResponse>()
             .add_message::<SimulatorScreenshotRequest>()
             .add_message::<SimulatorScreenshotResponse>()
-            .add_systems(Update, (Self::attach_device, Self::announce).chain())
             .add_systems(
                 Update,
                 (
-                    Self::handle_button_requests,
-                    Self::handle_clipboard_requests,
-                    Self::handle_software_keyboard_requests,
-                    Self::handle_control_requests,
-                    Self::handle_screenshot_requests,
+                    Self::start_device_attachments,
+                    Self::finish_device_attachments,
+                    Self::announce,
                 )
-                    .in_set(SimulatorInputSet),
+                    .chain(),
             )
-            .add_plugins(BinEventEmitterPlugin::<(
-                SimulatorTouch,
-                SimulatorKey,
-                SimulatorClipboard,
-                SimulatorSoftwareKeyboard,
-            )>::for_hosts(&[PAGE_HOST]))
-            .add_observer(Self::on_touch)
-            .add_observer(Self::on_key)
-            .add_observer(Self::on_clipboard)
-            .add_observer(Self::on_software_keyboard)
+            .add_systems(
+                Update,
+                Self::handle_screenshot_requests.in_set(SimulatorInputSet),
+            )
+            .add_plugins(input::SimulatorInputPlugin)
             .add_observer(Self::forget_on_reload);
+
+        #[cfg(target_os = "macos")]
+        app.add_plugins(core_simulator::CoreSimulatorPlugin);
     }
 }
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HardwareButtonRequest(pub HardwareButton);
+pub struct HardwareButtonRequest {
+    pub view: Option<Entity>,
+    pub button: HardwareButton,
+}
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SimulatorClipboardRequest(pub SimulatorClipboardAction);
+pub struct SimulatorClipboardRequest {
+    pub view: Option<Entity>,
+    pub action: SimulatorClipboardAction,
+}
 
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SimulatorSoftwareKeyboardRequest;
+pub struct SimulatorSoftwareKeyboardRequest {
+    pub view: Option<Entity>,
+}
+
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SimulatorFocusRequest(pub Option<Entity>);
 
 #[derive(Message, Clone)]
 pub struct SimulatorControlRequest {
@@ -111,6 +113,9 @@ pub struct SimulatorScreenshotResponse {
 }
 
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SimulatorFocusSet;
+
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SimulatorInputSet;
 
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
@@ -119,42 +124,56 @@ pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageMa
     title_message_id: Some("simulator-title"),
     replaces_command: None,
     keywords: &["simulator", "ios", "iphone", "device"],
-    icon: Some(vmux_core::BuiltinIcon::Layers),
+    icon: Some(vmux_core::BuiltinIcon::Smartphone),
     command_bar: true,
 };
 
-#[derive(Resource)]
+#[derive(Component)]
 struct DevicePoints(f32, f32);
 
-#[derive(Resource)]
+#[derive(Component)]
 struct DevicePixels(u32, u32);
 
-#[derive(Resource)]
-struct HardwareKeyboard {
-    enabled: bool,
-}
+#[derive(Component, Clone, PartialEq)]
+struct SimulatorAnnouncement(SimulatorReady);
 
-impl Default for HardwareKeyboard {
-    fn default() -> Self {
-        Self { enabled: true }
-    }
-}
+type SimulatorViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static PageMetadata,
+        Option<&'static ChildOf>,
+        Option<&'static SimulatorAnnouncement>,
+    ),
+    With<PageReady>,
+>;
+
+type SimulatorAttachmentCandidates<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static PageMetadata,
+        Option<&'static AttachedRoute>,
+        Option<&'static SimulatorDevice>,
+        Has<DeviceAttachment>,
+        Has<AttachmentFailed>,
+    ),
+    With<PageReady>,
+>;
 
 #[derive(Resource, Default)]
-struct Announced(HashMap<Entity, SimulatorReady>);
+struct ActiveSimulatorView(Option<Entity>);
 
-#[derive(Resource, Default)]
-struct DeviceAttachment {
-    phase: AttachmentPhase,
-}
+#[derive(Component, Clone, PartialEq, Eq)]
+struct AttachedRoute(SimulatorRoute);
 
-#[derive(Default)]
-enum AttachmentPhase {
-    #[default]
-    Idle,
-    Starting(Arc<Mutex<Option<Result<AttachedDevice, String>>>>),
-    Complete,
-}
+#[derive(Component)]
+struct DeviceAttachment(Task<Result<AttachedDevice, String>>);
+
+#[derive(Component)]
+struct AttachmentFailed;
 
 struct AttachedDevice {
     axe: Axe,
@@ -168,94 +187,128 @@ struct AttachedDevice {
 impl SimulatorPlugin {
     const URL_PREFIX: &'static str = "vmux://simulator/";
 
-    fn attach_device(
-        views: Query<&PageMetadata>,
-        mut attachment: ResMut<DeviceAttachment>,
+    #[cfg(target_os = "macos")]
+    pub fn exit_helper_if_requested() {
+        core_simulator::exit_if_requested();
+    }
+
+    fn start_device_attachments(
+        views: SimulatorAttachmentCandidates,
         wake: Option<Res<EventLoopProxyWrapper>>,
         mut commands: Commands,
     ) {
-        if attachment.is_idle() {
-            let Some(route) = views
-                .iter()
-                .find_map(|metadata| SimulatorRoute::of_url(&metadata.url))
-            else {
-                return;
+        for (entity, metadata, attached_route, device, starting, failed) in &views {
+            let Some(route) = SimulatorRoute::of_url(&metadata.url) else {
+                continue;
             };
-            let wake = wake.map(|wrapper| {
-                let proxy = (**wrapper).clone();
-                Box::new(move || {
+            let matches = attached_route.is_some_and(|current| current.0 == route)
+                || device.is_some_and(|device| device.matches_route(&route));
+            if matches && (starting || failed || device.is_some()) {
+                continue;
+            }
+            commands.entity(entity).remove::<(
+                DeviceAttachment,
+                AttachmentFailed,
+                Axe,
+                HidBroker,
+                SimulatorDevice,
+                DevicePoints,
+                DevicePixels,
+                StreamServer,
+                SimulatorAnnouncement,
+                input::DeviceTouchSession,
+            )>();
+            let wake = wake.as_ref().map(|wrapper| (**wrapper).clone());
+            let attached_route = route.clone();
+            let task = IoTaskPool::get().spawn(async move {
+                let result = AttachedDevice::start(&route);
+                if let Some(proxy) = wake {
                     let _ = proxy.send_event(WinitUserEvent::WakeUp);
-                }) as Box<dyn FnOnce() + Send>
+                }
+                result
             });
-            attachment.start(route, wake);
-            return;
+            commands
+                .entity(entity)
+                .insert((AttachedRoute(attached_route), DeviceAttachment(task)));
         }
-        let Some(result) = attachment.take() else {
-            return;
-        };
-        let attached = match result {
-            Ok(attached) => attached,
-            Err(error) => {
-                error!("could not attach an iOS Simulator: {error}");
-                return;
+    }
+
+    fn finish_device_attachments(
+        mut attachments: Query<(Entity, &mut DeviceAttachment)>,
+        wake: Option<Res<EventLoopProxyWrapper>>,
+        #[cfg(target_os = "macos")] mut keyboard: MessageWriter<
+            core_simulator::HardwareKeyboardSetRequest,
+        >,
+        mut commands: Commands,
+    ) {
+        for (entity, mut attachment) in &mut attachments {
+            let Some(result) = future::block_on(future::poll_once(&mut attachment.0)) else {
+                continue;
+            };
+            commands.entity(entity).remove::<DeviceAttachment>();
+            let attached = match result {
+                Ok(attached) => attached,
+                Err(error) => {
+                    error!("could not attach an iOS Simulator: {error}");
+                    commands.entity(entity).insert(AttachmentFailed);
+                    continue;
+                }
+            };
+            info!(
+                "mirroring {} on loopback port {}",
+                attached.device.name,
+                attached.server.port()
+            );
+            #[cfg(target_os = "macos")]
+            keyboard.write(core_simulator::HardwareKeyboardSetRequest {
+                udid: attached.device.udid.clone(),
+                enabled: false,
+            });
+            let mut entity_commands = commands.entity(entity);
+            if let Some((width, height)) = attached.points {
+                entity_commands.insert(DevicePoints(width, height));
             }
-        };
-        info!(
-            "mirroring {} on loopback port {}",
-            attached.device.name,
-            attached.server.port()
-        );
-        let hardware_keyboard_enabled = match attached.device.set_hardware_keyboard_enabled(false) {
-            Ok(()) => false,
-            Err(error) => {
-                warn!("could not enable the simulator software keyboard: {error}");
-                true
+            if let Some((width, height)) = attached.pixels {
+                entity_commands.insert(DevicePixels(width, height));
             }
-        };
-        commands.insert_resource(HardwareKeyboard {
-            enabled: hardware_keyboard_enabled,
-        });
-        if let Some((width, height)) = attached.points {
-            commands.insert_resource(DevicePoints(width, height));
-        }
-        if let Some((width, height)) = attached.pixels {
-            commands.insert_resource(DevicePixels(width, height));
-        }
-        commands.insert_resource(attached.server);
-        commands.insert_resource(attached.device);
-        commands.insert_resource(attached.hid);
-        commands.insert_resource(attached.axe);
-        if let Some(wake) = wake {
-            let _ = wake.send_event(WinitUserEvent::WakeUp);
+            entity_commands.insert((
+                attached.server,
+                attached.device,
+                attached.hid,
+                attached.axe,
+                input::DeviceTouchSession::default(),
+            ));
+            if let Some(wake) = wake.as_deref() {
+                let _ = wake.send_event(WinitUserEvent::WakeUp);
+            }
         }
     }
 
     fn announce(
         browsers: NonSend<Browsers>,
-        views: Query<(Entity, &PageMetadata, Option<&ChildOf>), With<PageReady>>,
-        server: Option<Res<StreamServer>>,
-        device: Option<Res<SimulatorDevice>>,
-        mut told: ResMut<Announced>,
+        views: SimulatorViews,
+        attachments: Query<(&StreamServer, &SimulatorDevice)>,
         mut commands: Commands,
     ) {
-        let payload = match (server.as_deref(), device.as_deref()) {
-            (Some(server), Some(device)) => SimulatorReady {
-                port: server.port(),
-                version: device
-                    .version
-                    .as_ref()
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
-                device_name: device.name.clone(),
-            },
-            _ => SimulatorReady::default(),
-        };
-        told.0.retain(|entity, _| views.contains(*entity));
-        for (entity, meta, child_of) in views.iter() {
+        for (entity, meta, child_of, announced) in views.iter() {
             if !meta.url.starts_with(Self::URL_PREFIX) {
                 continue;
             }
-            if let Some(canonical_url) = device.as_deref().and_then(SimulatorDevice::canonical_url)
+            let payload = match attachments.get(entity) {
+                Ok((server, device)) => SimulatorReady {
+                    port: server.port(),
+                    capability: server.capability().to_string(),
+                    version: device
+                        .version
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_default(),
+                    device_name: device.name.clone(),
+                },
+                Err(_) => SimulatorReady::default(),
+            };
+            if let Ok((_, device)) = attachments.get(entity)
+                && let Some(canonical_url) = device.canonical_url()
                 && meta.url != canonical_url
             {
                 let mut canonical = meta.clone();
@@ -265,7 +318,7 @@ impl SimulatorPlugin {
                     commands.entity(child_of.parent()).insert(canonical);
                 }
             }
-            if told.0.get(&entity) == Some(&payload) {
+            if announced.is_some_and(|announced| announced.0 == payload) {
                 continue;
             }
             if !browsers.can_emit_to(&entity) {
@@ -276,143 +329,31 @@ impl SimulatorPlugin {
                 SIMULATOR_READY_EVENT,
                 &payload,
             ));
-            told.0.insert(entity, payload.clone());
+            commands
+                .entity(entity)
+                .insert(SimulatorAnnouncement(payload.clone()));
         }
     }
 
-    fn forget_on_reload(trigger: On<BinReceive<PageReady>>, mut told: ResMut<Announced>) {
-        told.0.remove(&trigger.event().webview);
-    }
-
-    fn on_touch(
-        trigger: On<BinReceive<SimulatorTouch>>,
-        points: Option<Res<DevicePoints>>,
-        hid: Option<Res<HidBroker>>,
-        mut session: ResMut<DeviceTouchSession>,
-    ) {
-        let (Some(points), Some(hid)) = (points.as_deref(), hid.as_deref()) else {
-            return;
-        };
-        let Some(touch) = DeviceTouch::resolve(&trigger.event().payload, (points.0, points.1))
-        else {
-            return;
-        };
-        touch.dispatch(&mut session, hid);
-    }
-
-    fn on_key(
-        trigger: On<BinReceive<SimulatorKey>>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
-    ) {
-        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
-            return;
-        };
-        DeviceKey::resolve(&trigger.event().payload, device).dispatch(axe);
-    }
-
-    fn on_clipboard(
-        trigger: On<BinReceive<SimulatorClipboard>>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
-    ) {
-        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
-            return;
-        };
-        DeviceClipboard::resolve(trigger.event().payload.action, device, axe).dispatch();
-    }
-
-    fn on_software_keyboard(
-        _trigger: On<BinReceive<SimulatorSoftwareKeyboard>>,
-        device: Option<Res<SimulatorDevice>>,
-        mut keyboard: ResMut<HardwareKeyboard>,
-    ) {
-        Self::toggle_software_keyboard(device.as_deref(), &mut keyboard);
-    }
-
-    fn handle_button_requests(
-        mut requests: MessageReader<HardwareButtonRequest>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
-    ) {
-        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
-            return;
-        };
-        for request in requests.read() {
-            DeviceKey::resolve(&SimulatorKey::Button(request.0), device).dispatch(axe);
-        }
-    }
-
-    fn handle_clipboard_requests(
-        mut requests: MessageReader<SimulatorClipboardRequest>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
-    ) {
-        let (Some(device), Some(axe)) = (device.as_deref(), axe.as_deref()) else {
-            return;
-        };
-        for request in requests.read() {
-            DeviceClipboard::resolve(request.0, device, axe).dispatch();
-        }
-    }
-
-    fn handle_software_keyboard_requests(
-        mut requests: MessageReader<SimulatorSoftwareKeyboardRequest>,
-        device: Option<Res<SimulatorDevice>>,
-        mut keyboard: ResMut<HardwareKeyboard>,
-    ) {
-        for _ in requests.read() {
-            Self::toggle_software_keyboard(device.as_deref(), &mut keyboard);
-        }
-    }
-
-    fn toggle_software_keyboard(device: Option<&SimulatorDevice>, keyboard: &mut HardwareKeyboard) {
-        let Some(device) = device else {
-            return;
-        };
-        let enabled = !keyboard.enabled;
-        match device.set_hardware_keyboard_enabled(enabled) {
-            Ok(()) => keyboard.enabled = enabled,
-            Err(error) => error!("could not toggle the simulator software keyboard: {error}"),
-        }
-    }
-
-    fn handle_control_requests(
-        mut requests: MessageReader<SimulatorControlRequest>,
-        mut responses: MessageWriter<SimulatorControlResponse>,
-        points: Option<Res<DevicePoints>>,
-        pixels: Option<Res<DevicePixels>>,
-        hid: Option<Res<HidBroker>>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
-    ) {
-        for request in requests.read() {
-            let result = request.dispatch(
-                points.as_deref(),
-                pixels.as_deref(),
-                hid.as_deref(),
-                device.as_deref(),
-                axe.as_deref(),
-            );
-            responses.write(SimulatorControlResponse {
-                request_id: request.request_id,
-                result,
-            });
-        }
+    fn forget_on_reload(trigger: On<BinReceive<PageReady>>, mut commands: Commands) {
+        commands
+            .entity(trigger.event().webview)
+            .remove::<SimulatorAnnouncement>();
     }
 
     fn handle_screenshot_requests(
         mut requests: MessageReader<SimulatorScreenshotRequest>,
         mut responses: MessageWriter<SimulatorScreenshotResponse>,
-        device: Option<Res<SimulatorDevice>>,
-        axe: Option<Res<Axe>>,
+        active: Res<ActiveSimulatorView>,
+        attachments: Query<(Entity, &SimulatorDevice, &Axe)>,
     ) {
         for request in requests.read() {
-            let result = match (device.as_deref(), axe.as_deref()) {
-                (Some(device), Some(axe)) => {
+            let result = match active.select(attachments.iter().map(|(entity, _, _)| entity)) {
+                Some(entity) => {
+                    let (_, device, axe) = attachments.get(entity).unwrap();
                     SimulatorScreenshot::capture(request.request_id, device, axe)
                 }
-                _ => Err("no iOS Simulator is attached".to_string()),
+                None => Err("no iOS Simulator is attached".to_string()),
             };
             responses.write(SimulatorScreenshotResponse {
                 request_id: request.request_id,
@@ -422,72 +363,18 @@ impl SimulatorPlugin {
     }
 }
 
-impl SimulatorControlRequest {
-    fn dispatch(
-        &self,
-        points: Option<&DevicePoints>,
-        pixels: Option<&DevicePixels>,
-        hid: Option<&HidBroker>,
-        device: Option<&SimulatorDevice>,
-        axe: Option<&Axe>,
-    ) -> Result<String, String> {
-        match &self.action {
-            SimulatorAction::Tap { x, y } => {
-                let coordinates = Self::coordinates(points, pixels)?;
-                let hid = hid.ok_or("simulator input is unavailable")?;
-                hid.dispatch(HidRequest::tap(coordinates.point((*x, *y))));
-                Ok(format!("tapped simulator at ({x}, {y})"))
+impl ActiveSimulatorView {
+    fn select(&self, candidates: impl Iterator<Item = Entity>) -> Option<Entity> {
+        let mut first = None;
+        for entity in candidates {
+            if self.0 == Some(entity) {
+                return Some(entity);
             }
-            SimulatorAction::Swipe {
-                start_x,
-                start_y,
-                end_x,
-                end_y,
-                duration_ms,
-            } => {
-                let coordinates = Self::coordinates(points, pixels)?;
-                let hid = hid.ok_or("simulator input is unavailable")?;
-                let from = coordinates.point((*start_x, *start_y));
-                let to = coordinates.point((*end_x, *end_y));
-                hid.dispatch(HidRequest::swipe(from, to, *duration_ms));
-                Ok(format!(
-                    "swiped simulator from ({start_x}, {start_y}) to ({end_x}, {end_y})"
-                ))
-            }
-            SimulatorAction::TypeText(text) => {
-                let device = device.ok_or("no iOS Simulator is attached")?;
-                let axe = axe.ok_or("simulator input is unavailable")?;
-                DeviceKey::resolve(&SimulatorKey::Text(text.clone()), device).dispatch(axe);
-                Ok("typed text into simulator".to_string())
-            }
-            SimulatorAction::Key(keycode) => {
-                let device = device.ok_or("no iOS Simulator is attached")?;
-                let axe = axe.ok_or("simulator input is unavailable")?;
-                DeviceKey::resolve(&SimulatorKey::Code(u16::from(*keycode)), device).dispatch(axe);
-                Ok(format!("pressed simulator keycode {keycode}"))
-            }
-            SimulatorAction::Button(button) => {
-                let device = device.ok_or("no iOS Simulator is attached")?;
-                let axe = axe.ok_or("simulator input is unavailable")?;
-                let button = match button {
-                    SimulatorButton::Home => HardwareButton::Home,
-                    SimulatorButton::Lock => HardwareButton::Lock,
-                    SimulatorButton::Siri => HardwareButton::Siri,
-                };
-                DeviceKey::resolve(&SimulatorKey::Button(button), device).dispatch(axe);
-                Ok("pressed simulator hardware button".to_string())
+            if first.is_none() {
+                first = Some(entity);
             }
         }
-    }
-
-    fn coordinates(
-        points: Option<&DevicePoints>,
-        pixels: Option<&DevicePixels>,
-    ) -> Result<DeviceCoordinates, String> {
-        let points = points.ok_or("simulator point dimensions are unavailable")?;
-        let pixels = pixels.ok_or("simulator pixel dimensions are unavailable")?;
-        DeviceCoordinates::new((points.0, points.1), (pixels.0, pixels.1))
-            .ok_or_else(|| "simulator dimensions are invalid".to_string())
+        first
     }
 }
 
@@ -513,46 +400,6 @@ impl SimulatorScreenshot {
     }
 }
 
-impl DeviceAttachment {
-    fn is_idle(&self) -> bool {
-        matches!(self.phase, AttachmentPhase::Idle)
-    }
-
-    fn start(&mut self, route: SimulatorRoute, wake: Option<Box<dyn FnOnce() + Send>>) {
-        let result = Arc::new(Mutex::new(None));
-        let worker_result = result.clone();
-        let spawned = std::thread::Builder::new()
-            .name("vmux-simulator-attach".into())
-            .spawn(move || {
-                let attached = AttachedDevice::start(&route);
-                if let Ok(mut result) = worker_result.lock() {
-                    *result = Some(attached);
-                }
-                if let Some(wake) = wake {
-                    wake();
-                }
-            });
-        match spawned {
-            Ok(_) => self.phase = AttachmentPhase::Starting(result),
-            Err(error) => {
-                error!("could not start simulator attachment: {error}");
-                self.phase = AttachmentPhase::Complete;
-            }
-        }
-    }
-
-    fn take(&mut self) -> Option<Result<AttachedDevice, String>> {
-        let ready = match &self.phase {
-            AttachmentPhase::Starting(result) => result.lock().ok()?.take(),
-            AttachmentPhase::Idle | AttachmentPhase::Complete => None,
-        };
-        if ready.is_some() {
-            self.phase = AttachmentPhase::Complete;
-        }
-        ready
-    }
-}
-
 impl AttachedDevice {
     fn start(route: &SimulatorRoute) -> Result<Self, String> {
         let axe = Axe::locate().ok_or_else(|| {
@@ -571,7 +418,7 @@ impl AttachedDevice {
         let pixels = device.pixel_size(&axe);
         let hid = HidBroker::start(&axe, &device)
             .map_err(|error| format!("could not start simulator input: {error}"))?;
-        let server = StreamServer::start(&axe, device.clone(), pixels)
+        let server = StreamServer::start(&axe, device.clone())
             .map_err(|error| format!("could not serve the simulator stream: {error}"))?;
         Ok(Self {
             axe,

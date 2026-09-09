@@ -30,6 +30,7 @@ pub enum BuiltinIcon {
     Zsh,
     Hammer,
     Vault,
+    Smartphone,
 }
 
 impl BuiltinIcon {

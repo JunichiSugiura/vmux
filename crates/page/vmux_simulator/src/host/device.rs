@@ -1,9 +1,9 @@
-use crate::url::IosVersion;
+use crate::url::{IosVersion, SimulatorRoute};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-#[derive(bevy::prelude::Resource)]
+#[derive(bevy::prelude::Component)]
 pub struct Axe {
     path: PathBuf,
 }
@@ -68,7 +68,7 @@ impl Axe {
     }
 }
 
-#[derive(bevy::prelude::Resource, Debug, Clone, PartialEq, Eq)]
+#[derive(bevy::prelude::Component, Debug, Clone, PartialEq, Eq)]
 pub struct SimulatorDevice {
     pub udid: String,
     pub name: String,
@@ -101,6 +101,19 @@ impl SimulatorDevice {
             return Err(format!("no available iOS Simulator{model}{runtime}"));
         };
         device.boot()
+    }
+
+    pub(super) fn matches_route(&self, route: &SimulatorRoute) -> bool {
+        match route {
+            SimulatorRoute::Unpinned => true,
+            SimulatorRoute::Pinned {
+                version,
+                device_name,
+            } => {
+                self.version.as_ref() == Some(version)
+                    && device_name.as_deref().is_none_or(|name| name == self.name)
+            }
+        }
     }
 
     fn listed(
@@ -245,20 +258,6 @@ impl SimulatorDevice {
         fs::read(path).map_err(|error| format!("could not read simulator screenshot: {error}"))
     }
 
-    pub fn set_hardware_keyboard_enabled(&self, enabled: bool) -> Result<(), String> {
-        #[cfg(target_os = "macos")]
-        {
-            super::core_simulator::CoreSimulatorDevice::set_hardware_keyboard_enabled(
-                &self.udid, enabled,
-            )
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = enabled;
-            Err("simulator keyboard control requires macOS".to_string())
-        }
-    }
-
     pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
         if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
             return None;
@@ -378,6 +377,27 @@ mod tests {
             .expect("device");
 
         assert_eq!(device.udid, "PRO");
+    }
+
+    #[test]
+    fn an_attachment_only_answers_for_its_requested_runtime_and_device() {
+        let device = SimulatorDevice::from_simctl_json(TWO_RUNTIMES, None, None).expect("device");
+        let version = IosVersion::parse("27.0").expect("version");
+        let other_version = IosVersion::parse("26.5").expect("version");
+
+        assert!(device.matches_route(&SimulatorRoute::Unpinned));
+        assert!(device.matches_route(&SimulatorRoute::Pinned {
+            version: version.clone(),
+            device_name: None,
+        }));
+        assert!(device.matches_route(&SimulatorRoute::Pinned {
+            version,
+            device_name: Some("iPhone 17 Pro".into()),
+        }));
+        assert!(!device.matches_route(&SimulatorRoute::Pinned {
+            version: other_version,
+            device_name: None,
+        }));
     }
 
     #[test]

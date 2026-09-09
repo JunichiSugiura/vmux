@@ -227,6 +227,22 @@ fn step_host_history(
 }
 
 impl PageManifest {
+    pub fn answers_for(&self, url: &str) -> bool {
+        let Ok(url) = url::Url::parse(url) else {
+            return false;
+        };
+        url.scheme() == "vmux" && url.host_str() == Some(self.host.trim().trim_matches('/'))
+    }
+
+    pub fn metadata_for(&self, url: impl Into<String>) -> crate::PageMetadata {
+        crate::PageMetadata {
+            title: self.title.to_string(),
+            url: url.into(),
+            icon: self.icon.map(crate::PageIcon::Builtin).unwrap_or_default(),
+            bg_color: None,
+        }
+    }
+
     pub fn embedded_host(&self) -> CefEmbeddedHost {
         CefEmbeddedHost {
             host: self.host.to_string(),
@@ -538,6 +554,28 @@ mod tests {
             command_bar: true,
         };
         assert_eq!(manifest.url(), "vmux://settings/");
+    }
+
+    #[test]
+    fn page_manifest_answers_for_its_url_subtree() {
+        let manifest = PageManifest {
+            host: "simulator",
+            title: "Simulator",
+            title_message_id: None,
+            replaces_command: None,
+            keywords: &[],
+            icon: Some(crate::BuiltinIcon::Smartphone),
+            command_bar: true,
+        };
+
+        assert!(manifest.answers_for("vmux://simulator/"));
+        assert!(manifest.answers_for("vmux://simulator/ios/27.0/iPhone%2017%20Pro"));
+        assert!(!manifest.answers_for("vmux://simulators/"));
+        assert!(!manifest.answers_for("https://simulator/"));
+        assert_eq!(
+            manifest.metadata_for("vmux://simulator/ios/27.0").icon,
+            crate::PageIcon::Builtin(crate::BuiltinIcon::Smartphone)
+        );
     }
 
     #[test]

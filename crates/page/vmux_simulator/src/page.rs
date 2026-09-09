@@ -2,7 +2,8 @@
 
 use crate::event::{
     HardwareButton, SIMULATOR_READY_EVENT, SimulatorClipboard, SimulatorClipboardAction,
-    SimulatorKey, SimulatorReady, SimulatorSoftwareKeyboard, SimulatorTouch, SimulatorTouchPhase,
+    SimulatorKey, SimulatorKeyModifiers, SimulatorReady, SimulatorSoftwareKeyboard, SimulatorTouch,
+    SimulatorTouchPhase,
 };
 use crate::url::SimulatorRoute;
 use dioxus::html::geometry::ClientPoint;
@@ -10,7 +11,7 @@ use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use std::rc::Rc;
 use vmux_ui::hooks::{send, use_event, use_theme};
-use vmux_ui::i18n::translate;
+use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::platform::sleep_ms;
 
 #[component]
@@ -26,14 +27,18 @@ pub fn Page() -> Element {
             if announced.port == 0 {
                 Waiting { route }
             } else {
-                Mirror { port: announced.port, device_name: announced.device_name.clone() }
+                Mirror {
+                    port: announced.port,
+                    capability: announced.capability.clone(),
+                    device_name: announced.device_name.clone(),
+                }
             }
         }
     }
 }
 
 #[component]
-fn Mirror(port: u16, device_name: String) -> Element {
+fn Mirror(port: u16, capability: String, device_name: String) -> Element {
     let mut press = use_signal(|| None::<PointerSession>);
     let mut image_size = use_signal(|| None::<(f64, f64)>);
     let mut home_progress = use_signal(|| 0.0f32);
@@ -130,26 +135,6 @@ fn Mirror(port: u16, device_name: String) -> Element {
             div { class: "pointer-events-none absolute left-5 top-4 text-sm font-medium text-zinc-300",
                 "{device_name}"
             }
-            button {
-                r#type: "button",
-                aria_label: translate("simulator-keyboard"),
-                title: format!("{} (⌘K)", translate("simulator-keyboard")),
-                class: "absolute right-5 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-100 active:bg-white/15",
-                onclick: move |_| {
-                    let _ = send(&SimulatorSoftwareKeyboard);
-                },
-                svg {
-                    class: "h-4 w-4",
-                    view_box: "0 0 24 24",
-                    fill: "none",
-                    stroke: "currentColor",
-                    stroke_width: "1.8",
-                    stroke_linecap: "round",
-                    stroke_linejoin: "round",
-                    rect { x: "3", y: "5", width: "18", height: "14", rx: "2" }
-                    path { d: "M7 9h.01M11 9h.01M15 9h.01M19 9h.01M7 13h.01M11 13h.01M15 13h.01M19 13h.01M8 17h8" }
-                }
-            }
             div { class: "relative rounded-[3.25rem] bg-gradient-to-b from-zinc-700 via-zinc-950 to-black p-[7px] shadow-[0_28px_80px_rgba(0,0,0,0.65)] ring-1 ring-white/20",
                 div { class: "absolute -left-[3px] top-28 h-16 w-[3px] rounded-l bg-zinc-700" }
                 div { class: "absolute -left-[3px] top-48 h-24 w-[3px] rounded-l bg-zinc-700" }
@@ -159,7 +144,7 @@ fn Mirror(port: u16, device_name: String) -> Element {
                         class: "block h-auto max-h-[calc(100vh-5rem)] max-w-[calc(100vw-5rem)] cursor-grab touch-none select-none active:cursor-grabbing",
                         style: image_style,
                         draggable: false,
-                        src: "http://127.0.0.1:{port}/",
+                        src: "http://127.0.0.1:{port}/{capability}",
                         onresize: move |event: Event<ResizeData>| {
                             let Ok(size) = event.get_border_box_size() else {
                                 return;
@@ -228,18 +213,32 @@ impl Keystroke {
     fn of(event: &Event<KeyboardData>) -> Option<SimulatorKey> {
         let modifiers = event.modifiers();
         let key = event.key().to_string();
-        if modifiers.meta() && !modifiers.ctrl() && !modifiers.alt() {
+        if modifiers.meta() && !modifiers.ctrl() && !modifiers.alt() && !modifiers.shift() {
             return match key.to_ascii_lowercase().as_str() {
                 "h" => Some(SimulatorKey::Button(HardwareButton::Home)),
                 "l" => Some(SimulatorKey::Button(HardwareButton::Lock)),
                 "s" => Some(SimulatorKey::Button(HardwareButton::Siri)),
-                _ => None,
+                _ => SimulatorKey::modified_browser_code(
+                    &event.code().to_string(),
+                    Self::modifiers(event),
+                ),
             };
         }
-        if modifiers.meta() || modifiers.ctrl() || modifiers.alt() {
-            return None;
+        let modifiers = Self::modifiers(event);
+        if !modifiers.is_empty() {
+            return SimulatorKey::modified_browser_code(&event.code().to_string(), modifiers);
         }
         SimulatorKey::of_browser_key(&key)
+    }
+
+    fn modifiers(event: &Event<KeyboardData>) -> SimulatorKeyModifiers {
+        let modifiers = event.modifiers();
+        SimulatorKeyModifiers {
+            control: modifiers.ctrl(),
+            shift: modifiers.shift(),
+            alt: modifiers.alt(),
+            meta: modifiers.meta(),
+        }
     }
 }
 
@@ -249,8 +248,17 @@ fn Waiting(route: Option<SimulatorRoute>) -> Element {
         Some(SimulatorRoute::Pinned {
             version,
             device_name: Some(device_name),
-        }) => format!("{device_name} · iOS {version}"),
-        Some(SimulatorRoute::Pinned { version, .. }) => format!("iOS {version}"),
+        }) => translate_with(
+            "simulator-waiting-device",
+            &[
+                ("device", TranslationValue::String(&device_name)),
+                ("version", TranslationValue::String(version.as_str())),
+            ],
+        ),
+        Some(SimulatorRoute::Pinned { version, .. }) => translate_with(
+            "simulator-waiting-version",
+            &[("version", TranslationValue::String(version.as_str()))],
+        ),
         _ => translate("common-loading"),
     };
     rsx! {

@@ -4,6 +4,9 @@ use bevy_cef::prelude::early_exit_if_subprocess;
 use vmux_desktop::VmuxPlugin;
 
 fn main() {
+    #[cfg(target_os = "macos")]
+    vmux_simulator::SimulatorPlugin::exit_helper_if_requested();
+
     vmux_desktop::panic_hook::install();
 
     #[cfg(not(target_os = "macos"))]

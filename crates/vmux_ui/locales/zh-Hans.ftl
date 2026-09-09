@@ -168,7 +168,8 @@ spaces-delete = 删除工作区
 
 team-title = 团队
 simulator-title = 模拟器
-simulator-keyboard = 键盘
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = 此工作区中只有你
 team-agents = { $count ->
     [one] 你和 1 个 Agent

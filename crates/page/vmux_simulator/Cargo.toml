@@ -16,6 +16,7 @@ path = "src/lib.rs"
 percent-encoding = "2"
 rkyv = { workspace = true }
 serde = { workspace = true }
+uuid = { workspace = true }
 vmux_core = { path = "../../vmux_core" }
 vmux_wire = { path = "../../vmux_wire" }
 
@@ -23,7 +24,6 @@ vmux_wire = { path = "../../vmux_wire" }
 bevy = { workspace = true }
 bevy_cef = { workspace = true }
 bevy_ecs = { workspace = true }
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 libc = "0.2"
 serde_json = { workspace = true }
 

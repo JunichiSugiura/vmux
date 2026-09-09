@@ -168,7 +168,8 @@ spaces-delete = حذف مساحة العمل
 
 team-title = الفريق
 simulator-title = المحاكي
-simulator-keyboard = لوحة المفاتيح
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = أنت وحدك في مساحة العمل هذه
 team-agents = { $count ->
     [one] أنت ووكيل واحد

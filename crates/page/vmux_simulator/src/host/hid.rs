@@ -12,7 +12,7 @@ use std::process::Stdio;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-#[derive(Resource)]
+#[derive(Component)]
 pub struct HidBroker {
     sender: Sender<HidRequest>,
 }

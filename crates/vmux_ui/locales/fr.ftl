@@ -168,7 +168,8 @@ spaces-delete = Supprimer l’espace
 
 team-title = Équipe
 simulator-title = Simulateur
-simulator-keyboard = Clavier
+simulator-waiting-device = { $device } · iOS { $version }
+simulator-waiting-version = iOS { $version }
 team-just-you = Vous êtes seul dans cet espace
 team-agents = { $count ->
     [one] Vous et 1 agent

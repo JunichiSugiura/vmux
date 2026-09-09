@@ -5,6 +5,7 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_cef::prelude::{BinEventEmitterPlugin, BinReceive};
 use vmux_command::{AppCommand, BookmarkCommand, BrowserCommand, OpenCommand, ReadAppCommands};
+use vmux_core::host::page::PageManifest;
 use vmux_core::{
     Bookmark, BookmarkOrder, Collapsed, Folder, LastActivatedAt, PageMetadata, Pin, Uuid,
 };
@@ -425,8 +426,16 @@ fn sync_bookmark_metadata(
             Without<Pin>,
         ),
     >,
-    mut bookmarks: Query<&mut PageMetadata, (Or<(With<Bookmark>, With<Pin>)>, Without<Stack>)>,
+    manifests: Query<Ref<PageManifest>>,
+    bookmarks: Query<
+        (Entity, Ref<PageMetadata>),
+        (Or<(With<Bookmark>, With<Pin>)>, Without<Stack>),
+    >,
+    mut commands: Commands,
 ) {
+    let manifests_changed = manifests
+        .iter()
+        .any(|manifest| manifest.is_added() || manifest.is_changed());
     let mut metadata_by_url = std::collections::HashMap::new();
     for page in &pages {
         if page.url.is_empty() {
@@ -434,15 +443,42 @@ fn sync_bookmark_metadata(
         }
         metadata_by_url.insert(page.url.clone(), page.clone());
     }
-    for mut bookmark in &mut bookmarks {
-        let Some(page) = metadata_by_url.get(&bookmark.url) else {
+    for (entity, bookmark) in &bookmarks {
+        let mut metadata = PageMetadata::clone(&bookmark);
+        if let Some(page) = metadata_by_url.get(&bookmark.url) {
+            if bookmark.title == bookmark.url && !page.title.is_empty() {
+                metadata.title.clone_from(&page.title);
+            }
+            if !page.icon.is_none() && bookmark.icon != page.icon {
+                metadata.icon.clone_from(&page.icon);
+            }
+        }
+        if !manifests_changed
+            && !bookmark.is_added()
+            && !bookmark.is_changed()
+            && metadata == *bookmark
+        {
+            continue;
+        }
+        let Some(manifest) = manifests
+            .iter()
+            .find(|manifest| manifest.answers_for(&metadata.url))
+        else {
+            if metadata != *bookmark {
+                commands.entity(entity).insert(metadata);
+            }
             continue;
         };
-        if bookmark.title == bookmark.url && !page.title.is_empty() {
-            bookmark.title.clone_from(&page.title);
+        if metadata.title == metadata.url {
+            metadata.title = manifest.title.to_string();
         }
-        if !page.icon.is_none() && bookmark.icon != page.icon {
-            bookmark.icon.clone_from(&page.icon);
+        if let Some(icon) = manifest.icon
+            && metadata.icon != vmux_core::PageIcon::Builtin(icon)
+        {
+            metadata.icon = vmux_core::PageIcon::Builtin(icon);
+        }
+        if metadata != *bookmark {
+            commands.entity(entity).insert(metadata);
         }
     }
 }
@@ -919,6 +955,41 @@ mod tests {
         assert_eq!(
             metadata.icon,
             PageIcon::Favicon("vmux://history/assets/favicons/history.svg".into())
+        );
+    }
+
+    #[test]
+    fn manifest_fills_seeded_internal_bookmark_metadata() {
+        let mut app = test_app();
+        let bookmark = app
+            .world_mut()
+            .spawn((
+                Pin,
+                PageMetadata {
+                    title: "vmux://simulator/".into(),
+                    url: "vmux://simulator/".into(),
+                    icon: PageIcon::None,
+                    bg_color: None,
+                },
+            ))
+            .id();
+        app.world_mut().spawn(PageManifest {
+            host: "simulator",
+            title: "Simulator",
+            title_message_id: None,
+            replaces_command: None,
+            keywords: &[],
+            icon: Some(vmux_core::BuiltinIcon::Smartphone),
+            command_bar: true,
+        });
+
+        app.update();
+
+        let metadata = app.world().get::<PageMetadata>(bookmark).unwrap();
+        assert_eq!(metadata.title, "Simulator");
+        assert_eq!(
+            metadata.icon,
+            PageIcon::Builtin(vmux_core::BuiltinIcon::Smartphone)
         );
     }
 

@@ -570,7 +570,7 @@ pub(crate) fn rebuild_space_views(
         if !has_browser {
             if let Some(page) = PageUrl::of(&meta.url).hosted_by(&native_pages) {
                 commands.spawn((
-                    vmux_layout::cef::Browser::native_page(page.url, page.title),
+                    vmux_layout::cef::Browser::native_page(&meta.url, page.title),
                     ChildOf(entity),
                 ));
             } else if meta

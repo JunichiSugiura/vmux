@@ -16,23 +16,22 @@ pub(crate) struct NativeKeyboardPlugin;
 
 impl Plugin for NativeKeyboardPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<vmux_simulator::HardwareButtonRequest>()
-            .add_message::<vmux_simulator::SimulatorClipboardRequest>()
-            .add_message::<vmux_simulator::SimulatorSoftwareKeyboardRequest>()
-            .add_systems(
-                Startup,
-                install_native_key_monitor.after(crate::shortcut::init_shortcuts),
-            )
-            .add_systems(
-                Update,
-                sync_simulator_shortcuts.after(vmux_layout::stack::ComputeFocusSet),
-            )
-            .add_systems(
-                Update,
-                process_monitored_keys
-                    .in_set(vmux_command::WriteAppCommands)
-                    .before(vmux_simulator::SimulatorInputSet),
-            );
+        app.add_systems(
+            Startup,
+            install_native_key_monitor.after(crate::shortcut::init_shortcuts),
+        )
+        .add_systems(
+            Update,
+            sync_simulator_shortcuts
+                .after(vmux_layout::stack::ComputeFocusSet)
+                .before(vmux_simulator::SimulatorFocusSet),
+        )
+        .add_systems(
+            Update,
+            process_monitored_keys
+                .in_set(vmux_command::WriteAppCommands)
+                .before(vmux_simulator::SimulatorInputSet),
+        );
     }
 }
 
@@ -353,23 +352,34 @@ fn install_native_key_monitor(proxy: Option<Res<EventLoopProxyWrapper>>) {
 
 fn sync_simulator_shortcuts(
     focus: Option<Res<vmux_layout::stack::FocusedStack>>,
+    children: Query<&Children>,
     pages: Query<&vmux_core::PageMetadata>,
+    mut requests: Option<ResMut<Messages<vmux_simulator::SimulatorFocusRequest>>>,
 ) {
     let active = focus
         .as_deref()
         .and_then(|focus| focus.stack)
-        .and_then(|stack| pages.get(stack).ok())
-        .is_some_and(|metadata| {
-            vmux_simulator::url::SimulatorRoute::of_url(&metadata.url).is_some()
+        .and_then(|stack| children.get(stack).ok())
+        .and_then(|children| {
+            children.iter().find(|entity| {
+                pages.get(*entity).is_ok_and(|metadata| {
+                    vmux_simulator::url::SimulatorRoute::of_url(&metadata.url).is_some()
+                })
+            })
         });
-    SIMULATOR_ACTIVE.store(active, Ordering::Relaxed);
+    SIMULATOR_ACTIVE.store(active.is_some(), Ordering::Relaxed);
+    if let Some(requests) = requests.as_mut() {
+        requests.write(vmux_simulator::SimulatorFocusRequest(active));
+    }
 }
 
 fn process_monitored_keys(
     mut issuer: vmux_command::CommandIssuer,
-    mut simulator_buttons: MessageWriter<vmux_simulator::HardwareButtonRequest>,
-    mut simulator_clipboard: MessageWriter<vmux_simulator::SimulatorClipboardRequest>,
-    mut simulator_keyboard: MessageWriter<vmux_simulator::SimulatorSoftwareKeyboardRequest>,
+    mut simulator_buttons: Option<ResMut<Messages<vmux_simulator::HardwareButtonRequest>>>,
+    mut simulator_clipboard: Option<ResMut<Messages<vmux_simulator::SimulatorClipboardRequest>>>,
+    mut simulator_keyboard: Option<
+        ResMut<Messages<vmux_simulator::SimulatorSoftwareKeyboardRequest>>,
+    >,
     user: Query<Entity, With<vmux_core::team::User>>,
 ) {
     let commands = {
@@ -392,14 +402,22 @@ fn process_monitored_keys(
     for cmd in commands {
         issuer.issue(caller, cmd);
     }
-    for button in buttons {
-        simulator_buttons.write(vmux_simulator::HardwareButtonRequest(button));
+    if let Some(simulator_buttons) = simulator_buttons.as_mut() {
+        for button in buttons {
+            simulator_buttons.write(vmux_simulator::HardwareButtonRequest { view: None, button });
+        }
     }
-    for action in clipboard {
-        simulator_clipboard.write(vmux_simulator::SimulatorClipboardRequest(action));
+    if let Some(simulator_clipboard) = simulator_clipboard.as_mut() {
+        for action in clipboard {
+            simulator_clipboard
+                .write(vmux_simulator::SimulatorClipboardRequest { view: None, action });
+        }
     }
-    for _ in 0..toggle_keyboard {
-        simulator_keyboard.write(vmux_simulator::SimulatorSoftwareKeyboardRequest);
+    if let Some(simulator_keyboard) = simulator_keyboard.as_mut() {
+        for _ in 0..toggle_keyboard {
+            simulator_keyboard
+                .write(vmux_simulator::SimulatorSoftwareKeyboardRequest { view: None });
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use vmux_core::host::page::PageManifest;
 use vmux_core::{PageMetadata, PageOpenError, PageOpenHandled, PageOpenSet, PageOpenTask};
 
 use vmux_core::host::page::NativelyHosted;
@@ -57,7 +58,7 @@ impl Plugin for NativeOpenPlugin {
 type PendingPageOpen = (Without<PageOpenHandled>, Without<PageOpenError>);
 
 fn handle_native_page_open(
-    pages: Query<&NativelyHosted>,
+    pages: Query<(&NativelyHosted, Option<&PageManifest>)>,
     tasks: Query<(Entity, &PageOpenTask), PendingPageOpen>,
     children_q: Query<&Children>,
     mut commands: Commands,
@@ -65,16 +66,21 @@ fn handle_native_page_open(
     let mut opened = std::collections::HashSet::new();
 
     for (task_entity, task) in &tasks {
-        let Some(page) = pages.iter().find(|page| page.answers_for(&task.url)) else {
+        let Some((page, manifest)) = pages.iter().find(|(page, _)| page.answers_for(&task.url))
+        else {
             continue;
         };
         if opened.insert(task.stack) {
             clear_stack_children(task.stack, &children_q, &mut commands);
-            commands.entity(task.stack).insert(PageMetadata {
-                url: page.url.to_string(),
-                title: page.title.to_string(),
-                ..default()
-            });
+            let metadata = manifest.map_or_else(
+                || PageMetadata {
+                    url: task.url.clone(),
+                    title: page.title.to_string(),
+                    ..default()
+                },
+                |manifest| manifest.metadata_for(&task.url),
+            );
+            commands.entity(task.stack).insert(metadata);
             commands.spawn((
                 Browser::native_page(&task.url, page.title),
                 ChildOf(task.stack),
@@ -86,6 +92,9 @@ fn handle_native_page_open(
 
 #[cfg(test)]
 mod tests {
+    use vmux_core::{BuiltinIcon, PageIcon, PageOpenId};
+
+    use super::*;
     use vmux_core::host::page::NativelyHosted;
 
     #[test]
@@ -110,5 +119,38 @@ mod tests {
 
         assert!(page.answers_for("vmux://debug/panel"));
         assert!(!page.answers_for("vmux://debugger/"));
+    }
+
+    #[test]
+    fn page_manifest_icon_reaches_opened_stack() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_systems(Update, handle_native_page_open);
+        app.world_mut().spawn((
+            NativelyHosted::subtree("vmux://simulator/", "Simulator"),
+            PageManifest {
+                host: "simulator",
+                title: "Simulator",
+                title_message_id: None,
+                replaces_command: None,
+                keywords: &[],
+                icon: Some(BuiltinIcon::Smartphone),
+                command_bar: true,
+            },
+        ));
+        let stack = app.world_mut().spawn_empty().id();
+        app.world_mut().spawn(PageOpenTask {
+            id: PageOpenId::new(),
+            stack,
+            url: "vmux://simulator/ios/27.0/iPhone%2017%20Pro".into(),
+            request_id: None,
+        });
+
+        app.update();
+
+        let metadata = app.world().get::<PageMetadata>(stack).unwrap();
+        assert_eq!(metadata.title, "Simulator");
+        assert_eq!(metadata.icon, PageIcon::Builtin(BuiltinIcon::Smartphone));
+        assert_eq!(metadata.url, "vmux://simulator/ios/27.0/iPhone%2017%20Pro");
     }
 }

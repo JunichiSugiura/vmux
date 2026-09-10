@@ -34,6 +34,7 @@ pub enum BuiltinIcon {
     Vault,
     Smartphone,
     Keyboard,
+    GitBranch,
 }
 
 impl BuiltinIcon {

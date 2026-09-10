@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } Tabs
 }
 spaces-delete = Space löschen
-cheatsheet-title = Tastenkürzel
-cheatsheet-count = { $count } Tastenkürzel
-cheatsheet-search = Tastenkürzel filtern…
-cheatsheet-empty = Keine passenden Tastenkürzel
-cheatsheet-general = Allgemein
+shortcuts-title = Tastenkürzel
+shortcuts-count = { $count } Tastenkürzel
+shortcuts-search = Tastenkürzel filtern…
+shortcuts-empty = Keine passenden Tastenkürzel
+shortcuts-general = Allgemein
+shortcuts-try-title = Tastenkürzel ausprobieren
+shortcuts-try-hint = Beliebiges Tastenkürzel drücken
+shortcuts-waiting = Warten auf die nächste Taste…
+shortcuts-triggered = Führt aus: { $action }
+shortcuts-no-match = Kein Tastenkürzel passt zu diesen Tasten
+shortcuts-clear = Zurücksetzen
 
 team-title = Team
 simulator-title = Simulator

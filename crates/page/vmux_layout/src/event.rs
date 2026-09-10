@@ -377,6 +377,7 @@ mod tests {
             command: "switch-tab".into(),
             tab_id: Some("work".into()),
             target_tab_id: Some("home".into()),
+            drop_placement: Some(TabDropPlacement::Before),
         };
         let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&original).expect("ser");
         let recovered =
@@ -384,6 +385,15 @@ mod tests {
         assert_eq!(recovered.command, "switch-tab");
         assert_eq!(recovered.tab_id.as_deref(), Some("work"));
         assert_eq!(recovered.target_tab_id.as_deref(), Some("home"));
+        assert_eq!(recovered.drop_placement, Some(TabDropPlacement::Before));
+    }
+
+    #[test]
+    fn tab_drop_placement_stays_relative_when_the_source_is_removed() {
+        assert_eq!(TabDropPlacement::Before.destination(0, 2, 3), 1);
+        assert_eq!(TabDropPlacement::After.destination(2, 0, 3), 1);
+        assert_eq!(TabDropPlacement::Before.destination(2, 0, 3), 0);
+        assert_eq!(TabDropPlacement::After.destination(0, 2, 3), 2);
     }
 }
 #[derive(
@@ -562,6 +572,37 @@ pub struct TabsCommandEvent {
     pub tab_id: Option<String>,
     #[serde(default)]
     pub target_tab_id: Option<String>,
+    #[serde(default)]
+    pub drop_placement: Option<TabDropPlacement>,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub enum TabDropPlacement {
+    Before,
+    After,
+}
+
+impl TabDropPlacement {
+    pub fn destination(self, from: usize, target: usize, len: usize) -> usize {
+        let destination = match self {
+            Self::Before if from < target => target.saturating_sub(1),
+            Self::Before => target,
+            Self::After if from < target => target,
+            Self::After => target.saturating_add(1),
+        };
+        destination.min(len.saturating_sub(1))
+    }
 }
 
 #[derive(

@@ -24,6 +24,7 @@ impl Plugin for BookmarkPersistencePlugin {
                 PostUpdate,
                 (
                     migrate_legacy_bookmark_order,
+                    migrate_shortcut_bookmark_aliases,
                     mark_bookmarks_dirty,
                     autosave_bookmarks,
                 )
@@ -200,6 +201,9 @@ impl<'a> BookmarkDefaults<'a> {
     }
 
     fn key(url: &str) -> String {
+        if let Some(canonical) = vmux_shortcut::ShortcutUrl::canonical(url) {
+            return canonical.trim_end_matches('/').to_ascii_lowercase();
+        }
         url.trim().trim_end_matches('/').to_ascii_lowercase()
     }
 
@@ -337,6 +341,104 @@ fn migrate_legacy_bookmark_order(
             .insert(BookmarkOrder(order.0))
             .remove::<Order>()
             .remove::<Save>();
+    }
+}
+
+fn migrate_shortcut_bookmark_aliases(
+    items: Query<
+        (
+            Entity,
+            &PageMetadata,
+            Has<Pin>,
+            Has<Bookmark>,
+            Option<&ChildOf>,
+            Option<&BookmarkOrder>,
+        ),
+        Or<(With<Pin>, With<Bookmark>)>,
+    >,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
+    let mut changed = false;
+    let mut seen = HashSet::new();
+    let mut normalized_urls = Vec::new();
+    for url in &offered.urls {
+        let normalized = vmux_shortcut::ShortcutUrl::canonical(url)
+            .unwrap_or(url)
+            .to_string();
+        if seen.insert(BookmarkDefaults::key(&normalized)) {
+            normalized_urls.push(normalized);
+        }
+    }
+    if offered.urls != normalized_urls {
+        offered.urls = normalized_urls;
+        changed = true;
+    }
+
+    let mut aliases = items
+        .iter()
+        .filter(|(_, metadata, _, _, _, _)| {
+            vmux_shortcut::ShortcutUrl::canonical(&metadata.url).is_some()
+        })
+        .map(|(entity, metadata, pinned, bookmarked, parent, order)| {
+            (
+                entity,
+                metadata.clone(),
+                pinned,
+                bookmarked,
+                parent.map(ChildOf::parent),
+                order.map_or(u32::MAX, |order| order.0),
+            )
+        })
+        .collect::<Vec<_>>();
+    aliases.sort_by_key(|(entity, _, _, _, _, order)| (*order, entity.to_bits()));
+    let Some((survivor, mut metadata, survivor_pinned, survivor_bookmarked, survivor_parent, _)) =
+        aliases.first().cloned()
+    else {
+        if changed {
+            auto.dirty = true;
+        }
+        return;
+    };
+    let original_metadata = metadata.clone();
+    let original_url = metadata.url.clone();
+    if metadata.title.trim() == original_url.trim() {
+        metadata.title = vmux_shortcut::PAGE_URL.to_string();
+    }
+    if metadata.url != vmux_shortcut::PAGE_URL {
+        metadata.url = vmux_shortcut::PAGE_URL.to_string();
+    }
+    let pinned = aliases.iter().any(|(_, _, pinned, _, _, _)| *pinned);
+    let bookmarked = aliases
+        .iter()
+        .any(|(_, _, _, bookmarked, _, _)| *bookmarked);
+    let parent = aliases.iter().find_map(|(_, _, _, _, parent, _)| *parent);
+    let mut survivor_commands = commands.entity(survivor);
+    if metadata != original_metadata {
+        survivor_commands.insert(metadata);
+        changed = true;
+    }
+    if pinned && !survivor_pinned {
+        survivor_commands.insert(Pin);
+        changed = true;
+    }
+    if bookmarked && !survivor_bookmarked {
+        survivor_commands.insert(Bookmark);
+        changed = true;
+    }
+    if parent != survivor_parent
+        && let Some(parent) = parent
+    {
+        survivor_commands.insert(ChildOf(parent));
+        changed = true;
+    }
+    for (entity, _, _, _, _, _) in aliases.into_iter().skip(1) {
+        commands.entity(entity).despawn();
+        changed = true;
+    }
+    if changed {
+        auto.dirty = true;
     }
 }
 
@@ -510,6 +612,62 @@ mod tests {
 
         assert_eq!(offered.claim_new_urls(&defaults), defaults);
         assert!(offered.claim_new_urls(&defaults).is_empty());
+    }
+
+    #[test]
+    fn shortcut_alias_bookmarks_migrate_to_one_canonical_entry() {
+        let mut app = App::new();
+        app.insert_resource(OfferedBookmarkDefaults {
+            urls: vec!["vmux://cheatsheet/".into(), vmux_shortcut::PAGE_URL.into()],
+            ..default()
+        })
+        .init_resource::<BookmarkAutoSave>()
+        .add_systems(Update, migrate_shortcut_bookmark_aliases);
+        let survivor = app
+            .world_mut()
+            .spawn((
+                Pin,
+                PageMetadata {
+                    title: "vmux://cheatsheet/".into(),
+                    url: "vmux://cheatsheet/".into(),
+                    ..default()
+                },
+                BookmarkOrder(2),
+            ))
+            .id();
+        let duplicate = app
+            .world_mut()
+            .spawn((
+                Bookmark,
+                PageMetadata {
+                    title: "Keyboard Shortcuts".into(),
+                    url: vmux_shortcut::PAGE_URL.into(),
+                    ..default()
+                },
+                BookmarkOrder(8),
+            ))
+            .id();
+
+        app.update();
+
+        let entity = app.world().entity(survivor);
+        assert!(entity.contains::<Pin>());
+        assert!(entity.contains::<Bookmark>());
+        assert_eq!(
+            entity.get::<PageMetadata>().unwrap().url,
+            vmux_shortcut::PAGE_URL
+        );
+        assert!(app.world().get_entity(duplicate).is_err());
+        assert_eq!(
+            app.world().resource::<OfferedBookmarkDefaults>().urls,
+            [vmux_shortcut::PAGE_URL]
+        );
+        assert!(app.world().resource::<BookmarkAutoSave>().dirty);
+
+        app.world_mut().resource_mut::<BookmarkAutoSave>().dirty = false;
+        app.update();
+
+        assert!(!app.world().resource::<BookmarkAutoSave>().dirty);
     }
 
     #[test]

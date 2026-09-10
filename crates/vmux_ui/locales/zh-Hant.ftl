@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } 個分頁
 }
 spaces-delete = 刪除工作區
-cheatsheet-title = 鍵盤快速鍵
-cheatsheet-count = { $count } 個快速鍵
-cheatsheet-search = 篩選快速鍵…
-cheatsheet-empty = 沒有符合的快速鍵
-cheatsheet-general = 一般
+shortcuts-title = 鍵盤快速鍵
+shortcuts-count = { $count } 個快速鍵
+shortcuts-search = 篩選快速鍵…
+shortcuts-empty = 沒有符合的快速鍵
+shortcuts-general = 一般
+shortcuts-try-title = 試用快速鍵
+shortcuts-try-hint = 按下任意快速鍵
+shortcuts-waiting = 正在等待下一個按鍵…
+shortcuts-triggered = 執行：{ $action }
+shortcuts-no-match = 沒有快速鍵符合這些按鍵
+shortcuts-clear = 重設
 
 team-title = 團隊
 simulator-title = 模擬器

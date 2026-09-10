@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } abas
 }
 spaces-delete = Excluir espaço
-cheatsheet-title = Atalhos de teclado
-cheatsheet-count = { $count } atalhos
-cheatsheet-search = Filtrar atalhos…
-cheatsheet-empty = Nenhum atalho correspondente
-cheatsheet-general = Geral
+shortcuts-title = Atalhos de teclado
+shortcuts-count = { $count } atalhos
+shortcuts-search = Filtrar atalhos…
+shortcuts-empty = Nenhum atalho correspondente
+shortcuts-general = Geral
+shortcuts-try-title = Testar um atalho
+shortcuts-try-hint = Pressione qualquer atalho
+shortcuts-waiting = Aguardando a próxima tecla…
+shortcuts-triggered = Executa: { $action }
+shortcuts-no-match = Nenhum atalho corresponde a essas teclas
+shortcuts-clear = Redefinir
 
 team-title = Equipe
 simulator-title = Simulador

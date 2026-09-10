@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] 탭 { $count }개
 }
 spaces-delete = 스페이스 삭제
-cheatsheet-title = 키보드 단축키
-cheatsheet-count = 단축키 { $count }개
-cheatsheet-search = 단축키 필터링…
-cheatsheet-empty = 일치하는 단축키 없음
-cheatsheet-general = 일반
+shortcuts-title = 키보드 단축키
+shortcuts-count = 단축키 { $count }개
+shortcuts-search = 단축키 필터링…
+shortcuts-empty = 일치하는 단축키 없음
+shortcuts-general = 일반
+shortcuts-try-title = 단축키 시험하기
+shortcuts-try-hint = 아무 단축키나 누르세요
+shortcuts-waiting = 다음 키를 기다리는 중…
+shortcuts-triggered = 실행: { $action }
+shortcuts-no-match = 이 키와 일치하는 단축키가 없습니다
+shortcuts-clear = 초기화
 
 team-title = 팀
 simulator-title = 시뮬레이터

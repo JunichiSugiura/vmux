@@ -206,9 +206,9 @@ fn SpaceRowView(space: SpaceRow, selected: bool, deletable: bool) -> Element {
     let delete_id = space.id.clone();
     let rename_id = space.id.clone();
     let class = if selected {
-        "flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-cyan-400/40 bg-cyan-400/[0.08] px-3 py-3 shadow-[0_0_18px_-6px_rgba(34,211,238,0.5)]"
+        "flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-primary/40 bg-primary/[0.08] px-3 py-3 shadow-[0_0_18px_-6px_color-mix(in_oklab,var(--primary)_50%,transparent)]"
     } else {
-        "glass flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-3 transition-colors hover:border-cyan-400/40 hover:bg-glass-hover"
+        "glass flex min-h-24 cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-3 transition-colors hover:border-primary/40 hover:bg-glass-hover"
     };
     let tab_label = translate_with(
         "spaces-tabs",
@@ -228,7 +228,7 @@ fn SpaceRowView(space: SpaceRow, selected: bool, deletable: bool) -> Element {
                             if editing() {
                                 InlineEdit {
                                     draft,
-                                    class: "min-w-0 flex-1 rounded-md bg-background/70 px-2 py-1 text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-cyan-400/40".to_string(),
+                                    class: "min-w-0 flex-1 rounded-md bg-background/70 px-2 py-1 text-sm font-medium text-foreground outline-none ring-1 ring-inset ring-primary/40".to_string(),
                                     placeholder: translate("spaces-new-placeholder"),
                                     on_commit: move |name| {
                                         editing.set(false);

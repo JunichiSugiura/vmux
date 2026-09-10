@@ -132,6 +132,18 @@ impl KeymapView<'_> {
             })
     }
 
+    pub fn resolves(&self, shortcut: &Shortcut, command: &str) -> bool {
+        self.applicable()
+            .find_map(|binding| {
+                if &binding.shortcut != shortcut {
+                    return None;
+                }
+                AppCommand::from_shortcut_id(&binding.command)
+                    .map(|_| binding.command.as_str() == command)
+            })
+            .unwrap_or(false)
+    }
+
     pub fn claims(&self) -> KeyClaims {
         let mut keys: Vec<ClaimedKey> = Vec::new();
         for binding in self.applicable() {
@@ -214,6 +226,21 @@ impl When {
     }
 }
 
+impl std::fmt::Display for When {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (index, term) in self.0.iter().enumerate() {
+            if index > 0 {
+                formatter.write_str(" && ")?;
+            }
+            if term.negated {
+                formatter.write_str("!")?;
+            }
+            formatter.write_str(&term.key)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Component, Debug, Clone, Default, PartialEq, Eq)]
 pub struct KeyContext(std::collections::BTreeSet<String>);
 
@@ -282,6 +309,14 @@ impl KeyCombo {
         }
         label.push_str(&key_label(self.key));
         label
+    }
+
+    pub fn code(&self) -> String {
+        self.web_code()
+    }
+
+    pub fn key_label(&self) -> String {
+        key_label(self.key)
     }
 
     pub fn of(stroke: &vmux_core::input::KeyStroke) -> Option<Self> {

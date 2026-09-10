@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } вкладок
 }
 spaces-delete = Видалити простір
-cheatsheet-title = Комбінації клавіш
-cheatsheet-count = Комбінацій: { $count }
-cheatsheet-search = Фільтрувати комбінації…
-cheatsheet-empty = Немає відповідних комбінацій
-cheatsheet-general = Загальні
+shortcuts-title = Комбінації клавіш
+shortcuts-count = Комбінацій: { $count }
+shortcuts-search = Фільтрувати комбінації…
+shortcuts-empty = Немає відповідних комбінацій
+shortcuts-general = Загальні
+shortcuts-try-title = Перевірити комбінацію
+shortcuts-try-hint = Натисніть будь-яке сполучення клавіш
+shortcuts-waiting = Очікування наступної клавіші…
+shortcuts-triggered = Виконує: { $action }
+shortcuts-no-match = Немає комбінації для цих клавіш
+shortcuts-clear = Скинути
 
 team-title = Команда
 simulator-title = Симулятор

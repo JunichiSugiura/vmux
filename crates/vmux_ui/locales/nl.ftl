@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } tabbladen
 }
 spaces-delete = Werkruimte verwijderen
-cheatsheet-title = Sneltoetsen
-cheatsheet-count = { $count } sneltoetsen
-cheatsheet-search = Sneltoetsen filteren…
-cheatsheet-empty = Geen overeenkomende sneltoetsen
-cheatsheet-general = Algemeen
+shortcuts-title = Sneltoetsen
+shortcuts-count = { $count } sneltoetsen
+shortcuts-search = Sneltoetsen filteren…
+shortcuts-empty = Geen overeenkomende sneltoetsen
+shortcuts-general = Algemeen
+shortcuts-try-title = Probeer een sneltoets
+shortcuts-try-hint = Druk op een sneltoets
+shortcuts-waiting = Wachten op de volgende toets…
+shortcuts-triggered = Voert uit: { $action }
+shortcuts-no-match = Geen sneltoets komt overeen met deze toetsen
+shortcuts-clear = Resetten
 
 team-title = Team
 simulator-title = Simulator

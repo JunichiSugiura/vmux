@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::event::TabDropPlacement;
 use crate::event::TabsCommandEvent;
 use crate::{
     TabLayoutSpawnContent, TabLayoutSpawnRequest,
@@ -511,7 +513,18 @@ fn on_tabs_command_emit(
             let Some(to) = find_kind_index(target, siblings, &kind_positions) else {
                 return;
             };
-            move_sibling(&mut commands, parent, siblings, &kind_positions, from, to);
+            let destination = evt
+                .drop_placement
+                .map(|placement| placement.destination(from, to, kind_positions.len()))
+                .unwrap_or(to);
+            move_sibling(
+                &mut commands,
+                parent,
+                siblings,
+                &kind_positions,
+                from,
+                destination,
+            );
         }
         _ => {}
     }
@@ -1092,6 +1105,7 @@ mod tests {
                 command: "close".to_string(),
                 tab_id: Some(tab.to_bits().to_string()),
                 target_tab_id: None,
+                drop_placement: None,
             },
         });
         app.update();
@@ -1116,11 +1130,54 @@ mod tests {
                 command: "close".to_string(),
                 tab_id: None,
                 target_tab_id: None,
+                drop_placement: None,
             },
         });
         app.update();
 
         assert!(app.world().resource::<LastTabCloseAt>().0.is_none());
+    }
+
+    #[test]
+    fn tabs_reorder_event_moves_the_source_to_the_requested_index() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, CommandPlugin, TabPlugin))
+            .init_resource::<bevy_cef::prelude::BinIpcEventRawBuffer>()
+            .add_message::<crate::TabLayoutSpawnRequest>();
+        let webview = app.world_mut().spawn_empty().id();
+        let space = app.world_mut().spawn(crate::space::Space).id();
+        let first = app
+            .world_mut()
+            .spawn((tab_bundle(), LastActivatedAt(1), ChildOf(space)))
+            .id();
+        let second = app
+            .world_mut()
+            .spawn((tab_bundle(), LastActivatedAt(2), ChildOf(space)))
+            .id();
+        let third = app
+            .world_mut()
+            .spawn((tab_bundle(), LastActivatedAt(3), ChildOf(space)))
+            .id();
+
+        app.world_mut().trigger(BinReceive::<TabsCommandEvent> {
+            webview,
+            payload: TabsCommandEvent {
+                command: "reorder".to_string(),
+                tab_id: Some(first.to_bits().to_string()),
+                target_tab_id: Some(third.to_bits().to_string()),
+                drop_placement: Some(TabDropPlacement::After),
+            },
+        });
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .get::<Children>(space)
+                .unwrap()
+                .iter()
+                .collect::<Vec<_>>(),
+            [second, third, first]
+        );
     }
 
     #[test]
@@ -1234,6 +1291,7 @@ mod tests {
                 command: "close".to_string(),
                 tab_id: Some(d.to_bits().to_string()),
                 target_tab_id: None,
+                drop_placement: None,
             },
         });
         app.update();

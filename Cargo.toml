@@ -122,7 +122,7 @@ lto = "off"
 opt-level = "z"
 codegen-units = 1
 
-[profile.release.package.vmux_cheatsheet]
+[profile.release.package.vmux_shortcut]
 opt-level = "z"
 codegen-units = 1
 

@@ -134,7 +134,7 @@ impl Plugin for BrowserPlugin {
             native_page::NativePagePlugin::in_pane(&native_page::TOOLS_PAGE),
         ))
         .add_plugins((
-            native_page::NativePagePlugin::in_pane(&native_page::CHEATSHEET_PAGE),
+            native_page::NativePagePlugin::in_pane(&native_page::SHORTCUTS_PAGE),
             native_page::NativePagePlugin::in_pane(&native_page::VAULT_PAGE)
                 .takes::<vmux_core::PageMetadata>(),
             native_page::NativePagePlugin::in_pane(&native_page::EXTENSIONS_PAGE),
@@ -710,8 +710,8 @@ fn should_emit_update(
 
 fn normalize_vmux_url(url: &str) -> String {
     let url = url.trim();
-    if url.trim_end_matches('/') == "vmux://cheetsheet" {
-        return vmux_cheatsheet::PAGE_URL.to_string();
+    if let Some(canonical) = vmux_shortcut::ShortcutUrl::canonical(url) {
+        return canonical.to_string();
     }
     if let Some(rest) = url.strip_prefix("vmux://agent")
         && (rest.is_empty() || rest.starts_with('/'))
@@ -839,8 +839,16 @@ mod tests {
         assert_eq!(normalize_vmux_url("vmux://terminal"), "vmux://terminal/");
         assert_eq!(normalize_vmux_url("vmux://lsp/"), "vmux://lsp/");
         assert_eq!(
+            normalize_vmux_url("vmux://shortcuts"),
+            vmux_shortcut::PAGE_URL
+        );
+        assert_eq!(
+            normalize_vmux_url("vmux://cheatsheet/"),
+            vmux_shortcut::PAGE_URL
+        );
+        assert_eq!(
             normalize_vmux_url("vmux://cheetsheet"),
-            vmux_cheatsheet::PAGE_URL
+            vmux_shortcut::PAGE_URL
         );
         assert_eq!(
             normalize_vmux_url("vmux://sessions/vibe/"),

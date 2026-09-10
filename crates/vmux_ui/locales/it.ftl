@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } schede
 }
 spaces-delete = Elimina spazio
-cheatsheet-title = Scorciatoie da tastiera
-cheatsheet-count = { $count } scorciatoie
-cheatsheet-search = Filtra scorciatoie…
-cheatsheet-empty = Nessuna scorciatoia corrispondente
-cheatsheet-general = Generale
+shortcuts-title = Scorciatoie da tastiera
+shortcuts-count = { $count } scorciatoie
+shortcuts-search = Filtra scorciatoie…
+shortcuts-empty = Nessuna scorciatoia corrispondente
+shortcuts-general = Generale
+shortcuts-try-title = Prova una scorciatoia
+shortcuts-try-hint = Premi una scorciatoia
+shortcuts-waiting = In attesa del tasto successivo…
+shortcuts-triggered = Esegue: { $action }
+shortcuts-no-match = Nessuna scorciatoia corrisponde a questi tasti
+shortcuts-clear = Reimposta
 
 team-title = Team
 simulator-title = Simulatore

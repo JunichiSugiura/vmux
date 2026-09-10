@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } onglets
 }
 spaces-delete = Supprimer l’espace
-cheatsheet-title = Raccourcis clavier
-cheatsheet-count = { $count } raccourcis
-cheatsheet-search = Filtrer les raccourcis…
-cheatsheet-empty = Aucun raccourci correspondant
-cheatsheet-general = Général
+shortcuts-title = Raccourcis clavier
+shortcuts-count = { $count } raccourcis
+shortcuts-search = Filtrer les raccourcis…
+shortcuts-empty = Aucun raccourci correspondant
+shortcuts-general = Général
+shortcuts-try-title = Essayer un raccourci
+shortcuts-try-hint = Appuyez sur un raccourci
+shortcuts-waiting = En attente de la touche suivante…
+shortcuts-triggered = Exécute : { $action }
+shortcuts-no-match = Aucun raccourci ne correspond à ces touches
+shortcuts-clear = Réinitialiser
 
 team-title = Équipe
 simulator-title = Simulateur

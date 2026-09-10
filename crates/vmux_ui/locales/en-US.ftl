@@ -178,11 +178,17 @@ spaces-tabs = { $count ->
    *[other] { $count } tabs
 }
 spaces-delete = Delete space
-cheatsheet-title = Keyboard Shortcuts
-cheatsheet-count = { $count } shortcuts
-cheatsheet-search = Filter shortcuts…
-cheatsheet-empty = No matching shortcuts
-cheatsheet-general = General
+shortcuts-title = Keyboard Shortcuts
+shortcuts-count = { $count } shortcuts
+shortcuts-search = Filter shortcuts…
+shortcuts-empty = No matching shortcuts
+shortcuts-general = General
+shortcuts-try-title = Try a shortcut
+shortcuts-try-hint = Press any shortcut
+shortcuts-waiting = Waiting for the next key…
+shortcuts-triggered = Runs: { $action }
+shortcuts-no-match = No shortcut matches those keys
+shortcuts-clear = Reset
 
 team-title = Team
 simulator-title = Simulator

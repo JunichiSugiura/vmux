@@ -1892,7 +1892,7 @@ mod tests {
                 "vmux://spaces/",
                 "vmux://team/",
                 "vmux://history/",
-                "vmux://cheatsheet/",
+                "vmux://shortcuts/",
                 "vmux://extensions/",
                 "vmux://lsp/",
                 "vmux://settings/",
@@ -2489,10 +2489,13 @@ mod tests {
                 serde_json::json!("https://x.example"),
             )
             .unwrap();
-        assert!(ron.contains("browser"));
-        assert!(ron.contains("https://x.example"));
-        assert!(!ron.contains("shortcuts"));
-        assert!(!ron.contains("themes"));
+        let sparse: PartialAppSettings = ron::Options::default()
+            .with_default_extension(ron::extensions::Extensions::IMPLICIT_SOME)
+            .from_str(&ron)
+            .unwrap();
+        assert_eq!(sparse.browser.unwrap().startup_url, "https://x.example");
+        assert!(sparse.shortcuts.is_none());
+        assert!(sparse.terminal.is_none());
         let reloaded = parse_settings(&ron).unwrap();
         assert_eq!(reloaded.browser.startup_url, "https://x.example");
         assert_eq!(reloaded.shortcuts.leader.key, "b");

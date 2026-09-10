@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } تبويبات
 }
 spaces-delete = حذف مساحة العمل
-cheatsheet-title = اختصارات لوحة المفاتيح
-cheatsheet-count = { $count } اختصار
-cheatsheet-search = تصفية الاختصارات…
-cheatsheet-empty = لا توجد اختصارات مطابقة
-cheatsheet-general = عام
+shortcuts-title = اختصارات لوحة المفاتيح
+shortcuts-count = { $count } اختصار
+shortcuts-search = تصفية الاختصارات…
+shortcuts-empty = لا توجد اختصارات مطابقة
+shortcuts-general = عام
+shortcuts-try-title = جرّب اختصارًا
+shortcuts-try-hint = اضغط أي اختصار
+shortcuts-waiting = بانتظار المفتاح التالي…
+shortcuts-triggered = يشغّل: { $action }
+shortcuts-no-match = لا يوجد اختصار يطابق هذه المفاتيح
+shortcuts-clear = إعادة تعيين
 
 team-title = الفريق
 simulator-title = المحاكي

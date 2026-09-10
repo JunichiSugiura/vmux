@@ -165,11 +165,17 @@ spaces-tabs = { $count ->
    *[other] { $count } kart
 }
 spaces-delete = Usuń przestrzeń
-cheatsheet-title = Skróty klawiaturowe
-cheatsheet-count = Skróty: { $count }
-cheatsheet-search = Filtruj skróty…
-cheatsheet-empty = Brak pasujących skrótów
-cheatsheet-general = Ogólne
+shortcuts-title = Skróty klawiaturowe
+shortcuts-count = Skróty: { $count }
+shortcuts-search = Filtruj skróty…
+shortcuts-empty = Brak pasujących skrótów
+shortcuts-general = Ogólne
+shortcuts-try-title = Wypróbuj skrót
+shortcuts-try-hint = Naciśnij dowolny skrót
+shortcuts-waiting = Oczekiwanie na następny klawisz…
+shortcuts-triggered = Uruchamia: { $action }
+shortcuts-no-match = Żaden skrót nie pasuje do tych klawiszy
+shortcuts-clear = Resetuj
 
 team-title = Zespół
 simulator-title = Symulator

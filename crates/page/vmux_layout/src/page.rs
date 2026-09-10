@@ -9,7 +9,8 @@ use crate::event::{
     FolderRow, HeaderCommandEvent, LAYOUT_STATE_EVENT, LayoutStateEvent, PANE_TREE_EVENT, PaneNode,
     PaneTreeEvent, RELOAD_EVENT, REMOTE_STATE_EVENT, ReloadEvent, RemoteCommandEvent,
     RemoteCopyEvent, RemotePhase, RemoteStateEvent, STACKS_EVENT, StackNode, StackRow,
-    StacksHostEvent, TABS_EVENT, TabRow, TabsCommandEvent, TabsHostEvent, WindowDragRegionEvent,
+    StacksHostEvent, TABS_EVENT, TabDropPlacement, TabRow, TabsCommandEvent, TabsHostEvent,
+    WindowDragRegionEvent,
 };
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
@@ -37,7 +38,7 @@ use vmux_ui::components::tree_row::{
     SIDEBAR_TREE_CHEVRON_OPEN, SIDEBAR_TREE_COLUMN, SIDEBAR_TREE_SCROLLER, SidebarTreeChildren,
     SidebarTreeRow, SidebarTreeRowGroup,
 };
-use vmux_ui::favicon::favicon_src_for_url;
+use vmux_ui::favicon::{Favicon, favicon_src_for_url};
 use vmux_ui::hooks::{send, use_event, use_listener, use_theme};
 use vmux_ui::i18n::{TranslationValue, translate, translate_with};
 use vmux_ui::icon::{BuiltinIconView, LineIcon, LineIconView, PageIconView};
@@ -298,7 +299,7 @@ fn SideSheetGrab(mut resizing: Signal<bool>) -> Element {
                 event.prevent_default();
                 resizing.set(true);
             },
-            div { class: "mx-auto h-full w-px bg-transparent transition-colors duration-150 hover:bg-cyan-400/40" }
+            div { class: "mx-auto h-full w-px bg-transparent transition-colors duration-150 hover:bg-primary/40" }
         }
     }
 }
@@ -521,6 +522,7 @@ fn HeaderView(
         is_zoomed: _,
     } = stacks_state;
     let TabsHostEvent { tabs } = tabs_state;
+    let host_tab_order = tabs.iter().map(|tab| tab.id.clone()).collect::<Vec<_>>();
     let host_tab_activation = tabs
         .iter()
         .map(|tab| (tab.id.clone(), tab.is_active))
@@ -531,13 +533,15 @@ fn HeaderView(
         .collect::<Vec<_>>()
         .join(":");
     let mut active_sync = tab_drag;
-    use_effect(use_reactive!(|host_tab_activation| {
+    use_effect(use_reactive!(|(host_tab_activation, host_tab_order)| {
         let host_active_tab_id = host_tab_activation
             .iter()
             .find(|(_, is_active)| *is_active)
             .map(|(id, _)| id.clone());
-        active_sync.acknowledge_active(host_active_tab_id);
+        active_sync.acknowledge_host(host_active_tab_id, host_tab_order);
     }));
+    let tabs = tab_drag.ordered(tabs);
+    let tab_metrics_style = format!("--tab-width:{TAB_WIDTH_PX}px;--tab-gap:{TAB_GAP_PX}px;");
     let active_row = stacks.iter().find(|t| t.is_active).cloned();
     let active_bg_color = active_row.as_ref().and_then(|r| r.bg_color.clone());
     let active_url = active_row
@@ -569,9 +573,9 @@ fn HeaderView(
     rsx! {
         div {
             class: "flex h-full min-h-0 min-w-0 flex-col text-foreground",
+            ..tab_drag.listeners(),
             div {
                 class: "flex min-w-0 shrink-0 items-center gap-1 pr-2",
-                ..tab_drag.listeners(),
                 WindowDragRegion {
                     id: "leading",
                     revision: tab_drag_region_revision.clone(),
@@ -581,15 +585,24 @@ fn HeaderView(
                 if let Some(err) = tabs_error {
                     span { class: "text-ui text-destructive", "{err}" }
                 } else {
-                    div { class: "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden pl-2",
-                        for tab in tabs.iter() {
+                    div {
+                        class: "flex min-w-0 flex-1 items-center gap-[var(--tab-gap)] overflow-x-auto overflow-y-hidden pl-2",
+                        style: "{tab_metrics_style}",
+                        for (tab_index, tab) in tabs.iter().enumerate() {
                             {
                                 let mut tab = tab.clone();
                                 tab.is_active = tab_drag.is_active(&tab.id, tab.is_active);
                                 if tab.is_active {
                                     tab.bg_color = active_bg_color.clone();
                                 }
-                                rsx! { Tab { key: "{tab.id}", tab, drag: tab_drag } }
+                                rsx! {
+                                    Tab {
+                                        key: "{tab.id}",
+                                        tab,
+                                        index: tab_index,
+                                        drag: tab_drag,
+                                    }
+                                }
                             }
                         }
                         NewTabButton {}
@@ -967,9 +980,16 @@ fn RemoteControl(remote: RemoteStateEvent) -> Element {
             if open() {
                 button {
                     r#type: "button",
-                    class: "fixed inset-0 z-[998] cursor-default",
+                    class: "pointer-events-auto fixed inset-0 z-[998] m-0 h-screen w-screen cursor-default border-0 bg-transparent p-0 outline-none",
                     aria_label: translate("common-close"),
-                    onclick: move |_| open.set(false),
+                    onpointerdown: move |event| {
+                        event.prevent_default();
+                        open.set(false);
+                    },
+                    oncontextmenu: move |event| {
+                        event.prevent_default();
+                        open.set(false);
+                    },
                 }
                 div { class: "glass absolute right-0 top-9 z-[999] w-72 overflow-hidden rounded-xl border border-border/80 bg-background/95 shadow-2xl backdrop-blur-xl",
                     RemotePanel { remote: remote.clone() }
@@ -1399,15 +1419,17 @@ fn PaneSection(pane: PaneNode, index: usize) -> Element {
     rsx! {
         div { class: if pane.is_active && any_loading {
                 "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg pane-loading-ring"
-            } else if pane.is_active {
-                "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg ring-2 ring-ring"
             } else {
                 "glass group mb-2 flex shrink-0 flex-col overflow-hidden rounded-lg"
             },
             div {
                 class: "flex items-center transition-colors hover:bg-glass-hover",
                 div { class: "flex min-w-0 flex-1 items-center gap-2 px-2.5 py-2",
-                    div { class: "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/10",
+                    div { class: if pane.is_active {
+                            "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20"
+                        } else {
+                            "grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-foreground/[0.07] text-foreground ring-1 ring-inset ring-foreground/10"
+                        },
                         Icon { class: "h-3.5 w-3.5",
                             path { d: "M4 6h16M4 12h16M4 18h16" }
                         }
@@ -1598,7 +1620,9 @@ fn UpdateProgressBar(downloaded: u64, total: u64) -> Element {
 #[derive(Clone, PartialEq)]
 struct TabDragState {
     source_id: String,
-    target_id: String,
+    source_index: usize,
+    target_index: usize,
+    order: Vec<String>,
     start_x: f64,
     start_y: f64,
     current_x: f64,
@@ -1611,28 +1635,103 @@ struct TabClickBlock {
     target_id: String,
 }
 
+#[derive(Clone, Copy, Default, PartialEq)]
+struct TabDragVisual {
+    offset_x: f64,
+    source: bool,
+    active: bool,
+}
+
+const TAB_WIDTH_PX: f64 = 208.0;
+const TAB_GAP_PX: f64 = 4.0;
+const TAB_STEP_PX: f64 = TAB_WIDTH_PX + TAB_GAP_PX;
+
+impl TabDragState {
+    fn update_target(&mut self) {
+        let slots = ((self.current_x - self.start_x) / TAB_STEP_PX).round() as isize;
+        let last = self.order.len().saturating_sub(1) as isize;
+        self.target_index = (self.source_index as isize + slots).clamp(0, last) as usize;
+    }
+
+    fn source_offset(&self) -> f64 {
+        let min = -(self.source_index as f64) * TAB_STEP_PX;
+        let max = self.order.len().saturating_sub(self.source_index + 1) as f64 * TAB_STEP_PX;
+        (self.current_x - self.start_x).clamp(min, max)
+    }
+
+    fn offset_for(&self, index: usize) -> f64 {
+        if index == self.source_index {
+            return self.source_offset();
+        }
+        if self.source_index < self.target_index
+            && index > self.source_index
+            && index <= self.target_index
+        {
+            return -TAB_STEP_PX;
+        }
+        if self.target_index < self.source_index
+            && index >= self.target_index
+            && index < self.source_index
+        {
+            return TAB_STEP_PX;
+        }
+        0.0
+    }
+}
+
+impl TabDragVisual {
+    fn of(state: Option<&TabDragState>, tab_id: &str, index: usize) -> Self {
+        let Some(state) = state.filter(|state| state.active) else {
+            return Self::default();
+        };
+        Self {
+            offset_x: state.offset_for(index),
+            source: state.source_id == tab_id,
+            active: true,
+        }
+    }
+
+    fn style(self) -> String {
+        if !self.active || (!self.source && self.offset_x.abs() < f64::EPSILON) {
+            return "transform:none;z-index:auto;pointer-events:auto;transition:transform 140ms ease;"
+                .to_string();
+        }
+        if self.source {
+            return format!(
+                "transform:translate3d({}px,0,0);z-index:20;pointer-events:none;transition:none;",
+                self.offset_x
+            );
+        }
+        format!(
+            "transform:translate3d({}px,0,0);z-index:auto;pointer-events:auto;transition:transform 140ms ease;",
+            self.offset_x
+        )
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 struct TabDrag {
-    state: Signal<Option<TabDragState>>,
+    state: Signal<Option<Rc<TabDragState>>>,
     click_block: Signal<Option<TabClickBlock>>,
     host_active: Signal<Option<String>>,
+    host_order: Signal<Vec<String>>,
+    optimistic_order: Signal<Option<Vec<String>>>,
     optimistic_active: Signal<Option<String>>,
 }
 
 fn use_tab_drag() -> TabDrag {
     TabDrag {
-        state: use_signal(|| None),
+        state: use_signal(|| None::<Rc<TabDragState>>),
         click_block: use_signal(|| None),
         host_active: use_signal(|| None),
+        host_order: use_signal(Vec::new),
+        optimistic_order: use_signal(|| None),
         optimistic_active: use_signal(|| None),
     }
 }
 
 impl TabDrag {
     fn listeners(self) -> Vec<Attribute> {
-        if self.state.read().is_none() {
-            return Vec::new();
-        }
         let mut advancing = self;
         let mut finishing = self;
         let mut cancelling = self;
@@ -1645,49 +1744,52 @@ impl TabDrag {
         ]
     }
 
-    fn begin(&mut self, event: &Event<PointerData>, source_id: String) {
-        if event.trigger_button() != Some(MouseButton::Primary) {
+    fn begin(
+        &mut self,
+        event: &Event<PointerData>,
+        source_id: String,
+        source_index: usize,
+        draggable: bool,
+    ) {
+        if !draggable || event.trigger_button() != Some(MouseButton::Primary) {
             return;
         }
+        event.prevent_default();
         self.click_block.set(None);
         let point = event.client_coordinates();
-        self.state.set(Some(TabDragState {
-            target_id: source_id.clone(),
+        let order = (self.optimistic_order)().unwrap_or_else(|| (self.host_order)());
+        let source_index = order
+            .iter()
+            .position(|id| id == &source_id)
+            .unwrap_or(source_index);
+        self.state.set(Some(Rc::new(TabDragState {
             source_id,
+            source_index,
+            target_index: source_index,
+            order,
             start_x: point.x,
             start_y: point.y,
             current_x: point.x,
             active: false,
-        }));
+        })));
     }
 
     fn advance(&mut self, event: &Event<PointerData>) {
-        let Some(mut state) = (self.state)() else {
+        let Some(mut state) = (self.state)().as_deref().cloned() else {
             return;
         };
         let point = event.client_coordinates();
         let dx = point.x - state.start_x;
         let dy = point.y - state.start_y;
         state.current_x = point.x;
+        state.update_target();
         if !state.active && dx * dx + dy * dy < 16.0 {
             return;
         }
         if !state.active {
             state.active = true;
-            self.activate(state.source_id.clone());
         }
-        self.state.set(Some(state));
-    }
-
-    fn target(&mut self, target_id: String) {
-        let Some(mut state) = (self.state)() else {
-            return;
-        };
-        if state.target_id == target_id {
-            return;
-        }
-        state.target_id = target_id;
-        self.state.set(Some(state));
+        self.state.set(Some(Rc::new(state)));
     }
 
     fn finish(&mut self, event: &Event<PointerData>) {
@@ -1700,16 +1802,41 @@ impl TabDrag {
         }
         event.prevent_default();
         event.stop_propagation();
-        if state.source_id != state.target_id {
+        let target_id = state
+            .order
+            .get(state.target_index)
+            .cloned()
+            .unwrap_or_else(|| state.source_id.clone());
+        if state.source_index != state.target_index {
             let _ = send(&TabsCommandEvent {
                 command: "reorder".to_string(),
                 tab_id: Some(state.source_id.clone()),
-                target_tab_id: Some(state.target_id.clone()),
+                target_tab_id: Some(target_id.clone()),
+                drop_placement: Some(if state.target_index < state.source_index {
+                    TabDropPlacement::Before
+                } else {
+                    TabDropPlacement::After
+                }),
             });
+            let mut order = state.order.clone();
+            if let Some(source_index) = order.iter().position(|id| id == &state.source_id)
+                && state.target_index < order.len()
+            {
+                let moved = order.remove(source_index);
+                order.insert(state.target_index, moved);
+                self.optimistic_order.set(Some(order.clone()));
+                let mut optimistic_order = self.optimistic_order;
+                spawn(async move {
+                    sleep_ms(500).await;
+                    if optimistic_order() == Some(order) {
+                        optimistic_order.set(None);
+                    }
+                });
+            }
         }
         let block = TabClickBlock {
-            source_id: state.source_id,
-            target_id: state.target_id,
+            source_id: state.source_id.clone(),
+            target_id,
         };
         self.click_block.set(Some(block.clone()));
         self.state.set(None);
@@ -1737,37 +1864,57 @@ impl TabDrag {
         true
     }
 
-    fn targets(self, tab_id: &str) -> bool {
-        (self.state)().is_some_and(|state| state.active && state.target_id == tab_id)
-    }
-
-    fn source_style(self, tab_id: &str) -> String {
-        let Some(state) = (self.state)() else {
-            return "transform:none;z-index:auto;pointer-events:auto;".to_string();
-        };
-        if !state.active || state.source_id != tab_id {
-            return "transform:none;z-index:auto;pointer-events:auto;".to_string();
-        }
-        let offset_x = state.current_x - state.start_x;
-        format!("transform:translate3d({offset_x}px,0,0);z-index:20;pointer-events:none;")
+    fn visual(self, tab_id: &str, index: usize) -> TabDragVisual {
+        let state = (self.state)();
+        TabDragVisual::of(state.as_deref(), tab_id, index)
     }
 
     fn activate(&mut self, tab_id: String) {
         if (self.host_active)().as_deref() != Some(tab_id.as_str()) {
             self.optimistic_active.set(Some(tab_id.clone()));
+            let expected = tab_id.clone();
+            let mut optimistic_active = self.optimistic_active;
+            spawn(async move {
+                sleep_ms(500).await;
+                if optimistic_active().as_deref() == Some(expected.as_str()) {
+                    optimistic_active.set(None);
+                }
+            });
         }
         let _ = send(&TabsCommandEvent {
             command: "switch".to_string(),
             tab_id: Some(tab_id),
             target_tab_id: None,
+            drop_placement: None,
         });
     }
 
-    fn acknowledge_active(&mut self, host_active_tab_id: Option<String>) {
+    fn acknowledge_host(&mut self, host_active_tab_id: Option<String>, host_order: Vec<String>) {
+        let had_optimistic_active = self.optimistic_active.peek().is_some();
         self.host_active.set(host_active_tab_id);
-        if self.optimistic_active.peek().is_some() {
+        if (self.optimistic_order)().as_ref() == Some(&host_order) {
+            self.optimistic_order.set(None);
+        }
+        self.host_order.set(host_order);
+        if had_optimistic_active {
             self.optimistic_active.set(None);
         }
+    }
+
+    fn ordered(self, tabs: Vec<TabRow>) -> Vec<TabRow> {
+        let Some(order) = (self.optimistic_order)() else {
+            return tabs;
+        };
+        let mut remaining = tabs;
+        let mut ordered = Vec::with_capacity(remaining.len());
+        for id in order {
+            let Some(index) = remaining.iter().position(|tab| tab.id == id) else {
+                continue;
+            };
+            ordered.push(remaining.remove(index));
+        }
+        ordered.extend(remaining);
+        ordered
     }
 
     fn is_active(self, tab_id: &str, host_active: bool) -> bool {
@@ -1779,7 +1926,8 @@ impl TabDrag {
 }
 
 #[component]
-fn Tab(tab: TabRow, drag: TabDrag) -> Element {
+fn Tab(tab: TabRow, index: usize, drag: TabDrag) -> Element {
+    let visual = drag.visual(&tab.id, index);
     let id_switch = tab.id.clone();
     let id_close = tab.id.clone();
     let display_title = if !tab.title.is_empty() {
@@ -1796,30 +1944,29 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
         before:[background:radial-gradient(circle_at_top_left,transparent_0,transparent_8px,var(--tab-bg)_8px)] \
         after:content-[''] after:absolute after:bottom-0 after:-right-2 after:h-2 after:w-2 after:pointer-events-none \
         after:[background:radial-gradient(circle_at_top_right,transparent_0,transparent_8px,var(--tab-bg)_8px)]";
-    let tab_size_classes = if is_active {
-        "h-10 -mb-[3px] pb-[3px]"
-    } else {
-        "h-9 mb-1"
-    };
-    let tab_drag_classes = if drag.targets(&tab.id) {
-        "cursor-grabbing ring-1 ring-inset ring-primary/50"
-    } else {
+    let cursor_classes = if is_active {
         "cursor-grab active:cursor-grabbing"
+    } else {
+        "cursor-pointer"
     };
     let tab_box_classes = cn([
-        "group flex w-52 min-w-52 max-w-52 basis-52 shrink-0 grow-0 items-center gap-2 px-3.5",
-        tab_size_classes,
-        tab_drag_classes,
+        "group relative flex h-10 w-[var(--tab-width)] min-w-[var(--tab-width)] max-w-[var(--tab-width)] basis-[var(--tab-width)] shrink-0 grow-0 select-none items-start",
+        cursor_classes,
     ]);
+    let inactive_hover_classes = if visual.active {
+        ""
+    } else {
+        "hover:bg-glass-hover hover:text-foreground"
+    };
 
     let trunc = dir_truncate_class(&display_title);
-    let (mut tab_style, tab_class, title_class, close_class) = if is_active {
+    let (surface_style, surface_class, title_class, close_class) = if is_active {
         (
-            "--tab-bg:var(--glass);background-color:var(--glass);".to_string(),
+            "--tab-bg:var(--glass);background-color:var(--glass);border-bottom-width:0;"
+                .to_string(),
             cn([
                 skirt_classes,
-                tab_box_classes.as_str(),
-                "glass rounded-t-md border-b-0",
+                "glass mt-2 flex h-9 w-full items-center gap-2 rounded-t-md border-b-0 px-3.5",
             ]),
             cn([
                 "min-w-0 flex-1",
@@ -1830,16 +1977,16 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
         )
     } else {
         (
-            "--tab-bg:var(--glass);background-color:var(--glass);".to_string(),
+            "background-color:color-mix(in oklab,var(--glass) 58%,transparent);".to_string(),
             cn([
-                tab_box_classes.as_str(),
-                "glass rounded-md text-muted-foreground hover:bg-glass-hover hover:px-4 hover:text-foreground",
+                "my-1 flex h-8 w-full items-center gap-2 rounded-lg border border-glass-border/65 px-3.5 text-muted-foreground shadow-sm transition-colors",
+                inactive_hover_classes,
             ]),
             cn(["min-w-0 flex-1", trunc, "text-ui"]),
             "flex h-4 w-4 cursor-pointer shrink-0 items-center justify-center rounded-sm opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 hover:bg-foreground/10".to_string(),
         )
     };
-    tab_style.push_str(&drag.source_style(&tab.id));
+    let tab_style = visual.style();
 
     let bookmark_metadata = PageMetadata {
         title: display_title.clone(),
@@ -1854,15 +2001,18 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
         LayoutContextMenu {
             ContextMenuTrigger { attributes: vec![],
         div {
-            class: "{tab_class}",
+            class: "{tab_box_classes}",
             style: "{tab_style}",
             onpointerdown: {
                 let source_id = tab.id.clone();
-                move |event| drag.begin(&event, source_id.clone())
-            },
-            onpointerenter: {
-                let target_id = tab.id.clone();
-                move |_| drag.target(target_id.clone())
+                move |event| {
+                    drag.begin(
+                        &event,
+                        source_id.clone(),
+                        index,
+                        is_active,
+                    )
+                }
             },
             onclick: move |event| {
                 if drag.blocks_click(&id_switch) {
@@ -1872,44 +2022,47 @@ fn Tab(tab: TabRow, drag: TabDrag) -> Element {
                 }
                 drag.activate(id_switch.clone());
             },
-            div {
-                title: "{tooltip}",
-                class: "flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden",
-                HeaderTabIcon {
-                    icon: tab.icon.clone(),
-                    url: tab.url.clone(),
-                    title: display_title.clone(),
+            div { class: "{surface_class}", style: "{surface_style}",
+                div {
+                    title: "{tooltip}",
+                    class: "flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden",
+                    HeaderTabIcon {
+                        icon: tab.icon.clone(),
+                        url: tab.url.clone(),
+                        title: display_title.clone(),
+                    }
+                    span { class: "{title_class}", "{display_title}" }
                 }
-                span { class: "{title_class}", "{display_title}" }
-            }
-            if tab.is_done_unseen {
-                span { class: "size-2 shrink-0 rounded-full bg-amber-400 ring-2 ring-background" }
-            }
-            button {
-                r#type: "button",
-                aria_label: translate("layout-close-tab"),
-                title: translate("layout-close-tab"),
-                class: "{close_class}",
-                onpointerdown: move |evt| {
-                    evt.prevent_default();
-                    evt.stop_propagation();
-                },
-                onmousedown: move |evt| {
-                    evt.prevent_default();
-                    evt.stop_propagation();
-                },
-                onclick: move |evt| {
-                    evt.prevent_default();
-                    evt.stop_propagation();
-                    let _ = send(&TabsCommandEvent {
-                        command: "close".to_string(),
-                        tab_id: Some(id_close.clone()),
-                        target_tab_id: None,
-                    });
-                },
-                Icon { class: "h-2.5 w-2.5",
-                    path { d: "M18 6 6 18" }
-                    path { d: "m6 6 12 12" }
+                if tab.is_done_unseen {
+                    span { class: "size-2 shrink-0 rounded-full bg-amber-400 ring-2 ring-background" }
+                }
+                button {
+                    r#type: "button",
+                    aria_label: translate("layout-close-tab"),
+                    title: translate("layout-close-tab"),
+                    class: "{close_class}",
+                    onpointerdown: move |evt| {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                    },
+                    onmousedown: move |evt| {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                    },
+                    onclick: move |evt| {
+                        evt.prevent_default();
+                        evt.stop_propagation();
+                        let _ = send(&TabsCommandEvent {
+                            command: "close".to_string(),
+                            tab_id: Some(id_close.clone()),
+                            target_tab_id: None,
+                            drop_placement: None,
+                        });
+                    },
+                    Icon { class: "h-2.5 w-2.5",
+                        path { d: "M18 6 6 18" }
+                        path { d: "m6 6 12 12" }
+                    }
                 }
             }
         }
@@ -1991,6 +2144,7 @@ fn NewTabButton() -> Element {
                     command: "new".to_string(),
                     tab_id: None,
                     target_tab_id: None,
+                    drop_placement: None,
                 });
             },
             Icon { class: "h-3.5 w-3.5",
@@ -2274,11 +2428,20 @@ fn PinTile(row: BookmarkRow) -> Element {
                         }
                     },
                     title: "{row.metadata.title}",
-                    PageIconView {
-                        icon: row.metadata.icon.clone(),
-                        url: row.metadata.url.clone(),
-                        img_class: "h-5 w-5 shrink-0 rounded-sm object-contain".to_string(),
-                        icon_class: "h-5 w-5 shrink-0 text-muted-foreground".to_string(),
+                    if row.metadata.url.starts_with("vmux://") {
+                        Favicon {
+                            favicon_url: row.metadata.icon.favicon_url().to_string(),
+                            url: row.metadata.url.clone(),
+                            class: "h-5 w-5 shrink-0 rounded-sm object-contain".to_string(),
+                            globe_class: "h-5 w-5 shrink-0 text-muted-foreground".to_string(),
+                        }
+                    } else {
+                        PageIconView {
+                            icon: row.metadata.icon.clone(),
+                            url: row.metadata.url.clone(),
+                            img_class: "h-5 w-5 shrink-0 rounded-sm object-contain".to_string(),
+                            icon_class: "h-5 w-5 shrink-0 text-muted-foreground".to_string(),
+                        }
                     }
                 }
             },
@@ -2911,7 +3074,7 @@ fn SmartProjectRow(project: vmux_core::event::ProjectRow, pane_id: u64) -> Eleme
     if root {
         return rsx! {
             div { class: if project.is_active {
-                    "group/row mb-1 flex min-w-0 items-center rounded-lg border border-cyan-400/20 bg-cyan-400/[0.07]"
+                    "group/row mb-1 flex min-w-0 items-center rounded-lg border border-primary/20 bg-primary/[0.07]"
                 } else {
                     "group/row mb-1 flex min-w-0 items-center rounded-lg border border-foreground/[0.07] bg-foreground/[0.025] hover:bg-glass-hover"
                 },
@@ -3221,7 +3384,7 @@ fn SmartToolItemRow(item: ToolItem, pane_id: u64) -> Element {
         ToolStatus::Outdated => "bg-amber-400",
         ToolStatus::Conflict | ToolStatus::Failed => "bg-ansi-1",
         ToolStatus::Missing => "bg-muted-foreground/40",
-        ToolStatus::Available => "bg-cyan-400/60",
+        ToolStatus::Available => "bg-primary/60",
     };
     rsx! {
         button {
@@ -3232,7 +3395,7 @@ fn SmartToolItemRow(item: ToolItem, pane_id: u64) -> Element {
             span { class: "size-1.5 shrink-0 rounded-full {status_class}" }
             span { class: "min-w-0 flex-1 truncate text-ui", "{item.name}" }
             if item.managed {
-                span { class: "text-[9px] text-cyan-300/80", {translate("tools-managed")} }
+                span { class: "text-[9px] text-primary/80", {translate("tools-managed")} }
             }
             if let Some(version) = item.version.as_ref() {
                 span { class: "max-w-20 truncate text-[9px] text-muted-foreground/60", "{version}" }
@@ -3554,7 +3717,7 @@ fn SideSheetStackRow(stack: StackNode, pane_id: u64) -> Element {
                     },
                     id: "sidesheet-stack-{pane_id}-{stack_id}",
                     class: if is_active {
-                        "glass flex h-9 cursor-default items-center gap-2 rounded-md px-2"
+                        "flex h-9 cursor-default items-center gap-2 rounded-md bg-primary/[0.07] px-2 shadow-[inset_2px_0_0_var(--primary)] ring-1 ring-inset ring-primary/15"
                     } else {
                         "flex h-9 cursor-pointer items-center gap-2 rounded-md px-2 border border-transparent text-muted-foreground hover:bg-glass-hover hover:text-foreground"
                     },
@@ -3833,6 +3996,48 @@ mod tests {
         assert_eq!(download_pct(0, 0), 0);
         assert_eq!(download_pct(50, 100), 50);
         assert_eq!(download_pct(250, 100), 100);
+    }
+
+    #[test]
+    fn tab_drag_shifts_the_tabs_between_source_and_target() {
+        let mut state = TabDragState {
+            source_id: "a".into(),
+            source_index: 0,
+            target_index: 0,
+            order: vec!["a".into(), "b".into(), "c".into(), "d".into()],
+            start_x: 100.0,
+            start_y: 0.0,
+            current_x: 100.0 + TAB_STEP_PX * 2.1,
+            active: true,
+        };
+
+        state.update_target();
+
+        assert_eq!(state.target_index, 2);
+        assert_eq!(state.offset_for(1), -TAB_STEP_PX);
+        assert_eq!(state.offset_for(2), -TAB_STEP_PX);
+        assert_eq!(state.offset_for(3), 0.0);
+    }
+
+    #[test]
+    fn tab_drag_clamps_to_the_available_slots() {
+        let mut state = TabDragState {
+            source_id: "c".into(),
+            source_index: 2,
+            target_index: 2,
+            order: vec!["a".into(), "b".into(), "c".into()],
+            start_x: 100.0,
+            start_y: 0.0,
+            current_x: -1000.0,
+            active: true,
+        };
+
+        state.update_target();
+
+        assert_eq!(state.target_index, 0);
+        assert_eq!(state.offset_for(0), TAB_STEP_PX);
+        assert_eq!(state.offset_for(1), TAB_STEP_PX);
+        assert_eq!(state.source_offset(), -TAB_STEP_PX * 2.0);
     }
 
     fn state(header_open: bool, side_sheet_open: bool) -> LayoutStateEvent {

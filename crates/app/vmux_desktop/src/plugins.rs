@@ -111,7 +111,7 @@ impl PluginGroup for FeaturePlugins {
             .add(vmux_knowledge::KnowledgePlugin)
             .add(vmux_history::HistoryPlugin)
             .add(vmux_simulator::SimulatorPlugin)
-            .add(vmux_cheatsheet::CheatsheetPlugin)
+            .add(vmux_shortcut::ShortcutPlugin)
             .add(vmux_team::TeamPlugin)
             .add(vmux_space::SpacePlugin)
             .add(vmux_service::plugin::ServicePlugin)

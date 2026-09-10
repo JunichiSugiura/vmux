@@ -31,6 +31,7 @@ pub fn Page() -> Element {
         .collect();
 
     let has_processes = !data.processes.is_empty();
+    let has_managed_processes = data.processes.iter().any(|process| process.managed);
     let process_count = data.processes.len();
 
     rsx! {
@@ -52,7 +53,7 @@ pub fn Page() -> Element {
                         }
                     }
                 }
-                if has_processes {
+                if has_managed_processes {
                     button {
                         class: "rounded bg-red-500/10 px-2.5 py-1 text-xs text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors",
                         onclick: move |e: Event<MouseData>| {
@@ -64,7 +65,7 @@ pub fn Page() -> Element {
                 }
             }
 
-            if !data.connected {
+            if !data.connected && !has_processes {
                 div { class: "flex flex-1 items-center justify-center",
                     div { class: "text-center text-muted-foreground",
                         p { class: "text-sm", {translate("services-not-running")} }
@@ -158,10 +159,19 @@ fn ProcessCard(process: ProcessEntry) -> Element {
         .unwrap_or(&process.shell)
         .to_string();
 
+    let managed = process.managed;
     let nav_id = process.id.clone();
     let kill_id = process.id.clone();
+    let identifier = if managed {
+        id_short.to_string()
+    } else {
+        format!("PID {}", process.pid)
+    };
 
     let onclick = move |_| {
+        if !managed {
+            return;
+        }
         let _ = send(&ProcessNavigateEvent {
             process_id: nav_id.clone(),
             navigate: true,
@@ -178,13 +188,17 @@ fn ProcessCard(process: ProcessEntry) -> Element {
 
     rsx! {
         div {
-            class: "rounded-lg border border-border bg-card p-3 cursor-pointer hover:border-foreground/30 transition-colors",
+            class: if managed {
+                "rounded-lg border border-border bg-card p-3 cursor-pointer hover:border-foreground/30 transition-colors"
+            } else {
+                "rounded-lg border border-border bg-card p-3 transition-colors"
+            },
             onclick,
 
             div { class: "mb-2 flex items-center justify-between",
                 div { class: "flex items-center gap-2",
                     code { class: "rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-foreground",
-                        "{id_short}"
+                        "{identifier}"
                     }
                     span { class: "rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground",
                         "{shell_name}"
@@ -197,10 +211,12 @@ fn ProcessCard(process: ProcessEntry) -> Element {
                 }
                 div { class: "flex items-center gap-2",
                     span { class: "text-xs text-muted-foreground", "{uptime}" }
-                    button {
-                        class: "rounded px-1.5 py-0.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors",
-                        onclick: onkill,
-                        {translate("services-kill")}
+                    if managed {
+                        button {
+                            class: "rounded px-1.5 py-0.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors",
+                            onclick: onkill,
+                            {translate("services-kill")}
+                        }
                     }
                 }
             }
@@ -209,7 +225,9 @@ fn ProcessCard(process: ProcessEntry) -> Element {
                 MetaRow { label: "PID", value: process.pid.to_string() }
                 MetaRow { label: "CPU", value: format!("{:.0}%", process.cpu_percent) }
                 MetaRow { label: translate("services-memory"), value: format_mem(process.mem_bytes) }
-                MetaRow { label: translate("services-size"), value: format!("{}x{}", process.cols, process.rows) }
+                if managed {
+                    MetaRow { label: translate("services-size"), value: format!("{}x{}", process.cols, process.rows) }
+                }
                 if !process.cwd.is_empty() {
                     MetaRow { label: "CWD", value: process.cwd.clone() }
                 }

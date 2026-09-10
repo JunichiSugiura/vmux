@@ -10,7 +10,6 @@ pub const STACKS_EVENT: &str = "stacks";
 pub const RELOAD_EVENT: &str = "reload";
 #[derive(
     Clone,
-    Copy,
     Debug,
     Default,
     PartialEq,
@@ -34,6 +33,7 @@ pub const REMOTE_COMMAND_EVENT: &str = "remote-command";
 
 #[derive(
     Clone,
+    Copy,
     Debug,
     Default,
     serde::Serialize,
@@ -181,6 +181,8 @@ pub struct WindowDragRegionEvent {
     pub id: String,
     #[serde(default)]
     pub removed: bool,
+    #[serde(default)]
+    pub blocked: bool,
     pub left: f32,
     pub top: f32,
     pub width: f32,
@@ -747,6 +749,23 @@ pub struct RemoteCommandEvent {
 
 #[derive(
     Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct LayoutOverlayEvent {
+    pub id: String,
+    pub active: bool,
+}
+
+#[derive(
+    Clone,
     Copy,
     Debug,
     Default,
@@ -780,6 +799,8 @@ pub struct TabBoundary {
     pub base_ref: String,
     pub uncommitted: u32,
     pub ahead: u32,
+    pub insertions: u32,
+    pub deletions: u32,
     pub pane_count: u32,
 }
 
@@ -930,8 +951,6 @@ pub struct FolderRow {
     pub uuid: String,
     pub name: String,
     pub collapsed: bool,
-    #[serde(default)]
-    pub smart: Option<vmux_core::SmartBookmarkFolder>,
     pub parent: Option<String>,
     pub children: Vec<BookmarkRow>,
 }

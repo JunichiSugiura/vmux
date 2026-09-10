@@ -196,7 +196,7 @@ team-you = 你
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agent
 
-services-title = 背景服務
+services-title = Vmux 程序
 services-processes = { $count ->
     [one] 1 個程序
    *[other] { $count } 個程序
@@ -298,6 +298,7 @@ layout-new-stack = 新增 Stack
 layout-close-tab = 關閉分頁
 layout-bookmark = 書籤
 layout-pin = 釘選
+layout-unpin = 取消釘選
 layout-new-tab = 新增分頁
 layout-team = 團隊
 

@@ -10,7 +10,7 @@ use vmux_command::{AppCommand, BrowserCommand, open::OpenCommand};
 use vmux_core::event::{
     EXT_INSTALL_PROGRESS_EVENT, EXT_STATUS_EVENT, EXTENSIONS_LIST_EVENT, EXTENSIONS_PAGE_URL,
     ExtActionRequest, ExtBrowseStoreRequest, ExtInstallPhase, ExtInstallProgress, ExtListRequest,
-    ExtOpenManagerRequest, ExtRow, ExtStatus, ExtStatusEvent, ExtToggleRequest,
+    ExtOpenManagerRequest, ExtPinRequest, ExtRow, ExtStatus, ExtStatusEvent, ExtToggleRequest,
     ExtUninstallRequest, ExtensionsEvent,
 };
 use vmux_core::extension::store;
@@ -41,6 +41,7 @@ impl Plugin for ExtensionsPlugin {
             .add_plugins(BinEventEmitterPlugin::<(
                 ExtListRequest,
                 ExtActionRequest,
+                ExtPinRequest,
                 ExtOpenManagerRequest,
             )>::for_hosts(&["extensions", "layout"]))
             .add_plugins(JsEmitEventPlugin::<AddExtensionRequest>::default())
@@ -48,6 +49,7 @@ impl Plugin for ExtensionsPlugin {
             .add_observer(on_toggle_request)
             .add_observer(on_uninstall_request)
             .add_observer(on_action_request)
+            .add_observer(on_pin_request)
             .add_observer(on_open_manager_request)
             .add_observer(on_browse_store_request)
             .add_observer(on_add_extension)
@@ -108,14 +110,18 @@ fn snapshot() -> ExtensionsEvent {
     let profile = vmux_core::profile::active_profile_name();
     let idx = store::Index::load(&root).unwrap_or_default();
     let loaded = super::load::loaded_ids();
+    snapshot_from_index(&idx, &profile, &loaded)
+}
+
+fn snapshot_from_index(idx: &store::Index, profile: &str, loaded: &[String]) -> ExtensionsEvent {
     let extensions = idx
         .entries
         .iter()
-        .filter(|entry| entry.installed_for(&profile))
+        .filter(|entry| entry.installed_for(profile))
         .map(|e| {
-            let enabled = e.enabled_for(&profile);
+            let enabled = e.enabled_for(profile);
             let needs_approval = !e
-                .grants_for(&profile)
+                .grants_for(profile)
                 .covers(&e.permissions, &e.host_permissions);
             ExtRow {
                 id: e.id.clone(),
@@ -124,6 +130,7 @@ fn snapshot() -> ExtensionsEvent {
                 icon: e.icon.clone(),
                 popup: e.popup.clone(),
                 enabled,
+                pinned: e.pinned_for(profile),
                 needs_approval,
                 required_permissions: e.permissions.clone(),
                 required_host_permissions: e.host_permissions.clone(),
@@ -137,14 +144,17 @@ fn snapshot() -> ExtensionsEvent {
         .collect();
     ExtensionsEvent {
         extensions,
-        pending: idx.is_dirty_for(&profile, &loaded),
+        pending: idx.is_dirty_for(profile, loaded),
     }
 }
 
 fn broadcast_list(outbox: &ExtOutbox, subs: &ExtSubscribers) {
-    let ev = snapshot();
+    broadcast_snapshot(outbox, subs, snapshot());
+}
+
+fn broadcast_snapshot(outbox: &ExtOutbox, subs: &ExtSubscribers, event: ExtensionsEvent) {
     for &entity in &subs.0 {
-        push(outbox, entity, OutMsg::List(ev.clone()));
+        push(outbox, entity, OutMsg::List(event.clone()));
     }
 }
 
@@ -286,6 +296,51 @@ fn on_action_request(
             url: Some(format!("chrome-extension://{id}/{popup}")),
         },
     )));
+}
+
+fn on_pin_request(
+    trigger: On<BinReceive<ExtPinRequest>>,
+    subs: Res<ExtSubscribers>,
+    outbox: Res<ExtOutbox>,
+) {
+    let request = trigger.event().payload.clone();
+    let recipients = subs.0.iter().copied().collect::<Vec<_>>();
+    let outbox = outbox.clone();
+    std::thread::spawn(move || {
+        let profile = vmux_core::profile::active_profile_name();
+        let loaded = super::load::loaded_ids();
+        let result = store::update_index_if_changed(&store::root(), |index| {
+            index
+                .set_pinned_for(&profile, &request.id, request.pinned)
+                .then(|| snapshot_from_index(index, &profile, &loaded))
+        });
+        match result {
+            Ok(Some(snapshot)) => {
+                for entity in recipients {
+                    push(&outbox, entity, OutMsg::List(snapshot.clone()));
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                bevy::log::warn!(
+                    extension = request.id,
+                    "extension pin update failed: {error}"
+                );
+                for entity in recipients {
+                    push(
+                        &outbox,
+                        entity,
+                        OutMsg::Progress(ExtInstallProgress {
+                            key: request.id.clone(),
+                            phase: ExtInstallPhase::Failed,
+                            pct: None,
+                            message: error.clone(),
+                        }),
+                    );
+                }
+            }
+        }
+    });
 }
 
 fn on_open_manager_request(

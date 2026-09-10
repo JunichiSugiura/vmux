@@ -1901,28 +1901,10 @@ mod tests {
     }
 
     #[test]
-    fn embedded_settings_offer_starter_bookmark_folders() {
+    fn embedded_settings_use_page_pins_instead_of_starter_folders() {
         let settings = load_embedded_settings();
-        let folders = settings
-            .browser
-            .bookmark_folders
-            .iter()
-            .map(|folder| folder.name.as_str())
-            .collect::<Vec<_>>();
 
-        assert_eq!(folders, ["Projects", "Knowledge", "Tools"]);
-        assert_eq!(
-            settings.browser.bookmark_folders[0].smart,
-            Some(vmux_core::SmartBookmarkFolder::Projects)
-        );
-        assert_eq!(
-            settings.browser.bookmark_folders[1].smart,
-            Some(vmux_core::SmartBookmarkFolder::Knowledge)
-        );
-        assert_eq!(
-            settings.browser.bookmark_folders[2].smart,
-            Some(vmux_core::SmartBookmarkFolder::Tools)
-        );
+        assert!(settings.browser.bookmark_folders.is_empty());
     }
 
     #[test]

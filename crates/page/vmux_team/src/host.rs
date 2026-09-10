@@ -45,8 +45,8 @@ pub struct ProfileSwitchRequested {
 
 pub const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
     host: "team",
-    title: "Team",
-    title_message_id: Some("team-title"),
+    title: "Profiles",
+    title_message_id: Some("team-profiles"),
     replaces_command: None,
     keywords: &["team", "agents", "profile"],
     icon: Some(vmux_core::BuiltinIcon::Users),
@@ -59,7 +59,7 @@ struct Team;
 impl HostedPage for Team {
     const HOST: &'static str = "team";
     const URL: &'static str = TEAM_PAGE_URL;
-    const TITLE: &'static str = "Team";
+    const TITLE: &'static str = "Profiles";
 }
 
 #[derive(Component)]
@@ -444,17 +444,7 @@ fn on_team_command(
             let name = name.trim().to_string();
             match vmux_core::profile::create_profile(&name) {
                 Ok(profile_id) => {
-                    for (entity, _, _, is_active) in &mut profile_labels {
-                        if is_active {
-                            commands.entity(entity).remove::<vmux_core::Active>();
-                        }
-                    }
-                    commands.spawn((
-                        ProfileLabel,
-                        ProfileId(profile_id.clone()),
-                        Name::new(name),
-                        vmux_core::Active,
-                    ));
+                    commands.spawn((ProfileLabel, ProfileId(profile_id.clone()), Name::new(name)));
                     profile_switches.write(ProfileSwitchRequested { profile_id });
                 }
                 Err(error) => bevy::log::warn!("profile create failed: {error}"),
@@ -469,16 +459,9 @@ fn on_team_command(
             if profile_id != vmux_core::profile::active_profile_name()
                 && vmux_core::profile::profile_exists(&profile_id)
             {
-                let mut found = false;
-                for (entity, id, _, is_active) in &mut profile_labels {
-                    let selected = id.0 == profile_id;
-                    found |= selected;
-                    if selected && !is_active {
-                        commands.entity(entity).insert(vmux_core::Active);
-                    } else if !selected && is_active {
-                        commands.entity(entity).remove::<vmux_core::Active>();
-                    }
-                }
+                let found = profile_labels
+                    .iter()
+                    .any(|(_, id, _, _)| id.0 == profile_id);
                 if found {
                     profile_switches.write(ProfileSwitchRequested { profile_id });
                 }
@@ -636,7 +619,7 @@ mod tests {
     }
 
     #[test]
-    fn team_page_open_titles_webview_team() {
+    fn team_page_open_titles_webview_profiles() {
         use vmux_core::page_open::{PageOpenId, PageOpenTask};
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -659,7 +642,7 @@ mod tests {
             .expect("team webview spawned")
             .title
             .clone();
-        assert_eq!(title, "Team");
+        assert_eq!(title, "Profiles");
     }
 
     fn command_app() -> App {

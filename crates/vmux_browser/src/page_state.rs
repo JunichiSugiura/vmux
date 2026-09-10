@@ -479,6 +479,8 @@ fn push_projects_host_emit(
                         branch: info.branch,
                         uncommitted: info.uncommitted,
                         ahead: info.ahead,
+                        insertions: info.insertions,
+                        deletions: info.deletions,
                         ..Default::default()
                     });
                 }
@@ -572,6 +574,9 @@ fn push_bookmarks_host_emit(
 
     let mut roots: Vec<(u32, vmux_layout::event::BookmarkNode)> = Vec::new();
     for (_, uuid, name, children, collapsed, smart, order, parent) in folders.iter() {
+        if smart.is_some() {
+            continue;
+        }
         let mut kids = Vec::new();
         if let Some(children) = children {
             for child in children.iter() {
@@ -593,7 +598,6 @@ fn push_bookmarks_host_emit(
                 uuid: uuid.0.clone(),
                 name: name.as_str().to_string(),
                 collapsed,
-                smart: smart.copied(),
                 parent,
                 children: kids.into_iter().map(|(_, row)| row).collect(),
             }),

@@ -196,7 +196,7 @@ team-you = 나
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = 에이전트
 
-services-title = 백그라운드 서비스
+services-title = Vmux 프로세스
 services-processes = { $count ->
     [one] 프로세스 1개
    *[other] 프로세스 { $count }개
@@ -298,6 +298,7 @@ layout-new-stack = 새 스택
 layout-close-tab = 탭 닫기
 layout-bookmark = 북마크
 layout-pin = 고정
+layout-unpin = 고정 해제
 layout-new-tab = 새 탭
 layout-team = 팀
 

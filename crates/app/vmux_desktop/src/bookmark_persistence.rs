@@ -24,6 +24,7 @@ impl Plugin for BookmarkPersistencePlugin {
                 PostUpdate,
                 (
                     migrate_legacy_bookmark_order,
+                    migrate_smart_bookmark_folders,
                     migrate_shortcut_bookmark_aliases,
                     mark_bookmarks_dirty,
                     autosave_bookmarks,
@@ -341,6 +342,31 @@ fn migrate_legacy_bookmark_order(
             .insert(BookmarkOrder(order.0))
             .remove::<Order>()
             .remove::<Save>();
+    }
+}
+
+fn migrate_smart_bookmark_folders(
+    folders: Query<(Entity, Option<&Children>), With<vmux_core::SmartBookmarkFolder>>,
+    mut offered: ResMut<OfferedBookmarkDefaults>,
+    mut auto: ResMut<BookmarkAutoSave>,
+    mut commands: Commands,
+) {
+    let mut changed = false;
+    for (folder, children) in &folders {
+        if let Some(children) = children {
+            for child in children.iter() {
+                commands.entity(child).remove::<ChildOf>();
+            }
+        }
+        commands.entity(folder).despawn();
+        changed = true;
+    }
+    if !offered.folder_bookmarks.is_empty() {
+        offered.folder_bookmarks.clear();
+        changed = true;
+    }
+    if changed {
+        auto.dirty = true;
     }
 }
 
@@ -813,45 +839,27 @@ mod tests {
     }
 
     #[test]
-    fn legacy_default_folder_bookmark_becomes_smart_content_without_removing_its_pin() {
-        let mut settings = vmux_setting::AppSettings::embedded();
-        settings.browser.bookmarks.clear();
-        settings.browser.bookmark_folders = vec![vmux_setting::BookmarkFolderSettings {
-            name: "Projects".into(),
-            smart: Some(vmux_core::SmartBookmarkFolder::Projects),
-        }];
+    fn smart_folder_migration_moves_children_to_bookmark_root() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_plugins(vmux_core::CorePlugin)
-            .insert_resource(settings)
             .insert_resource(OfferedBookmarkDefaults {
-                urls: vec!["vmux://projects/".into()],
                 folders: vec!["Projects".into()],
                 folder_bookmarks: vec!["projects\nvmux://projects".into()],
+                ..default()
             })
             .init_resource::<BookmarkAutoSave>()
-            .add_observer(seed_default_bookmarks_after_load);
-        app.world_mut().insert_resource(BookmarkLoadPending);
-        app.world_mut().spawn(vmux_core::page::PageManifest {
-            host: "projects",
-            title: "Projects",
-            title_message_id: None,
-            replaces_command: None,
-            keywords: &[],
-            icon: None,
-            command_bar: true,
-        });
-        let pin = app
+            .add_systems(Update, migrate_smart_bookmark_folders);
+        let bookmark = app
             .world_mut()
             .spawn((
-                Pin,
-                Uuid("project-pin".into()),
+                Bookmark,
+                Uuid("project-bookmark".into()),
                 PageMetadata {
                     title: "Projects".into(),
                     url: "vmux://projects/".into(),
                     ..default()
                 },
-                Bookmark,
                 BookmarkOrder(0),
             ))
             .id();
@@ -862,28 +870,22 @@ mod tests {
                 Uuid("projects-folder".into()),
                 Name::new("Projects"),
                 BookmarkOrder(1),
+                vmux_core::SmartBookmarkFolder::Projects,
             ))
             .id();
-        app.world_mut().entity_mut(pin).insert(ChildOf(folder));
-
-        app.world_mut().trigger(Loaded {
-            entity_map: bevy::ecs::entity::EntityHashMap::default(),
-        });
+        app.world_mut().entity_mut(bookmark).insert(ChildOf(folder));
         app.update();
 
-        assert!(app.world().entity(pin).contains::<Pin>());
-        assert!(!app.world().entity(pin).contains::<Bookmark>());
-        assert!(!app.world().entity(pin).contains::<ChildOf>());
-        assert_eq!(
-            app.world().get::<vmux_core::SmartBookmarkFolder>(folder),
-            Some(&vmux_core::SmartBookmarkFolder::Projects)
-        );
+        assert!(app.world().get_entity(folder).is_err());
+        assert!(app.world().entity(bookmark).contains::<Bookmark>());
+        assert!(!app.world().entity(bookmark).contains::<ChildOf>());
         assert!(
             app.world()
                 .resource::<OfferedBookmarkDefaults>()
                 .folder_bookmarks
                 .is_empty()
         );
+        assert!(app.world().resource::<BookmarkAutoSave>().dirty);
     }
 
     #[test]

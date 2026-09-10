@@ -196,7 +196,7 @@ team-you = أنت
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = وكيل
 
-services-title = خدمات الخلفية
+services-title = عمليات Vmux
 services-processes = { $count ->
     [one] عملية واحدة
    *[other] { $count } عمليات
@@ -298,6 +298,7 @@ layout-new-stack = طبقة جديدة
 layout-close-tab = إغلاق التبويب
 layout-bookmark = إضافة إلى المفضلة
 layout-pin = تثبيت
+layout-unpin = إلغاء التثبيت
 layout-new-tab = تبويب جديد
 layout-team = الفريق
 

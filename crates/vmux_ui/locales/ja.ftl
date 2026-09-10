@@ -187,7 +187,7 @@ team-you = あなた
 agent-chat-subtitle = { team-you }・{ $agent }
 team-agent = エージェント
 
-services-title = バックグラウンドサービス
+services-title = Vmux プロセス
 services-processes = { $count } プロセス
 services-kill-all = すべて終了
 services-not-running = サービスが実行されていません
@@ -286,6 +286,7 @@ layout-new-stack = 新しいスタック
 layout-close-tab = タブを閉じる
 layout-bookmark = ブックマーク
 layout-pin = ピン留め
+layout-unpin = ピン留めを解除
 layout-new-tab = 新しいタブ
 layout-team = チーム
 

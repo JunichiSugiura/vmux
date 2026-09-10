@@ -196,7 +196,7 @@ team-you = Tú
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agente
 
-services-title = Servicios en segundo plano
+services-title = Procesos de Vmux
 services-processes = { $count ->
     [one] 1 proceso
    *[other] { $count } procesos
@@ -298,6 +298,7 @@ layout-new-stack = Nueva pila
 layout-close-tab = Cerrar pestaña
 layout-bookmark = Marcador
 layout-pin = Fijar
+layout-unpin = Desfijar
 layout-new-tab = Nueva pestaña
 layout-team = Equipo
 

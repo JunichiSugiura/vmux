@@ -196,7 +196,7 @@ team-you = Jij
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agent
 
-services-title = Achtergrondservices
+services-title = Vmux-processen
 services-processes = { $count ->
     [one] 1 proces
    *[other] { $count } processen
@@ -298,6 +298,7 @@ layout-new-stack = Nieuwe stack
 layout-close-tab = Tabblad sluiten
 layout-bookmark = Bladwijzer
 layout-pin = Vastzetten
+layout-unpin = Losmaken
 layout-new-tab = Nieuw tabblad
 layout-team = Team
 

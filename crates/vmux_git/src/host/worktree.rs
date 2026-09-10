@@ -582,6 +582,8 @@ pub struct RepoInfo {
     pub is_worktree: bool,
     pub uncommitted: u32,
     pub ahead: u32,
+    pub insertions: u32,
+    pub deletions: u32,
     pub repo_root: PathBuf,
     pub(crate) git_dir: PathBuf,
     pub(crate) common_dir: PathBuf,
@@ -752,12 +754,21 @@ pub fn repo_info(dir: &Path) -> Option<RepoInfo> {
             .to_string_lossy()
             .into_owned()
     });
+    let change = if branch.is_empty() {
+        BranchChange::default()
+    } else {
+        BaseRef::of(&repo_root)
+            .map(|base| BranchChange::against(&repo_root, &base, &repo_root, &branch))
+            .unwrap_or_default()
+    };
     Some(RepoInfo {
         name,
         branch,
         is_worktree: git_dir != common_dir,
         uncommitted,
         ahead,
+        insertions: change.insertions,
+        deletions: change.deletions,
         repo_root,
         git_dir,
         common_dir,

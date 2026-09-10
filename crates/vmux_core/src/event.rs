@@ -2973,6 +2973,8 @@ pub struct ExtRow {
     pub icon: Option<String>,
     pub popup: Option<String>,
     pub enabled: bool,
+    #[serde(default)]
+    pub pinned: bool,
     pub needs_approval: bool,
     pub required_permissions: Vec<String>,
     pub required_host_permissions: Vec<String>,
@@ -3076,6 +3078,22 @@ pub struct ExtUninstallRequest {
 )]
 pub struct ExtActionRequest {
     pub id: String,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ExtPinRequest {
+    pub id: String,
+    pub pinned: bool,
 }
 
 #[derive(

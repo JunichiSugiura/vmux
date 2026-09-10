@@ -1,22 +1,23 @@
 use dioxus::prelude::*;
 
+use crate::util::cn;
+
 const FONT_PX: f64 = 16.0;
-const COLUMNS: usize = 120;
+const DEFAULT_COLUMNS: usize = 120;
 const COLUMN_GLYPHS: usize = 96;
 const GLYPHS: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789";
 
 #[component]
-pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
+pub fn MatrixRain(
+    accent_rgb: String,
+    words: Vec<String>,
+    #[props(default = DEFAULT_COLUMNS)] columns: usize,
+) -> Element {
+    let accent = Accent::css(&accent_rgb);
     let head = format!(
-        "light-dark(rgb({}), {})",
-        Accent::darkened(&accent_rgb, 42),
-        Accent::brightened(&accent_rgb)
+        "light-dark(color-mix(in oklab, {accent} 72%, black), color-mix(in oklab, {accent} 68%, white))"
     );
-    let trail = format!(
-        "light-dark(rgb({} / 0.55), rgb({} / 0.5))",
-        Accent::darkened(&accent_rgb, 55),
-        accent_rgb
-    );
+    let trail = format!("color-mix(in oklab, {accent} 52%, transparent)");
     let words: Vec<Vec<char>> = words
         .iter()
         .filter(|word| !word.is_empty())
@@ -26,9 +27,10 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
     rsx! {
         div {
             class: "absolute inset-0 overflow-hidden font-mono text-[16px] leading-[16px]",
+            "aria-hidden": "true",
             style: "--vmux-rain-head:{head};--vmux-rain-trail:{trail};",
 
-            for index in 0..COLUMNS {
+            for index in 0..columns {
                 {
                     let column = RainColumn::at(index, &words);
                     rsx! {
@@ -47,6 +49,41 @@ pub fn MatrixRain(accent_rgb: String, words: Vec<String>) -> Element {
                                 "{column.glyphs}"
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn MatrixLoader(
+    label: String,
+    #[props(default)] words: Vec<String>,
+    #[props(default = "h-full w-full".to_string())] class: String,
+) -> Element {
+    let words = if words.is_empty() {
+        vec!["VMUX".to_string()]
+    } else {
+        words
+    };
+
+    rsx! {
+        div {
+            class: cn(["overflow-hidden", class.as_str()]),
+            role: "status",
+            "aria-busy": "true",
+            div { class: "relative h-full w-full overflow-hidden bg-background",
+                div { class: "absolute left-1/2 top-0 h-full w-[1024px] -translate-x-1/2 overflow-hidden",
+                    MatrixRain {
+                        accent_rgb: "var(--primary)".to_string(),
+                        words,
+                        columns: 64,
+                    }
+                }
+                div { class: "relative z-10 flex h-full w-full items-center justify-center",
+                    div { class: "glass max-w-[min(28rem,calc(100%-3rem))] rounded-2xl px-5 py-3 text-center text-sm font-medium text-foreground ring-1 ring-inset ring-border/70 backdrop-blur-xl",
+                        "{label}"
                     }
                 }
             }
@@ -111,27 +148,18 @@ impl RainColumn {
 struct Accent;
 
 impl Accent {
-    fn brightened(accent_rgb: &str) -> String {
-        let Some([r, g, b]) = Self::parse(accent_rgb) else {
-            return "rgb(220 230 255)".to_string();
+    fn css(accent: &str) -> String {
+        if accent == "var(--primary)" {
+            return "var(--primary)".to_string();
         };
-        let mix = |c: u16| c + (255 - c) * 7 / 10;
-        format!("rgb({} {} {})", mix(r), mix(g), mix(b))
-    }
-
-    fn darkened(accent_rgb: &str, pct: u16) -> String {
-        let Some([r, g, b]) = Self::parse(accent_rgb) else {
-            return "20 24 33".to_string();
-        };
-        let mix = |c: u16| c * pct / 100;
-        format!("{} {} {}", mix(r), mix(g), mix(b))
-    }
-
-    fn parse(accent_rgb: &str) -> Option<[u16; 3]> {
-        let mut parts = accent_rgb.split_whitespace();
-        let mut channel = || parts.next()?.parse::<u16>().ok();
-        let rgb = [channel()?, channel()?, channel()?];
-        parts.next().is_none().then_some(rgb)
+        let channels = accent
+            .split_whitespace()
+            .map(str::parse::<u8>)
+            .collect::<Result<Vec<_>, _>>();
+        match channels.as_deref() {
+            Ok([red, green, blue]) => format!("rgb({red} {green} {blue})"),
+            _ => "var(--primary)".to_string(),
+        }
     }
 }
 
@@ -163,11 +191,10 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_accent_falls_back_rather_than_producing_broken_css() {
-        assert_eq!(Accent::parse("1 2"), None);
-        assert_eq!(Accent::parse("1 2 3 4"), None);
-        assert_eq!(Accent::parse("no such colour"), None);
-        assert_eq!(Accent::brightened("oops"), "rgb(220 230 255)");
-        assert_eq!(Accent::darkened("oops", 42), "20 24 33");
+    fn accent_accepts_rgb_channels_and_the_primary_theme_token() {
+        assert_eq!(Accent::css("251 146 60"), "rgb(251 146 60)");
+        assert_eq!(Accent::css("var(--primary)"), "var(--primary)");
+        assert_eq!(Accent::css("var(--primary);color:red"), "var(--primary)");
+        assert_eq!(Accent::css("oops"), "var(--primary)");
     }
 }

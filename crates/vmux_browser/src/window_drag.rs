@@ -21,7 +21,26 @@ impl Plugin for WindowDragPlugin {
 
 pub(crate) struct WindowDragPlugin;
 
-static REGIONS: LazyLock<Mutex<Vec<WindowDragRegion>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static REGIONS: LazyLock<Mutex<PublishedWindowDragRegions>> =
+    LazyLock::new(|| Mutex::new(PublishedWindowDragRegions::default()));
+
+#[derive(Default)]
+struct PublishedWindowDragRegions {
+    allowed: Vec<WindowDragRegion>,
+    blocked: Vec<WindowDragRegion>,
+}
+
+impl PublishedWindowDragRegions {
+    fn contains(&self, x_px: f32, y_px: f32) -> bool {
+        self.allowed
+            .iter()
+            .any(|region| region.contains(x_px, y_px))
+            && !self
+                .blocked
+                .iter()
+                .any(|region| region.contains(x_px, y_px))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WindowDragRegion {
@@ -36,7 +55,7 @@ impl WindowDragRegion {
         let published = REGIONS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        published.iter().any(|region| region.contains(x_px, y_px))
+        published.contains(x_px, y_px)
     }
 
     fn of(reported: WindowDragRegionEvent, header: ComputedNode) -> Option<Self> {
@@ -65,7 +84,7 @@ impl WindowDragRegion {
             && y_px <= self.bottom_px
     }
 
-    fn publish(regions: Vec<Self>) {
+    fn publish(regions: PublishedWindowDragRegions) {
         let mut published = REGIONS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -105,13 +124,13 @@ fn publish_window_drag_region(
     focused_window: Res<vmux_layout::window::FocusedWindow>,
     overlay_q: OverlayStateQuery,
     pointer_capture_q: Query<(Entity, &HostWindow), (With<LayoutCef>, LayoutPointerCapture)>,
-    mut last: Local<Vec<WindowDragRegion>>,
+    mut last: Local<(Vec<WindowDragRegion>, Vec<WindowDragRegion>)>,
 ) {
     let overlay_owns_input = OverlayState::of_any(&overlay_q).owns_input()
         || pointer_capture_q
             .iter()
             .any(|(_, host)| Some(host.0) == focused_window.0);
-    let mut regions = Vec::new();
+    let mut regions = PublishedWindowDragRegions::default();
     if !overlay_owns_input {
         for (entity, header, open) in header_q.iter() {
             if !open
@@ -127,16 +146,21 @@ fn publish_window_drag_region(
                     continue;
                 }
                 if let Some(region) = WindowDragRegion::of(reported.clone(), *header) {
-                    regions.push(region);
+                    if reported.blocked {
+                        regions.blocked.push(region);
+                    } else {
+                        regions.allowed.push(region);
+                    }
                 }
             }
             break;
         }
     }
-    if *last == regions {
+    let next = (regions.allowed.clone(), regions.blocked.clone());
+    if *last == next {
         return;
     }
-    *last = regions.clone();
+    *last = next;
     WindowDragRegion::publish(regions);
 }
 
@@ -163,6 +187,7 @@ mod tests {
         let reported = WindowDragRegionEvent {
             id: "trailing".to_string(),
             removed: false,
+            blocked: false,
             left: 300.0,
             top: 8.0,
             width: 400.0,
@@ -188,6 +213,7 @@ mod tests {
             WindowDragRegionEvent {
                 id: "trailing".to_string(),
                 removed: false,
+                blocked: false,
                 left: 400.0,
                 top: 0.0,
                 width: 400.0,
@@ -210,6 +236,7 @@ mod tests {
                 WindowDragRegionEvent {
                     id: "trailing".to_string(),
                     removed: false,
+                    blocked: false,
                     left: 400.0,
                     top: 0.0,
                     width: 100.0,
@@ -224,6 +251,7 @@ mod tests {
                 WindowDragRegionEvent {
                     id: "trailing".to_string(),
                     removed: false,
+                    blocked: false,
                     left: 10.0,
                     top: 0.0,
                     width: 0.0,
@@ -245,6 +273,7 @@ mod tests {
             WindowDragRegionEvent {
                 id: "leading".to_string(),
                 removed: false,
+                blocked: false,
                 left: 10.0,
                 top: 0.0,
                 width: 20.0,
@@ -256,6 +285,7 @@ mod tests {
             WindowDragRegionEvent {
                 id: "leading".to_string(),
                 removed: false,
+                blocked: false,
                 left: 30.0,
                 top: 0.0,
                 width: 20.0,
@@ -274,5 +304,27 @@ mod tests {
 
         assert_eq!(reported.0.len(), 1);
         assert!(reported.0.contains_key(&(other_webview, "leading".into())));
+    }
+
+    #[test]
+    fn blocked_regions_override_allowed_regions() {
+        let regions = PublishedWindowDragRegions {
+            allowed: vec![WindowDragRegion {
+                left_px: 0.0,
+                top_px: 0.0,
+                right_px: 500.0,
+                bottom_px: 40.0,
+            }],
+            blocked: vec![WindowDragRegion {
+                left_px: 100.0,
+                top_px: 0.0,
+                right_px: 300.0,
+                bottom_px: 40.0,
+            }],
+        };
+
+        assert!(regions.contains(50.0, 20.0));
+        assert!(!regions.contains(200.0, 20.0));
+        assert!(regions.contains(400.0, 20.0));
     }
 }

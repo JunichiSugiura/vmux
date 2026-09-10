@@ -209,7 +209,7 @@ team-you = You
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agent
 
-services-title = Background Services
+services-title = Vmux Processes
 services-processes = { $count ->
     [one] 1 process
    *[other] { $count } processes
@@ -323,6 +323,7 @@ layout-new-stack = New Stack
 layout-close-tab = Close tab
 layout-bookmark = Bookmark
 layout-pin = Pin
+layout-unpin = Unpin
 layout-new-tab = New tab
 layout-team = Team
 

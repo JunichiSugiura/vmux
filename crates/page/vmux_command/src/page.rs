@@ -713,6 +713,7 @@ fn BookmarkButton() -> Element {
                     url: None,
                     metadata: None,
                     folder: None,
+                    target_uuid: None,
                 });
             },
             Icon { class: "h-4 w-4",

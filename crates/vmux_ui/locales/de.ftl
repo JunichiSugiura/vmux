@@ -196,7 +196,7 @@ team-you = Sie
 agent-chat-subtitle = { team-you } · { $agent }
 team-agent = Agent
 
-services-title = Hintergrunddienste
+services-title = Vmux-Prozesse
 services-processes = { $count ->
     [one] 1 Prozess
    *[other] { $count } Prozesse
@@ -298,6 +298,7 @@ layout-new-stack = Neuer Stack
 layout-close-tab = Tab schließen
 layout-bookmark = Lesezeichen
 layout-pin = Anheften
+layout-unpin = Lösen
 layout-new-tab = Neuer Tab
 layout-team = Team
 

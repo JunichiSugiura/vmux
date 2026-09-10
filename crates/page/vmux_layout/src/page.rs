@@ -21,7 +21,7 @@ use vmux_core::event::{
 };
 use vmux_core::{PageIcon, PageMetadata};
 use vmux_ui::components::avatar::Avatar;
-use vmux_ui::components::composer_bar::{StatusDot, WorkspaceBadges};
+use vmux_ui::components::composer_bar::StatusDot;
 use vmux_ui::components::context_menu::{
     ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger,
 };
@@ -926,31 +926,44 @@ fn ActiveSessionGit(boundary: crate::event::TabBoundary) -> Element {
         format!("{} → {}", boundary.base_ref, branch)
     };
     rsx! {
-        div { class: "min-w-0 rounded-md bg-foreground/[0.035] px-2 py-1.5",
+        div { class: "min-w-0 rounded-md bg-foreground/[0.035] px-2.5 py-2.5",
             div { class: "flex min-w-0 items-center gap-2",
                 LineIconView { icon: LineIcon::GitBranch, class: "size-3.5 shrink-0 text-muted-foreground".to_string() }
                 span { class: "min-w-0 flex-1 truncate text-[10px] font-semibold text-foreground", title: "{repository}", "{repository}" }
-                WorkspaceBadges {
-                    is_git_repo: true,
-                    workspace_known: true,
-                    uncommitted: boundary.uncommitted,
-                    ahead: boundary.ahead,
-                }
-            }
-            div { class: "mt-1 flex min-w-0 items-center gap-2 pl-[22px] font-mono text-[10px]",
-                span { class: "min-w-0 flex-1 truncate text-muted-foreground", title: "{relation}", "{relation}" }
-                if boundary.changed_files > 0 {
-                    span { class: "flex shrink-0 items-center gap-1 text-muted-foreground", title: "Files changed",
-                        LineIconView { icon: LineIcon::File, class: "size-3".to_string() }
-                        "{boundary.changed_files}"
+                if boundary.is_worktree {
+                    span { class: "shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary",
+                        {translate("layout-worktree")}
                     }
                 }
-                if boundary.insertions > 0 {
-                    span { class: "shrink-0 text-success", "+{boundary.insertions}" }
+            }
+            div { class: "mt-1.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-muted-foreground",
+                span { class: "min-w-0 flex-1 truncate", title: "{relation}", "{relation}" }
+            }
+            div { class: "mt-2 grid grid-cols-2 gap-1.5 text-[9px]",
+                div { class: "flex min-w-0 items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1.5 text-muted-foreground",
+                    span { class: "size-1.5 shrink-0 rounded-full bg-amber-400" }
+                    span { class: "min-w-0 flex-1 truncate", {translate("composer-uncommitted-changes")} }
+                    span { class: "font-mono text-foreground", "{boundary.uncommitted}" }
                 }
-                if boundary.deletions > 0 {
-                    span { class: "shrink-0 text-destructive", "−{boundary.deletions}" }
+                div { class: "flex min-w-0 items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1.5 text-muted-foreground",
+                    LineIconView { icon: LineIcon::File, class: "size-3 shrink-0".to_string() }
+                    span { class: "min-w-0 flex-1 truncate", {translate("git-status-modified")} }
+                    span { class: "font-mono text-foreground", "{boundary.changed_files}" }
                 }
+                if boundary.ahead > 0 {
+                    div { class: "flex min-w-0 items-center gap-1.5 rounded-md bg-foreground/[0.04] px-2 py-1.5 text-muted-foreground",
+                        span { class: "text-sky-500", "↑" }
+                        span { class: "min-w-0 flex-1 truncate", {translate("composer-commits-ahead")} }
+                        span { class: "font-mono text-foreground", "{boundary.ahead}" }
+                    }
+                }
+                div { class: "flex min-w-0 items-center justify-end gap-2 rounded-md bg-foreground/[0.04] px-2 py-1.5 font-mono",
+                    span { class: "text-success", "+{boundary.insertions}" }
+                    span { class: "text-destructive", "−{boundary.deletions}" }
+                }
+            }
+            if !boundary.effective_dir.is_empty() {
+                div { class: "mt-2 truncate font-mono text-[9px] text-muted-foreground/65", title: "{boundary.effective_dir}", "{boundary.effective_dir}" }
             }
         }
     }

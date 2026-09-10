@@ -213,6 +213,7 @@ services-attached = gekoppeld
 services-kill = Stoppen
 services-memory = Geheugen
 services-size = Grootte
+services-uptime = Actief
 services-shell = Shell
 
 error-title = Fout
@@ -468,6 +469,8 @@ common-error = Fout
 common-output = Uitvoer
 common-pending = In behandeling
 common-current = huidig
+composer-permissions = Machtigingen
+composer-permission-change = Machtigingsmodus wijzigen
 common-stop = Stop
 services-command = Vmux-service
 services-uptime-seconds = { $seconds }s

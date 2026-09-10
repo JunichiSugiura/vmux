@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use vmux_wire::protocol::AcpModeOption;
 
 use crate::components::prompt_box::{PromptMenuRow, PromptPopup, PromptPopupPlacement};
+use crate::i18n::translate;
 use crate::util::cn;
 
 #[component]
@@ -15,7 +16,7 @@ pub fn PermissionMenu(
     #[props(default)] on_dismiss: Option<EventHandler<()>>,
 ) -> Element {
     rsx! {
-        PromptPopup { placement, heading: "Permissions".to_string(), on_dismiss,
+        PromptPopup { placement, heading: translate("composer-permissions"), on_dismiss,
             for (index, mode) in modes.into_iter().enumerate() {
                 button {
                     key: "permission-{mode.id}",
@@ -33,7 +34,7 @@ pub fn PermissionMenu(
                     div { class: "flex min-w-0 items-baseline gap-2",
                         span { class: "min-w-0 flex-1 truncate text-sm text-foreground", "{mode.name}" }
                         if mode.id == current_mode_id {
-                            span { class: "shrink-0 text-[10px] uppercase tracking-wide text-primary", "Current" }
+                            span { class: "shrink-0 text-[10px] uppercase tracking-wide text-primary", {translate("common-current")} }
                         }
                     }
                     if let Some(description) = &mode.description {

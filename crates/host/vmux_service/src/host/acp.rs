@@ -186,6 +186,7 @@ mod tests {
                 text: "x".to_string(),
                 context: None,
                 attachments: Vec::new(),
+                preferred_mode: None,
             }
         ));
         assert!(mgr.subscribe("nope").is_none());

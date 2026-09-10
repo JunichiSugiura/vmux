@@ -213,6 +213,7 @@ services-attached = podłączone
 services-kill = Zakończ
 services-memory = Pamięć
 services-size = Rozmiar
+services-uptime = Czas działania
 services-shell = Powłoka
 
 error-title = Błąd
@@ -468,6 +469,8 @@ common-error = Błąd
 common-output = Wynik
 common-pending = Oczekuje
 common-current = bieżący
+composer-permissions = Uprawnienia
+composer-permission-change = Zmień tryb uprawnień
 common-stop = Zatrzymaj
 services-command = Usługa Vmux
 services-uptime-seconds = { $seconds } s

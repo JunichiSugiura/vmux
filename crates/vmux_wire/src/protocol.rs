@@ -685,6 +685,26 @@ impl ClientMessage {
                 text,
                 context,
                 attachments,
+                preferred_mode: None,
+            },
+        )
+        .into()
+    }
+
+    pub fn agent_input_with_mode(
+        sid: String,
+        text: String,
+        context: Option<String>,
+        attachments: Vec<AgentAttachment>,
+        preferred_mode: Option<String>,
+    ) -> Self {
+        SharedMessage::agent(
+            sid,
+            AgentAction::Input {
+                text,
+                context,
+                attachments,
+                preferred_mode,
             },
         )
         .into()
@@ -1683,6 +1703,7 @@ mod tests {
                     text: "hi".into(),
                     context: Some("prior conversation".into()),
                     attachments: Vec::new(),
+                    preferred_mode: None,
                 },
             )),
             ClientMessage::Shared(SharedMessage::agent(
@@ -1696,6 +1717,7 @@ mod tests {
                         mime_type: "image/png".into(),
                         size: 42,
                     }],
+                    preferred_mode: Some("auto".into()),
                 },
             )),
             ClientMessage::AcpSetModel {
@@ -1763,8 +1785,8 @@ mod tests {
             ClientMessage::agent_input("s".into(), "hi".into(), None, Vec::new()),
             ClientMessage::Shared(SharedMessage::Agent {
                 sid,
-                action: AgentAction::Input { text, context, attachments },
-            }) if sid == "s" && text == "hi" && context.is_none() && attachments.is_empty()
+                action: AgentAction::Input { text, context, attachments, preferred_mode },
+            }) if sid == "s" && text == "hi" && context.is_none() && attachments.is_empty() && preferred_mode.is_none()
         ));
         assert!(matches!(
             ClientMessage::agent_input(

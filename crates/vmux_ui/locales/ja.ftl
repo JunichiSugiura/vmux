@@ -201,6 +201,7 @@ services-attached = 接続中
 services-kill = 終了
 services-memory = メモリ
 services-size = サイズ
+services-uptime = 稼働時間
 services-shell = シェル
 
 error-title = エラー
@@ -453,6 +454,8 @@ common-error = エラー
 common-output = 出力
 common-pending = 保留中
 common-current = 現在
+composer-permissions = 権限
+composer-permission-change = 権限モードを変更
 common-stop = 停止
 services-command = Vmuxサービス
 services-uptime-seconds = { $seconds }秒

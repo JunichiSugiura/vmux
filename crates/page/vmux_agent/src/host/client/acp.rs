@@ -1196,6 +1196,7 @@ fn send_acp_input(
     workspaces: Query<(), With<vmux_layout::tab::TabWorkspace>>,
     pending_projects: Query<(), With<crate::host::PendingAgentProject>>,
     repositories_needing_worktrees: Query<(), With<crate::host::RepositoryNeedsWorktree>>,
+    modes: Option<Res<crate::chat::model::AgentModeSelections>>,
     service: Option<Res<ServiceClient>>,
 ) {
     let Some(service) = service else {
@@ -1229,11 +1230,16 @@ fn send_acp_input(
             &repositories_needing_worktrees,
         );
         let context = acp_prompt_context(handoff, workspace_state);
-        service.0.send(ClientMessage::agent_input(
+        let preferred_mode = modes
+            .as_deref()
+            .map(|modes| modes.selected_for(&session.agent_id).to_string())
+            .filter(|mode| !mode.is_empty());
+        service.0.send(ClientMessage::agent_input_with_mode(
             session.sid.clone(),
             text,
             context,
             prompt.attachments,
+            preferred_mode,
         ));
         *state = AgentRunState::Streaming;
     }

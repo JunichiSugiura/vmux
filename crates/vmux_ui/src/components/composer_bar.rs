@@ -202,13 +202,6 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                         open: menu.is(ComposerMenuKind::Effort),
                     }
                 }
-                if let Some(chip) = permission {
-                    ComposerChipSlot {
-                        kind: ComposerMenuKind::Permission,
-                        chip,
-                        open: menu.is(ComposerMenuKind::Permission),
-                    }
-                }
                 if let Some(chip) = project {
                     ComposerChipSlot {
                         kind: ComposerMenuKind::Project,
@@ -230,7 +223,16 @@ pub fn ComposerBar(props: ComposerBarProps) -> Element {
                     ahead,
                 }
             }
-            ComposerStatus { status, active_subagents, active_tasks, queued_count }
+            div { class: "flex shrink-0 items-center gap-1",
+                if let Some(chip) = permission {
+                    ComposerChipSlot {
+                        kind: ComposerMenuKind::Permission,
+                        chip,
+                        open: menu.is(ComposerMenuKind::Permission),
+                    }
+                }
+                ComposerStatus { status, active_subagents, active_tasks, queued_count }
+            }
         }
     }
 }

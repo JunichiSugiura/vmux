@@ -105,6 +105,7 @@ async fn route_agent_input(
     text: String,
     context: Option<String>,
     attachments: Vec<AgentAttachment>,
+    preferred_mode: Option<String>,
 ) {
     let acp = acp_manager.lock().await;
     if acp.contains(&sid) {
@@ -114,6 +115,7 @@ async fn route_agent_input(
                 text,
                 context,
                 attachments,
+                preferred_mode,
             },
         );
         return;
@@ -894,6 +896,7 @@ async fn handle_client(
                         text,
                         context,
                         attachments,
+                        preferred_mode,
                     },
             }) => {
                 route_agent_input(
@@ -903,6 +906,7 @@ async fn handle_client(
                     text,
                     context,
                     attachments,
+                    preferred_mode,
                 )
                 .await;
             }

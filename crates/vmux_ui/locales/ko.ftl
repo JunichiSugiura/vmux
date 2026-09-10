@@ -213,6 +213,7 @@ services-attached = 연결됨
 services-kill = 강제 종료
 services-memory = 메모리
 services-size = 크기
+services-uptime = 가동 시간
 services-shell = 셸
 
 error-title = 오류
@@ -468,6 +469,8 @@ common-error = 오류
 common-output = 출력
 common-pending = 대기 중
 common-current = 현재
+composer-permissions = 권한
+composer-permission-change = 권한 모드 변경
 common-stop = 중지
 services-command = Vmux 서비스
 services-uptime-seconds = { $seconds }초

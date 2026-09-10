@@ -25,6 +25,7 @@ fn samples() -> Vec<SharedMessage> {
                 text: "t".into(),
                 context: None,
                 attachments: Vec::<AgentAttachment>::new(),
+                preferred_mode: None,
             },
         ),
         SharedMessage::agent("s", AgentAction::Cancel),

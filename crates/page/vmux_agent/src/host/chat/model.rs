@@ -8,7 +8,7 @@ use vmux_chat::event::{
     MODE_STATE_EVENT, MODEL_STATE_EVENT, ModeState, ModelOptionEntry, ModelState,
     SLASH_COMMANDS_EVENT, SelectMode, SelectModel, SetAgentEffort, SlashCommands,
 };
-use vmux_command::event::StartSelectModel;
+use vmux_command::event::{StartSelectMode, StartSelectModel};
 use vmux_service::client::ServiceClient;
 use vmux_service::protocol::{AgentCommand, AgentCommandResult, ClientMessage, SharedAgentCommand};
 use vmux_session::AcpSession;
@@ -21,7 +21,9 @@ impl Plugin for ChatModelPlugin {
         app.init_resource::<AcpModelRequestCounter>()
             .init_resource::<AcpModeRequestCounter>()
             .init_resource::<AgentModelSelections>()
+            .init_resource::<AgentModeSelections>()
             .init_resource::<vmux_command::snapshot::CommandBarAgentModels>()
+            .init_resource::<vmux_command::snapshot::CommandBarAgentModes>()
             .add_message::<AcpSetModelRequest>()
             .add_message::<AcpSetModeRequest>()
             .add_message::<ModeSelectRequest>()
@@ -32,17 +34,23 @@ impl Plugin for ChatModelPlugin {
                 SetAgentEffort,
                 SelectMode,
             )>::for_hosts(super::CHAT_EVENT_HOSTS))
-            .add_plugins(BinEventEmitterPlugin::<(StartSelectModel,)>::for_hosts(&[
-                "start",
-            ]))
+            .add_plugins(
+                BinEventEmitterPlugin::<(StartSelectModel, StartSelectMode)>::for_hosts(&["start"]),
+            )
             .add_systems(
                 Startup,
-                (load_agent_model_selections, seed_cli_model_lists).chain(),
+                (
+                    load_agent_model_selections,
+                    load_agent_mode_selections,
+                    seed_cli_model_lists,
+                )
+                    .chain(),
             )
             .add_observer(on_select_model)
             .add_observer(on_select_mode)
             .add_observer(on_set_agent_effort)
             .add_observer(on_start_select_model)
+            .add_observer(on_start_select_mode)
             .add_systems(
                 Update,
                 (
@@ -58,10 +66,13 @@ impl Plugin for ChatModelPlugin {
                     send_acp_model_requests,
                     send_acp_mode_requests,
                     remember_acp_model_lists,
+                    remember_acp_mode_lists,
                     publish_agent_models.after(remember_acp_model_lists),
+                    publish_agent_modes.after(remember_acp_mode_lists),
                     save_agent_model_selections
                         .after(apply_last_used_acp_model)
                         .after(remember_acp_model_lists),
+                    save_agent_mode_selections.after(remember_acp_mode_lists),
                 ),
             );
     }
@@ -229,6 +240,12 @@ pub(crate) struct AgentModelSelections {
     dirty: bool,
 }
 
+#[derive(Resource, Default)]
+pub(crate) struct AgentModeSelections {
+    by_agent: std::collections::BTreeMap<String, AgentModeMemory>,
+    dirty: bool,
+}
+
 #[derive(Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct AgentModelMemory {
     #[serde(default)]
@@ -236,6 +253,15 @@ struct AgentModelMemory {
     selected: String,
     #[serde(default)]
     models: Vec<ModelOptionEntry>,
+}
+
+#[derive(Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+struct AgentModeMemory {
+    #[serde(default)]
+    url: String,
+    selected: String,
+    #[serde(default)]
+    modes: Vec<vmux_wire::protocol::AcpModeOption>,
 }
 
 #[derive(serde::Deserialize)]
@@ -262,6 +288,10 @@ fn agent_model_selections_path() -> std::path::PathBuf {
     vmux_core::profile::profile_dir().join("agent-models.json")
 }
 
+fn agent_mode_selections_path() -> std::path::PathBuf {
+    vmux_core::profile::profile_dir().join("agent-modes.json")
+}
+
 fn load_agent_model_selections(mut models: ResMut<AgentModelSelections>) {
     let Ok(bytes) = std::fs::read(agent_model_selections_path()) else {
         return;
@@ -275,6 +305,19 @@ fn load_agent_model_selections(mut models: ResMut<AgentModelSelections>) {
         models.by_agent.insert(agent, entry.memory());
     }
     models.dirty = false;
+}
+
+fn load_agent_mode_selections(mut modes: ResMut<AgentModeSelections>) {
+    let Ok(bytes) = std::fs::read(agent_mode_selections_path()) else {
+        return;
+    };
+    let Ok(saved) =
+        serde_json::from_slice::<std::collections::BTreeMap<String, AgentModeMemory>>(&bytes)
+    else {
+        return;
+    };
+    modes.by_agent = saved;
+    modes.dirty = false;
 }
 
 fn save_agent_model_selections(mut models: ResMut<AgentModelSelections>) {
@@ -294,6 +337,26 @@ fn save_agent_model_selections(mut models: ResMut<AgentModelSelections>) {
         && std::fs::rename(&temp, &path).is_ok()
     {
         models.dirty = false;
+    }
+}
+
+fn save_agent_mode_selections(mut modes: ResMut<AgentModeSelections>) {
+    if !modes.dirty {
+        return;
+    }
+    let path = agent_mode_selections_path();
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let Ok(bytes) = serde_json::to_vec_pretty(&modes.by_agent) else {
+        return;
+    };
+    let temp = path.with_extension("json.tmp");
+    if std::fs::create_dir_all(parent).is_ok()
+        && std::fs::write(&temp, bytes).is_ok()
+        && std::fs::rename(&temp, &path).is_ok()
+    {
+        modes.dirty = false;
     }
 }
 
@@ -391,6 +454,17 @@ fn on_start_select_model(
     last_used.select(&request.agent_key, &request.model_id);
 }
 
+fn on_start_select_mode(
+    trigger: On<BinReceive<StartSelectMode>>,
+    mut last_used: ResMut<AgentModeSelections>,
+) {
+    let request = &trigger.event().payload;
+    if request.agent_key.is_empty() || request.mode_id.is_empty() {
+        return;
+    }
+    last_used.select(&request.agent_key, &request.mode_id);
+}
+
 fn seed_cli_model_lists(
     strategies: Res<AgentStrategies>,
     mut selections: ResMut<AgentModelSelections>,
@@ -422,6 +496,24 @@ fn remember_acp_model_lists(
     }
 }
 
+fn remember_acp_mode_lists(
+    sessions: Query<(&AcpSession, &AcpModeState), Changed<AcpModeState>>,
+    mut last_used: ResMut<AgentModeSelections>,
+) {
+    for (session, state) in &sessions {
+        let url = vmux_command::snapshot::AgentPromptTarget::Acp {
+            id: session.agent_id.clone(),
+        }
+        .url();
+        last_used.remember_catalog(
+            &session.agent_id,
+            &url,
+            state.display_mode_id(),
+            &state.modes,
+        );
+    }
+}
+
 fn publish_agent_models(
     last_used: Res<AgentModelSelections>,
     mut published: ResMut<vmux_command::snapshot::CommandBarAgentModels>,
@@ -439,6 +531,30 @@ fn publish_agent_models(
             url: memory.url.clone(),
             selected: memory.selected.clone(),
             models: memory.models.clone(),
+        });
+    }
+    if published.agents != next {
+        published.agents = next;
+    }
+}
+
+fn publish_agent_modes(
+    last_used: Res<AgentModeSelections>,
+    mut published: ResMut<vmux_command::snapshot::CommandBarAgentModes>,
+) {
+    if !last_used.is_changed() {
+        return;
+    }
+    let mut next = Vec::new();
+    for (agent_key, memory) in &last_used.by_agent {
+        if memory.url.is_empty() || memory.modes.is_empty() {
+            continue;
+        }
+        next.push(vmux_wire::command_bar::AgentModes {
+            agent_key: agent_key.clone(),
+            url: memory.url.clone(),
+            selected: memory.selected.clone(),
+            modes: memory.modes.clone(),
         });
     }
     if published.agents != next {
@@ -594,6 +710,7 @@ fn apply_mode_selection(
     mut reader: MessageReader<ModeSelectRequest>,
     mut sessions: Query<(&AcpSession, &mut AcpModeState)>,
     mut counter: ResMut<AcpModeRequestCounter>,
+    mut last_used: ResMut<AgentModeSelections>,
     mut requests: MessageWriter<AcpSetModeRequest>,
 ) {
     for selection in reader.read() {
@@ -609,6 +726,7 @@ fn apply_mode_selection(
             continue;
         }
         let request_id = counter.next();
+        last_used.select(&session.agent_id, &selection.mode_id);
         requests.write(AcpSetModeRequest {
             sid: session.sid.clone(),
             request_id,
@@ -796,6 +914,63 @@ impl AgentModelSelections {
     }
 }
 
+impl AgentModeSelections {
+    fn select(&mut self, agent_id: &str, mode_id: &str) {
+        let entry = self.by_agent.entry(agent_id.to_string()).or_default();
+        if !entry.modes.is_empty() && !entry.modes.iter().any(|mode| mode.id == mode_id) {
+            return;
+        }
+        if entry.selected == mode_id {
+            return;
+        }
+        entry.selected = mode_id.to_string();
+        self.dirty = true;
+    }
+
+    pub(crate) fn selected_for(&self, agent_id: &str) -> &str {
+        match self.by_agent.get(agent_id) {
+            Some(memory) => &memory.selected,
+            None => "",
+        }
+    }
+
+    fn remember_catalog(
+        &mut self,
+        agent_id: &str,
+        url: &str,
+        selected: &str,
+        modes: &[vmux_wire::protocol::AcpModeOption],
+    ) {
+        if modes.is_empty() {
+            return;
+        }
+        let entry = self.by_agent.entry(agent_id.to_string()).or_default();
+        let mut changed = false;
+        if entry.url != url {
+            entry.url = url.to_string();
+            changed = true;
+        }
+        if entry.modes != modes {
+            entry.modes = modes.to_vec();
+            changed = true;
+        }
+        if !entry.modes.iter().any(|mode| mode.id == entry.selected) {
+            let next = if entry.modes.iter().any(|mode| mode.id == selected) {
+                selected
+            } else {
+                &entry.modes[0].id
+            };
+            if entry.selected != next {
+                entry.selected = next.to_string();
+                changed = true;
+            }
+        }
+        if changed {
+            self.dirty = true;
+        }
+    }
+}
+
 impl AcpModelRequestCounter {
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(1);
@@ -938,6 +1113,7 @@ mod tests {
     fn mode_selection_updates_cached_state_before_response() {
         let mut app = App::new();
         app.init_resource::<AcpModeRequestCounter>()
+            .init_resource::<AgentModeSelections>()
             .add_message::<AcpSetModeRequest>()
             .add_message::<ModeSelectRequest>()
             .add_observer(on_select_mode)

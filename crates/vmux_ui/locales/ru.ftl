@@ -213,6 +213,7 @@ services-attached = подключено
 services-kill = Завершить принудительно
 services-memory = Память
 services-size = Размер
+services-uptime = Время работы
 services-shell = Оболочка
 
 error-title = Ошибка
@@ -468,6 +469,8 @@ common-error = Ошибка
 common-output = Вывод
 common-pending = Ожидает
 common-current = текущий
+composer-permissions = Разрешения
+composer-permission-change = Изменить режим разрешений
 common-stop = Остановить
 services-command = Сервис Vmux
 services-uptime-seconds = { $seconds } с

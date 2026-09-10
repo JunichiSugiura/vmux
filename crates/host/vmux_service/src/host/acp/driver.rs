@@ -49,6 +49,7 @@ pub enum AcpInput {
         text: String,
         context: Option<String>,
         attachments: Vec<AgentAttachment>,
+        preferred_mode: Option<String>,
     },
     Approve {
         call_id: String,
@@ -1225,6 +1226,7 @@ pub async fn run(
                         text,
                         context,
                         attachments,
+                        preferred_mode,
                     } => {
                         main_shared.cancel_requested.store(false, Ordering::SeqCst);
                         main_shared
@@ -1271,6 +1273,43 @@ pub async fn run(
                                 sid: main_shared.sid.clone(),
                                 acp_session_id: active_session_id.to_string(),
                             });
+                        }
+                        let available_mode = main_shared.mode_info.lock().unwrap().clone();
+                        if let Some(mode_id) = preferred_mode
+                            && let Some(mode) = available_mode
+                            && mode.current_mode_id != mode_id
+                            && mode.modes.iter().any(|option| option.id == mode_id)
+                        {
+                            if mode.config_id.is_empty() {
+                                match cx
+                                    .send_request(SetSessionModeRequest::new(
+                                        active_session_id.clone(),
+                                        mode_id.clone(),
+                                    ))
+                                    .block_task()
+                                    .await
+                                {
+                                    Ok(_) => main_shared.publish_selected_mode(&mode_id),
+                                    Err(error) => tracing::warn!(target: "acp", sid = %main_shared.sid, "initial mode selection failed: {error}"),
+                                }
+                            } else {
+                                match cx
+                                    .send_request(SetSessionConfigOptionRequest::new(
+                                        active_session_id.clone(),
+                                        mode.config_id.clone(),
+                                        mode_id.clone(),
+                                    ))
+                                    .block_task()
+                                    .await
+                                {
+                                    Ok(response) => main_shared.publish_selected_config_mode(
+                                        &mode.config_id,
+                                        &mode_id,
+                                        &response.config_options,
+                                    ),
+                                    Err(error) => tracing::warn!(target: "acp", sid = %main_shared.sid, "initial mode selection failed: {error}"),
+                                }
+                            }
                         }
                         let cx_prompt = cx.clone();
                         let shared = main_shared.clone();

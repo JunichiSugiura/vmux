@@ -180,6 +180,10 @@ pub fn InlineEdit(
             aria_label,
             value: "{draft}",
             autofocus: true,
+            autocomplete: "off",
+            autocapitalize: "off",
+            autocorrect: "off",
+            spellcheck: "false",
             onclick: move |event: Event<MouseData>| event.stop_propagation(),
             onpointerdown: move |event: Event<PointerData>| event.stop_propagation(),
             oncontextmenu: move |event: Event<MouseData>| {

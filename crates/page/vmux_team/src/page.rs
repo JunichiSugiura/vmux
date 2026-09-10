@@ -3,10 +3,14 @@
 use dioxus::prelude::*;
 use vmux_ui::components::avatar::Avatar;
 use vmux_ui::components::badge::Badge;
-use vmux_ui::components::inline_edit::{EditableText, InlineEdit};
+use vmux_ui::components::inline_edit::InlineEdit;
+use vmux_ui::components::select::{
+    Select, SelectGroup, SelectItemIndicator, SelectList, SelectOption, SelectTrigger,
+};
+use vmux_ui::dioxus_ext::attributes;
 use vmux_ui::favicon::favicon_src_for_url;
 use vmux_ui::hooks::{send, use_event, use_theme};
-use vmux_ui::i18n::{TranslationValue, translate, translate_with};
+use vmux_ui::i18n::translate;
 use vmux_wire::team::{ProfileRow, TEAM_EVENT, TeamCommandEvent, TeamEvent, TeamMemberRow};
 
 #[component]
@@ -24,7 +28,7 @@ pub fn Page() -> Element {
             class: "flex h-full min-h-0 flex-col bg-background text-foreground",
             header { class: "flex items-center justify-between border-b border-border px-5 py-4",
                 div { class: "min-w-0",
-                    h1 { class: "text-lg font-semibold tracking-tight", {translate("team-profiles")} }
+                    h1 { class: "text-lg font-semibold tracking-tight", {translate("team-title")} }
                 }
             }
             div { class: "min-h-0 flex-1 overflow-y-auto px-5 py-5",
@@ -49,19 +53,113 @@ pub fn Page() -> Element {
 #[component]
 fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
     let mut creating = use_signal(|| false);
+    let mut editing = use_signal(|| false);
     let mut draft = use_signal(String::new);
     let profile_count = profiles.len();
+    let active = profiles.iter().find(|profile| profile.is_active).cloned();
+    let active_id = active
+        .as_ref()
+        .map(|profile| profile.id.clone())
+        .unwrap_or_default();
+    let selected: Option<Option<String>> = Some((!active_id.is_empty()).then(|| active_id.clone()));
 
     rsx! {
         section { class: "mb-6",
             div { class: "mb-2.5 flex items-center justify-between px-0.5",
-                div { class: "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground", {translate("team-profiles")} }
+                div { class: "text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground", {translate("team-you")} }
             }
-            div { class: "grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3",
-                for profile in profiles.iter() {
-                    ProfileRowView {
-                        key: "profile-{profile.id}",
-                        profile: profile.clone(),
+            div { class: "flex max-w-xl flex-col gap-2",
+                if editing() {
+                    div { class: "glass flex min-h-16 items-center rounded-xl border border-primary/20 p-2",
+                        InlineEdit {
+                            draft,
+                            caret_at_end: true,
+                            class: "m-1 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-primary/50".to_string(),
+                            placeholder: translate("team-profile-name"),
+                            aria_label: translate("team-profile-name"),
+                            restore_focus_id: "edit-active-profile".to_string(),
+                            on_commit: {
+                                let id = active_id.clone();
+                                move |name| {
+                                    editing.set(false);
+                                    emit_profile_command("update_profile", Some(id.clone()), Some(name));
+                                }
+                            },
+                            on_cancel: move |_| editing.set(false),
+                        }
+                    }
+                } else if let Some(active) = active.clone() {
+                    div { class: "flex items-stretch gap-2",
+                        div { class: "min-w-0 flex-1",
+                            Select::<String> {
+                                value: Into::<ReadSignal<Option<Option<String>>>>::into(Signal::new(selected)),
+                                default_value: Some(active_id.clone()),
+                                placeholder: Into::<ReadSignal<String>>::into(Signal::new(translate("team-profiles"))),
+                                on_value_change: Callback::new(move |profile_id: Option<String>| {
+                                    if let Some(profile_id) = profile_id
+                                        && profile_id != active_id
+                                    {
+                                        emit_profile_command("switch_profile", Some(profile_id), None);
+                                    }
+                                }),
+                                attributes: vec![],
+                                SelectTrigger {
+                                    attributes: attributes!(button {
+                                        class: "w-full rounded-xl bg-primary/[0.06] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--primary)_25%,transparent)] dark:bg-primary/[0.06]"
+                                    }),
+                                    Avatar {
+                                        src: None,
+                                        seed: active.id.clone(),
+                                        background: vmux_wire::avatar::hash_color(&active.id),
+                                        alt: active.name.clone(),
+                                        class: "size-8",
+                                    }
+                                    div { class: "flex min-w-0 flex-1 flex-col items-start",
+                                        span { class: "truncate text-sm font-semibold text-foreground", "{active.name}" }
+                                        span { class: "truncate font-mono text-[10px] text-muted-foreground", "{active.id}" }
+                                    }
+                                }
+                                SelectList { attributes: vec![],
+                                    SelectGroup { attributes: vec![],
+                                        for (index, profile) in profiles.iter().enumerate() {
+                                            SelectOption::<String> {
+                                                key: "profile-{profile.id}",
+                                                value: Into::<ReadSignal<String>>::into(Signal::new(profile.id.clone())),
+                                                index,
+                                                text_value: Some(profile.name.clone()),
+                                                attributes: vec![],
+                                                Avatar {
+                                                    src: None,
+                                                    seed: profile.id.clone(),
+                                                    background: vmux_wire::avatar::hash_color(&profile.id),
+                                                    alt: profile.name.clone(),
+                                                    class: "size-7",
+                                                }
+                                                div { class: "flex min-w-0 flex-1 flex-col items-start",
+                                                    span { class: "truncate text-sm font-medium", "{profile.name}" }
+                                                    span { class: "truncate font-mono text-[10px] opacity-60", "{profile.id}" }
+                                                }
+                                                SelectItemIndicator {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            id: "edit-active-profile",
+                            r#type: "button",
+                            class: "glass flex w-11 shrink-0 items-center justify-center rounded-xl border border-border/70 text-muted-foreground transition-colors hover:bg-glass-hover hover:text-foreground",
+                            title: translate("team-edit-profile"),
+                            onclick: move |_| {
+                                draft.set(active.name.clone());
+                                editing.set(true);
+                            },
+                            svg { class: "size-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "1.8",
+                                path { d: "M12 20h9" }
+                                path { d: "M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z" }
+                            }
+                        }
                     }
                 }
                 if creating() {
@@ -84,7 +182,7 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                     button {
                         id: "new-profile",
                         r#type: "button",
-                        class: "flex min-h-24 items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-foreground/[0.035] hover:text-foreground",
+                        class: "flex h-10 items-center justify-center gap-2 rounded-xl border border-dashed border-border text-sm font-medium text-muted-foreground transition-colors hover:border-foreground/25 hover:bg-foreground/[0.035] hover:text-foreground",
                         onclick: move |_| {
                             draft.set(String::new());
                             creating.set(true);
@@ -93,76 +191,6 @@ fn ProfileSection(profiles: Vec<ProfileRow>) -> Element {
                             path { d: "M12 5v14M5 12h14" }
                         }
                         {translate("team-new-profile")}
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ProfileRowView(profile: ProfileRow) -> Element {
-    let switch_id = profile.id.clone();
-    let avatar_color = vmux_wire::avatar::hash_color(&profile.id);
-    let editing = use_signal(|| false);
-    let draft = use_signal(|| profile.name.clone());
-    let title = if profile.is_active {
-        profile.name.clone()
-    } else {
-        translate_with(
-            "team-switch-profile",
-            &[("profile", TranslationValue::String(&profile.name))],
-        )
-    };
-    rsx! {
-        div { class: if profile.is_active {
-                "glass group relative min-h-24 overflow-hidden rounded-xl border border-primary/25 bg-primary/[0.06] ring-1 ring-inset ring-primary/10"
-            } else {
-                "glass group relative min-h-24 cursor-pointer overflow-hidden rounded-xl border border-border/70 transition-colors hover:bg-glass-hover"
-            },
-            if !profile.is_active {
-                button {
-                    r#type: "button",
-                    class: if editing() {
-                        "pointer-events-none absolute inset-0 z-0 rounded-xl outline-none"
-                    } else {
-                        "absolute inset-0 z-0 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/60"
-                    },
-                    title: title.clone(),
-                    aria_label: title,
-                    disabled: editing(),
-                    onclick: move |_| {
-                        emit_profile_command("switch_profile", Some(switch_id.clone()), None);
-                    },
-                }
-            }
-            div { class: "pointer-events-none relative z-10 flex h-full min-h-24 w-full min-w-0 items-center gap-3 p-3 text-left",
-                Avatar {
-                    src: None,
-                    seed: profile.id.clone(),
-                    background: avatar_color,
-                    alt: profile.name.clone(),
-                    class: "size-10",
-                }
-                div { class: "flex min-w-0 flex-1 flex-col gap-1",
-                    EditableText {
-                        value: profile.name.clone(),
-                        editing,
-                        draft,
-                        display_class: "pointer-events-auto min-w-0 cursor-text truncate rounded px-1 py-0.5 text-left text-sm font-semibold text-foreground hover:bg-foreground/[0.06]".to_string(),
-                        input_class: "pointer-events-auto min-w-0 w-full rounded-md bg-background/70 px-2 py-1 text-sm font-semibold text-foreground outline-none ring-1 ring-inset ring-primary/40".to_string(),
-                        title: translate("team-edit-profile"),
-                        placeholder: translate("team-profile-name"),
-                        on_commit: {
-                            let id = profile.id.clone();
-                            move |name| emit_profile_command("update_profile", Some(id.clone()), Some(name))
-                        },
-                    }
-                    span { class: "truncate font-mono text-[10px] text-muted-foreground", "{profile.id}" }
-                    if profile.is_active {
-                        Badge { class: "w-fit rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary",
-                            {translate("common-active")}
-                        }
                     }
                 }
             }

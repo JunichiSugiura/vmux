@@ -681,7 +681,7 @@ impl Chat {
         let title = current
             .and_then(|mode| mode.description.clone())
             .filter(|description| !description.is_empty())
-            .unwrap_or_else(|| "Change permission mode".to_string());
+            .unwrap_or_else(|| translate("composer-permission-change"));
         let selected = modes
             .iter()
             .position(|mode| mode.id == current_mode_id)

@@ -213,6 +213,7 @@ services-attached = 已附加
 services-kill = 强制结束
 services-memory = 内存
 services-size = 大小
+services-uptime = 运行时间
 services-shell = Shell
 
 error-title = 错误
@@ -468,6 +469,8 @@ common-error = 错误
 common-output = 输出
 common-pending = 待处理
 common-current = 当前
+composer-permissions = 权限
+composer-permission-change = 更改权限模式
 common-stop = 停止
 services-command = Vmux 服务
 services-uptime-seconds = { $seconds } 秒

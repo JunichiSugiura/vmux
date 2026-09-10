@@ -1,4 +1,4 @@
-use bevy::{ecs::relationship::Relationship, prelude::*, window::PrimaryWindow};
+use bevy::{ecs::relationship::Relationship, prelude::*};
 use bevy_cef::prelude::*;
 use vmux_core::{
     PageIdentity, PageMetadata,
@@ -30,6 +30,32 @@ use crate::{
 };
 use vmux_flex::prelude::*;
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct FocusedLayout<'w, 's> {
+    focused: Res<'w, vmux_layout::window::FocusedWindow>,
+    layouts: Query<'w, 's, (Entity, Ref<'static, PageReady>), With<LayoutCef>>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
+}
+
+impl FocusedLayout<'_, '_> {
+    fn get(&self) -> Option<(Entity, bool)> {
+        let entity = self
+            .focused
+            .0
+            .and_then(|window| {
+                self.layouts.iter().find_map(|(entity, _)| {
+                    self.host_windows
+                        .get(entity)
+                        .is_ok_and(|host| host.0 == window)
+                        .then_some(entity)
+                })
+            })
+            .or_else(|| self.layouts.iter().next().map(|(entity, _)| entity))?;
+        let (_, ready) = self.layouts.get(entity).ok()?;
+        Some((entity, ready.is_changed()))
+    }
+}
+
 pub(crate) struct PageStatePlugin;
 
 impl Plugin for PageStatePlugin {
@@ -54,41 +80,58 @@ impl Plugin for PageStatePlugin {
 fn push_layout_state_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
-    header_q: Query<(Has<Open>, Option<&ComputedNode>), With<Header>>,
-    side_sheet_q: Query<(&SideSheetPosition, Has<Open>), With<SideSheet>>,
-    window_q: Query<&Node, With<VmuxWindow>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    layout: FocusedLayout,
+    child_of: Query<&ChildOf>,
+    header_q: Query<(Entity, Has<Open>, Option<&ComputedNode>), With<Header>>,
+    side_sheet_q: Query<(Entity, &SideSheetPosition, Has<Open>), With<SideSheet>>,
+    window_q: Query<(&HostWindow, &Node), With<VmuxWindow>>,
+    windows: Query<&Window>,
     side_sheet_width: Res<SideSheetWidth>,
     settings: Res<AppSettings>,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
         return;
     }
+    let Some(host_window) = layout.host_windows.get(cef_e).ok().map(|host| host.0) else {
+        return;
+    };
     let window_padding = window_q
-        .single()
-        .ok()
+        .iter()
+        .find_map(|(host, node)| (host.0 == host_window).then_some(node))
         .map(layout_window_padding_from_node)
         .unwrap_or_else(|| layout_window_padding_from_settings(&settings));
-    let header_open = header_q.iter().any(|(is_open, _)| is_open);
+    let header_open = header_q.iter().any(|(entity, is_open, _)| {
+        is_open
+            && vmux_layout::window::host_window_of(entity, &child_of, &layout.host_windows)
+                == Some(host_window)
+    });
     let window_width_px = windows
-        .single()
+        .get(host_window)
         .ok()
         .map(|window| window.resolution.physical_width() as f32)
         .unwrap_or(0.0);
-    let header_offsets = header_q
-        .iter()
-        .find_map(|(_, computed)| LayoutFixedOffsets::of(computed?, window_width_px));
+    let header_offsets = header_q.iter().find_map(|(entity, _, computed)| {
+        if vmux_layout::window::host_window_of(entity, &child_of, &layout.host_windows)
+            == Some(host_window)
+        {
+            LayoutFixedOffsets::of(computed?, window_width_px)
+        } else {
+            None
+        }
+    });
 
     let payload = LayoutStateEvent {
         header_open,
-        side_sheet_open: side_sheet_q
-            .iter()
-            .any(|(pos, is_open)| *pos == SideSheetPosition::Left && is_open),
+        side_sheet_open: side_sheet_q.iter().any(|(entity, pos, is_open)| {
+            *pos == SideSheetPosition::Left
+                && is_open
+                && vmux_layout::window::host_window_of(entity, &child_of, &layout.host_windows)
+                    == Some(host_window)
+        }),
         header_height: header_offsets
             .map(|offsets| offsets.height)
             .unwrap_or(HEADER_HEIGHT_PX),
@@ -104,7 +147,8 @@ fn push_layout_state_emit(
         window_pad_left: window_padding.left,
     };
     let body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !should_emit_cached_payload(&body, &last, page_ready.is_changed()) {
+    let previous = last.get(&cef_e).map(String::as_str).unwrap_or_default();
+    if !should_emit_cached_payload(&body, previous, page_ready_changed) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -112,7 +156,7 @@ fn push_layout_state_emit(
         LAYOUT_STATE_EVENT,
         &payload,
     ));
-    *last = body;
+    last.insert(cef_e, body);
 }
 
 struct AddressRoots<'a> {
@@ -152,7 +196,7 @@ impl AddressRoots<'_> {
 fn push_stacks_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     browser_q: Query<
         (
             &PageMetadata,
@@ -168,9 +212,9 @@ fn push_stacks_host_emit(
     focus: Res<vmux_layout::stack::FocusedStack>,
     child_of_q: Query<&ChildOf>,
     mut repo_info: Option<ResMut<vmux_git::RepoInfoCache>>,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
@@ -233,17 +277,18 @@ fn push_stacks_host_emit(
         is_zoomed,
     };
     let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !should_emit_cached_payload(&ron_body, &last, page_ready.is_changed()) {
+    let previous = last.get(&cef_e).map(String::as_str).unwrap_or_default();
+    if !should_emit_cached_payload(&ron_body, previous, page_ready_changed) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(cef_e, STACKS_EVENT, &payload));
-    *last = ron_body;
+    last.insert(cef_e, ron_body);
 }
 
 fn push_pane_tree_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     focus: Res<vmux_layout::stack::FocusedStack>,
     tab_q: Query<(), With<Tab>>,
     sections_of: vmux_layout::side_sheet::SideSheetSections,
@@ -263,9 +308,9 @@ fn push_pane_tree_emit(
         ),
         With<Browser>,
     >,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
@@ -350,7 +395,8 @@ fn push_pane_tree_emit(
     }
     let payload = PaneTreeEvent { panes };
     let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !should_emit_cached_payload(&ron_body, &last, page_ready.is_changed()) {
+    let previous = last.get(&cef_e).map(String::as_str).unwrap_or_default();
+    if !should_emit_cached_payload(&ron_body, previous, page_ready_changed) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -358,7 +404,7 @@ fn push_pane_tree_emit(
         PANE_TREE_EVENT,
         &payload,
     ));
-    *last = ron_body;
+    last.insert(cef_e, ron_body);
 }
 
 fn abbreviate_project_path(path: &std::path::Path) -> String {
@@ -380,16 +426,16 @@ fn abbreviate_project_path(path: &std::path::Path) -> String {
 fn push_projects_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     settings: Res<AppSettings>,
     active_space: Option<Res<vmux_space::spaces::ActiveSpace>>,
     space_projects: vmux_space::SpaceProjects,
     expansion_changed: Query<(), Changed<vmux_space::ExpandedProjectDirs>>,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
     mut listed: Local<Option<Vec<vmux_core::event::ProjectRow>>>,
     mut repo_info: Option<ResMut<vmux_git::RepoInfoCache>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
@@ -422,8 +468,9 @@ fn push_projects_host_emit(
         boundary: None,
         projects,
     };
-    let body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !should_emit_cached_payload(&body, &last, page_ready.is_changed()) {
+    let ron_body = ron::ser::to_string(&payload).unwrap_or_default();
+    let previous = last.get(&cef_e).map(String::as_str).unwrap_or_default();
+    if !should_emit_cached_payload(&ron_body, previous, page_ready_changed) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -431,14 +478,14 @@ fn push_projects_host_emit(
         TAB_BOUNDARY_EVENT,
         &payload,
     ));
-    *last = body;
+    last.insert(cef_e, ron_body);
 }
 
 #[allow(clippy::too_many_arguments)]
 fn push_bookmarks_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     pins: Query<
         (
             &vmux_core::Uuid,
@@ -479,9 +526,9 @@ fn push_bookmarks_host_emit(
         ),
         With<vmux_core::Bookmark>,
     >,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
@@ -548,7 +595,7 @@ fn push_bookmarks_host_emit(
         roots,
     };
     let body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !page_ready.is_changed() && body == *last {
+    if !page_ready_changed && last.get(&cef_e) == Some(&body) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(
@@ -556,13 +603,13 @@ fn push_bookmarks_host_emit(
         vmux_layout::event::BOOKMARKS_EVENT,
         &payload,
     ));
-    *last = body;
+    last.insert(cef_e, body);
 }
 
 fn push_tabs_host_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     tabs: Query<(Entity, &Tab, &LastActivatedAt)>,
     tab_q: Query<Entity, With<Tab>>,
     active_tab_param: vmux_layout::stack::ActiveTabParam,
@@ -574,9 +621,9 @@ fn push_tabs_host_emit(
     stack_children: Query<&Children>,
     browser_meta: Query<(&PageMetadata, Option<&PageIdentity>), With<Browser>>,
     done_agents: Query<Entity, With<vmux_core::notify::AgentDoneUnseen>>,
-    mut last: Local<String>,
+    mut last: Local<std::collections::HashMap<Entity, String>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
@@ -635,27 +682,28 @@ fn push_tabs_host_emit(
 
     let payload = TabsHostEvent { tabs: rows };
     let body = ron::ser::to_string(&payload).unwrap_or_default();
-    if !page_ready.is_changed() && body == *last {
+    if !page_ready_changed && last.get(&cef_e) == Some(&body) {
         return;
     }
     commands.trigger(BinHostEmitEvent::from_rkyv(cef_e, TABS_EVENT, &payload));
-    *last = body;
+    last.insert(cef_e, body);
 }
 
 fn push_update_notice_emit(
     mut commands: Commands,
     browsers: NonSend<Browsers>,
-    cef_q: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
+    layout: FocusedLayout,
     state: Res<UpdateState>,
-    mut last: Local<Option<UpdateState>>,
+    mut last: Local<std::collections::HashMap<Entity, UpdateState>>,
 ) {
-    let Ok((cef_e, page_ready)) = cef_q.single() else {
+    let Some((cef_e, page_ready_changed)) = layout.get() else {
         return;
     };
     if !browsers.can_emit_to(&cef_e) {
         return;
     }
-    if !should_emit_update(&state, &last, page_ready.is_changed()) {
+    let previous = last.get(&cef_e).cloned();
+    if !should_emit_update(&state, &previous, page_ready_changed) {
         return;
     }
     match &*state {
@@ -696,5 +744,5 @@ fn push_update_notice_emit(
             },
         )),
     }
-    *last = Some(state.clone());
+    last.insert(cef_e, state.clone());
 }

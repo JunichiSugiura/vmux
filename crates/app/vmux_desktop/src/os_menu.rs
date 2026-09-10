@@ -27,6 +27,7 @@ pub struct OsMenuPlugin;
 impl Plugin for OsMenuPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(crate::bookmark_menu::BookmarkMenuPlugin)
+            .add_message::<crate::window_manager::CloseVmuxWindow>()
             .init_resource::<LastMenuCommandAt>()
             .init_resource::<LastStackCloseAt>()
             .init_resource::<LastNativePageOpenAt>()
@@ -401,6 +402,7 @@ fn remember_native_page_open_commands(
 fn hide_window_on_close_request(
     mut closed: MessageReader<WindowCloseRequested>,
     mut windows: Query<&mut Window>,
+    mut close_windows: MessageWriter<crate::window_manager::CloseVmuxWindow>,
     last_menu_command: Res<LastMenuCommandAt>,
     last_stack_close: Res<LastStackCloseAt>,
     last_native_page_open: Res<LastNativePageOpenAt>,
@@ -419,6 +421,7 @@ fn hide_window_on_close_request(
     let from_native_page_open = last_native_page_open
         .0
         .is_some_and(|t| t.elapsed() < NATIVE_PAGE_OPEN_CLOSE_SUPPRESSION_WINDOW);
+    let window_count = windows.iter().count();
     for event in closed.read() {
         if from_menu_key_equivalent || from_stack_close || from_tab_close || from_native_page_open {
             info!(
@@ -430,6 +433,10 @@ fn hide_window_on_close_request(
                 from_native_page_open,
                 "suppressed WindowCloseRequested"
             );
+            continue;
+        }
+        if window_count > 1 {
+            close_windows.write(crate::window_manager::CloseVmuxWindow(event.window));
             continue;
         }
         if let Ok(mut window) = windows.get_mut(event.window) {

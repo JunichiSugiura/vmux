@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use bevy_cef::prelude::HostWindow;
 use vmux_core::overlay::WindowOverlay;
 
@@ -15,21 +14,26 @@ impl Plugin for OverlayAdoptPlugin {
 }
 
 fn adopt_window_overlays(
-    orphans: Query<Entity, (With<WindowOverlay>, Without<ChildOf>)>,
-    root_q: Query<Entity, With<VmuxWindow>>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    overlays: Query<(Entity, Option<&HostWindow>, Option<&ChildOf>), With<WindowOverlay>>,
+    roots: Query<(Entity, &HostWindow), With<VmuxWindow>>,
+    focused_window: Res<crate::window::FocusedWindow>,
     mut commands: Commands,
 ) {
-    if orphans.is_empty() {
-        return;
-    }
-    let Ok(root) = root_q.single() else {
+    let Some(window) = focused_window.0 else {
         return;
     };
-    let Ok(window) = primary_window.single() else {
+    let Some(root) = roots
+        .iter()
+        .find_map(|(root, host)| (host.0 == window).then_some(root))
+    else {
         return;
     };
-    for overlay in orphans.iter() {
+    for (overlay, host, parent) in &overlays {
+        if host.is_some_and(|host| host.0 == window)
+            && parent.is_some_and(|parent| parent.parent() == root)
+        {
+            continue;
+        }
         commands
             .entity(overlay)
             .insert((Browser, HostWindow(window), ChildOf(root)));
@@ -44,9 +48,13 @@ mod tests {
     fn an_unparented_overlay_is_placed_in_the_window_root() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
+            .insert_resource(crate::window::FocusedWindow::default())
             .add_systems(PreUpdate, adopt_window_overlays);
-        let root = app.world_mut().spawn(VmuxWindow).id();
-        app.world_mut().spawn(PrimaryWindow);
+        let window = app.world_mut().spawn(Window::default()).id();
+        app.world_mut()
+            .resource_mut::<crate::window::FocusedWindow>()
+            .0 = Some(window);
+        let root = app.world_mut().spawn((VmuxWindow, HostWindow(window))).id();
         let overlay = app.world_mut().spawn(WindowOverlay).id();
 
         app.update();
@@ -60,26 +68,36 @@ mod tests {
     }
 
     #[test]
-    fn an_already_parented_overlay_is_left_alone() {
+    fn overlay_moves_to_the_focused_window() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
+            .insert_resource(crate::window::FocusedWindow::default())
             .add_systems(PreUpdate, adopt_window_overlays);
-        app.world_mut().spawn(VmuxWindow);
-        app.world_mut().spawn(PrimaryWindow);
+        let old_window = app.world_mut().spawn(Window::default()).id();
+        let focused_window = app.world_mut().spawn(Window::default()).id();
+        app.world_mut()
+            .resource_mut::<crate::window::FocusedWindow>()
+            .0 = Some(focused_window);
         let elsewhere = app.world_mut().spawn_empty().id();
+        let root = app
+            .world_mut()
+            .spawn((VmuxWindow, HostWindow(focused_window)))
+            .id();
         let overlay = app
             .world_mut()
-            .spawn((WindowOverlay, ChildOf(elsewhere)))
+            .spawn((WindowOverlay, HostWindow(old_window), ChildOf(elsewhere)))
             .id();
 
         app.update();
 
+        let overlay_ref = app.world().entity(overlay);
         assert_eq!(
-            app.world()
-                .entity(overlay)
-                .get::<ChildOf>()
-                .map(ChildOf::parent),
-            Some(elsewhere)
+            overlay_ref.get::<ChildOf>().map(ChildOf::parent),
+            Some(root)
+        );
+        assert_eq!(
+            overlay_ref.get::<HostWindow>(),
+            Some(&HostWindow(focused_window))
         );
     }
 }

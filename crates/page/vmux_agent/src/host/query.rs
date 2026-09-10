@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_cef::prelude::HostWindow;
 use vmux_command::WriteAppCommands;
 use vmux_service::client::ServiceClient;
 use vmux_service::protocol::{
@@ -45,19 +46,70 @@ impl Plugin for QueryPlugin {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+pub(super) struct ListedSpaces<'w, 's> {
+    spaces: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static vmux_layout::space::SpaceId,
+            &'static Name,
+            Has<vmux_core::Active>,
+            Option<&'static vmux_core::Order>,
+        ),
+        With<vmux_layout::space::Space>,
+    >,
+    focused_window: Option<Res<'w, vmux_layout::window::FocusedWindow>>,
+    child_of: Query<'w, 's, &'static ChildOf>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
+}
+
+impl ListedSpaces<'_, '_> {
+    fn json(&self) -> String {
+        let mut rows: Vec<(u32, String, serde_json::Value)> = Vec::new();
+        for (entity, id, name, is_active, order) in &self.spaces {
+            let local = self
+                .focused_window
+                .as_deref()
+                .and_then(|focused| focused.0)
+                .is_some_and(|focused| {
+                    vmux_layout::window::host_window_of(entity, &self.child_of, &self.host_windows)
+                        == Some(focused)
+                });
+            let order = order.map(|order| order.0).unwrap_or(u32::MAX);
+            if let Some((existing_order, _, row)) = rows
+                .iter_mut()
+                .find(|(_, existing_id, _)| existing_id == &id.0)
+            {
+                *existing_order = (*existing_order).min(order);
+                if local {
+                    row["is_active"] = serde_json::json!(is_active);
+                }
+                continue;
+            }
+            rows.push((
+                order,
+                id.0.clone(),
+                serde_json::json!({
+                    "id": id.0,
+                    "name": name.to_string(),
+                    "profile": vmux_space::model::bootstrap_profile_name(),
+                    "is_active": local && is_active,
+                }),
+            ));
+        }
+        rows.sort_by_key(|(order, _, _)| *order);
+        let rows: Vec<serde_json::Value> = rows.into_iter().map(|(_, _, row)| row).collect();
+        serde_json::to_string(&rows).unwrap_or_else(|_| "[]".to_string())
+    }
+}
+
 pub(super) fn handle_agent_queries(
     mut reader: MessageReader<AgentQueryRequest>,
     service: Option<Res<ServiceClient>>,
     settings: Res<AppSettings>,
-    spaces: Query<
-        (
-            &vmux_layout::space::SpaceId,
-            &Name,
-            Has<vmux_core::Active>,
-            Option<&vmux_core::Order>,
-        ),
-        With<vmux_layout::space::Space>,
-    >,
+    listed_spaces: ListedSpaces,
     bm_pins: Query<
         (
             &vmux_core::Uuid,
@@ -122,26 +174,9 @@ pub(super) fn handle_agent_queries(
                 });
             }
             AgentQuery::ListSpaces => {
-                let mut rows: Vec<(u32, serde_json::Value)> = spaces
-                    .iter()
-                    .map(|(id, name, is_active, order)| {
-                        (
-                            order.map(|o| o.0).unwrap_or(u32::MAX),
-                            serde_json::json!({
-                                "id": id.0,
-                                "name": name.to_string(),
-                                "profile": vmux_space::model::bootstrap_profile_name(),
-                                "is_active": is_active,
-                            }),
-                        )
-                    })
-                    .collect();
-                rows.sort_by_key(|(order, _)| *order);
-                let rows: Vec<serde_json::Value> = rows.into_iter().map(|(_, row)| row).collect();
-                let json = serde_json::to_string(&rows).unwrap_or_else(|_| "[]".to_string());
                 service.0.send(ClientMessage::AgentQueryResponse {
                     request_id: request.request_id,
-                    result: AgentQueryResult::Spaces(json),
+                    result: AgentQueryResult::Spaces(listed_spaces.json()),
                 });
             }
             AgentQuery::BookmarkList => {
@@ -439,6 +474,53 @@ fn forward_simulator_screenshot_responses(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn listed_spaces_are_global_but_active_state_is_window_local() {
+        let mut app = App::new();
+        let first_window = app.world_mut().spawn_empty().id();
+        let second_window = app.world_mut().spawn_empty().id();
+        app.insert_resource(vmux_layout::window::FocusedWindow(Some(second_window)));
+        let first_root = app.world_mut().spawn(HostWindow(first_window)).id();
+        let second_root = app.world_mut().spawn(HostWindow(second_window)).id();
+        app.world_mut().spawn((
+            vmux_layout::space::Space,
+            vmux_layout::space::SpaceId("shared".to_string()),
+            Name::new("shared"),
+            vmux_core::Active,
+            ChildOf(first_root),
+        ));
+        app.world_mut().spawn((
+            vmux_layout::space::Space,
+            vmux_layout::space::SpaceId("shared".to_string()),
+            Name::new("shared"),
+            ChildOf(second_root),
+        ));
+        app.world_mut().spawn((
+            vmux_layout::space::Space,
+            vmux_layout::space::SpaceId("local".to_string()),
+            Name::new("local"),
+            vmux_core::Active,
+            ChildOf(second_root),
+        ));
+
+        let json = app
+            .world_mut()
+            .run_system_once(|spaces: ListedSpaces| spaces.json())
+            .unwrap();
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows.iter().find(|row| row["id"] == "shared").unwrap()["is_active"],
+            false
+        );
+        assert_eq!(
+            rows.iter().find(|row| row["id"] == "local").unwrap()["is_active"],
+            true
+        );
+    }
 
     #[test]
     pub(crate) fn screenshot_response_maps_ok_and_err() {

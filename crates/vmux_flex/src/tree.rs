@@ -120,7 +120,7 @@ struct FlexNode {
 pub struct FlexTree {
     taffy: TaffyCell,
     entities: EntityHashMap<FlexNode>,
-    context: Option<LayoutContext>,
+    contexts: EntityHashMap<LayoutContext>,
 }
 
 impl Default for TaffyCell {
@@ -164,6 +164,7 @@ impl FlexTree {
     }
 
     pub fn remove(&mut self, entity: Entity) {
+        self.contexts.remove(&entity);
         let Some(node) = self.entities.remove(&entity) else {
             return;
         };
@@ -231,12 +232,12 @@ impl FlexTree {
         self.taffy.0.layout(node.id).ok()
     }
 
-    pub fn context(&self) -> Option<LayoutContext> {
-        self.context
+    pub fn context(&self, root: Entity) -> Option<LayoutContext> {
+        self.contexts.get(&root).copied()
     }
 
-    pub fn set_context(&mut self, context: LayoutContext) {
-        self.context = Some(context);
+    pub fn set_context(&mut self, root: Entity, context: LayoutContext) {
+        self.contexts.insert(root, context);
     }
 
     #[cfg(test)]

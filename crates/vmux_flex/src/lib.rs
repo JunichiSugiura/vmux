@@ -19,7 +19,7 @@ pub mod prelude {
         AlignItems, Display, FlexDirection, JustifyContent, Node, PositionType, UiRect, Val,
     };
     pub use crate::visibility::Visibility;
-    pub use crate::{FlexPlugin, LayoutSystems};
+    pub use crate::{FlexPlugin, FlexViewport, LayoutSystems};
 }
 
 use bevy::prelude::*;
@@ -40,6 +40,9 @@ impl Plugin for FlexPlugin {
     }
 }
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FlexViewport(pub Entity);
+
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LayoutSystems {
     Layout,
@@ -47,35 +50,22 @@ pub enum LayoutSystems {
 }
 
 type NodeQuery<'w, 's> = Query<'w, 's, (Entity, Ref<'static, Node>)>;
+type RootQuery<'w, 's> =
+    Query<'w, 's, (Entity, Option<&'static FlexViewport>), (With<Node>, Without<ChildOf>)>;
 
 fn compute_layout(
     mut tree: ResMut<FlexTree>,
-    window: Option<Single<&Window, With<PrimaryWindow>>>,
+    windows: Query<&Window>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
     nodes: NodeQuery,
     added: Query<(), Added<Node>>,
     children_q: Query<&Children>,
     changed_children: Query<(), Changed<Children>>,
-    roots: Query<Entity, (With<Node>, Without<ChildOf>)>,
+    roots: RootQuery,
     mut removed_nodes: RemovedComponents<Node>,
     mut removed_children: RemovedComponents<Children>,
     mut out: Query<&mut ComputedNode>,
 ) {
-    let Some(window) = window else {
-        return;
-    };
-    let context = LayoutContext::of(&window);
-    if context.physical_size.x <= 0.0 || context.physical_size.y <= 0.0 {
-        return;
-    }
-    let context_changed = tree.context() != Some(context);
-    tree.set_context(context);
-
-    for (entity, node) in nodes.iter() {
-        if context_changed || node.is_changed() {
-            tree.upsert(&context, entity, &node);
-        }
-    }
-
     for entity in removed_children.read() {
         tree.set_children(entity, &[]);
     }
@@ -85,8 +75,29 @@ fn compute_layout(
         }
     }
 
-    for root in roots.iter() {
-        sync_children_recursively(&mut tree, root, &children_q, &added, &changed_children);
+    for (root, viewport) in roots.iter() {
+        let window_entity = viewport
+            .map(|viewport| viewport.0)
+            .or_else(|| primary_window.single().ok());
+        let Some(window) = window_entity.and_then(|entity| windows.get(entity).ok()) else {
+            continue;
+        };
+        let context = LayoutContext::of(window);
+        if context.physical_size.x <= 0.0 || context.physical_size.y <= 0.0 {
+            continue;
+        }
+        let context_changed = tree.context(root) != Some(context);
+        tree.set_context(root, context);
+        sync_nodes_recursively(
+            &mut tree,
+            root,
+            &context,
+            context_changed,
+            &nodes,
+            &children_q,
+            &added,
+            &changed_children,
+        );
         tree.compute(&context, root);
         let walk = GeometryWalk {
             tree: &tree,
@@ -96,16 +107,37 @@ fn compute_layout(
     }
 }
 
-fn sync_children_recursively(
+fn sync_nodes_recursively(
     tree: &mut FlexTree,
     entity: Entity,
+    context: &LayoutContext,
+    context_changed: bool,
+    nodes: &NodeQuery,
     children_q: &Query<&Children>,
     added: &Query<(), Added<Node>>,
     changed_children: &Query<(), Changed<Children>>,
 ) {
+    let Ok((_, node)) = nodes.get(entity) else {
+        return;
+    };
+    if context_changed || node.is_changed() || added.contains(entity) {
+        tree.upsert(context, entity, &node);
+    }
     let Ok(children) = children_q.get(entity) else {
         return;
     };
+    for child in children.iter() {
+        sync_nodes_recursively(
+            tree,
+            child,
+            context,
+            context_changed,
+            nodes,
+            children_q,
+            added,
+            changed_children,
+        );
+    }
     if tree.contains(entity) {
         let gained_a_child = children.iter().any(|child| added.contains(child));
         if added.contains(entity) || changed_children.contains(entity) || gained_a_child {
@@ -117,9 +149,6 @@ fn sync_children_recursively(
                 }
             }
         }
-    }
-    for child in children.iter() {
-        sync_children_recursively(tree, child, children_q, added, changed_children);
     }
 }
 
@@ -176,6 +205,45 @@ mod tests {
             app.world().resource::<FlexTree>().node_count(),
             one_root - 1,
             "despawning a node should free it"
+        );
+    }
+
+    #[test]
+    fn roots_use_their_own_window_size() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_plugins(FlexPlugin);
+        let first_window = app
+            .world_mut()
+            .spawn(Window {
+                resolution: (800, 600).into(),
+                ..default()
+            })
+            .id();
+        let second_window = app
+            .world_mut()
+            .spawn(Window {
+                resolution: (1200, 900).into(),
+                ..default()
+            })
+            .id();
+        let first = app
+            .world_mut()
+            .spawn((fill(), FlexViewport(first_window)))
+            .id();
+        let second = app
+            .world_mut()
+            .spawn((fill(), FlexViewport(second_window)))
+            .id();
+
+        app.update();
+
+        assert_eq!(
+            app.world().get::<ComputedNode>(first).unwrap().size,
+            Vec2::new(800.0, 600.0)
+        );
+        assert_eq!(
+            app.world().get::<ComputedNode>(second).unwrap().size,
+            Vec2::new(1200.0, 900.0)
         );
     }
 }

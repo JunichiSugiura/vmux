@@ -1,8 +1,8 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
+use bevy_cef::prelude::HostWindow;
 use crossbeam_channel::{Receiver, Sender};
 use std::sync::Arc;
 use vmux_agent::{ScreenshotRequest, ScreenshotResponse};
@@ -74,17 +74,30 @@ fn start_screenshots(
     mut reader: MessageReader<ScreenshotRequest>,
     bridge: Res<ScreenshotBridge>,
     settings: Res<AppSettings>,
-    window_q: Query<(Entity, &Window), With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
+    window_q: Query<(Entity, &Window)>,
+    host_windows: Query<&HostWindow>,
     node_q: Query<&ComputedNode>,
     child_of_q: Query<&ChildOf>,
     proxy: Option<Res<EventLoopProxyWrapper>>,
 ) {
     let base_dir = crate::capture_output::output_dir(&settings);
     for req in reader.read() {
-        let Ok((window_entity, window)) = window_q.single() else {
+        let pane_window = req.pane.as_deref().and_then(|id| {
+            let (_, bits) = vmux_layout::protocol::parse_id(id).ok()?;
+            vmux_layout::window::host_window_of(Entity::from_bits(bits), &child_of_q, &host_windows)
+        });
+        let Some(window_entity) = pane_window.or(focused_window.0) else {
             let _ = bridge
                 .tx
-                .send(err_response(req.request_id, "no primary vmux window"));
+                .send(err_response(req.request_id, "no focused vmux window"));
+            continue;
+        };
+        let Ok((_, window)) = window_q.get(window_entity) else {
+            let _ = bridge.tx.send(err_response(
+                req.request_id,
+                "focused vmux window not found",
+            ));
             continue;
         };
         let img_w = window.resolution.physical_width();

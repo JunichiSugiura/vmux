@@ -385,6 +385,28 @@ fn tab_of(
 }
 
 fn sync_cef_backend(world: &mut World) {
+    let mut browser_entities = world.query_filtered::<Entity, With<Browser>>();
+    let browser_entities: Vec<Entity> = browser_entities.iter(world).collect();
+    let mut moved = Vec::new();
+    for entity in browser_entities {
+        let mut current = entity;
+        let mut inherited = None;
+        while let Some(parent) = world.get::<ChildOf>(current).map(Relationship::get) {
+            if let Some(host) = world.get::<HostWindow>(parent) {
+                inherited = Some(*host);
+                break;
+            }
+            current = parent;
+        }
+        let Some(inherited) = inherited else {
+            continue;
+        };
+        if world.get::<HostWindow>(entity) != Some(&inherited) {
+            world.entity_mut(entity).insert(inherited);
+            moved.push(entity);
+        }
+    }
+
     let mut query = world.query_filtered::<(
         Entity,
         Has<WebviewNativeOverlay>,
@@ -398,7 +420,7 @@ fn sync_cef_backend(world: &mut World) {
                 .is_windowed(&entity)
                 .is_some_and(|windowed| !windowed);
             let stale_overlay = browsers.has_browser(entity) && native_overlay;
-            if stale_backend || stale_overlay {
+            if stale_backend || stale_overlay || moved.contains(&entity) {
                 recreate.push(entity);
             }
         }

@@ -8,13 +8,15 @@ use crate::{
     },
     tab::Tab,
 };
+#[cfg(test)]
+use bevy::window::PrimaryWindow;
 use bevy::{
     ecs::{
         lifecycle::HookContext, message::Messages, relationship::Relationship, world::DeferredWorld,
     },
     prelude::*,
-    window::PrimaryWindow,
 };
+use bevy_cef::prelude::HostWindow;
 use moonshine_save::prelude::*;
 use std::time::Instant;
 use vmux_command::{
@@ -1958,7 +1960,10 @@ fn on_pane_select(
 
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn poll_cursor_pane_focus(
-    windows: Query<(Entity, &Window), With<PrimaryWindow>>,
+    windows: Query<(Entity, &Window)>,
+    focused_window: Res<crate::window::FocusedWindow>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
     leaf_panes: Query<(Entity, &ComputedNode), (With<Pane>, Without<PaneSplit>)>,
     pane_ts: Query<(Entity, &LastActivatedAt), With<Pane>>,
     pane_children: Query<&Children, With<Pane>>,
@@ -1979,7 +1984,10 @@ fn poll_cursor_pane_focus(
     {
         return;
     }
-    let Ok((window_entity, window)) = windows.single() else {
+    let Some(window_entity) = focused_window.0 else {
+        return;
+    };
+    let Ok((_, window)) = windows.get(window_entity) else {
         return;
     };
     let Some(cursor) = pane_hover_cursor_position(window_entity, window) else {
@@ -1988,7 +1996,9 @@ fn poll_cursor_pane_focus(
 
     let mut hovered_pane: Option<Entity> = None;
     for (entity, node) in &leaf_panes {
-        if node.contains(cursor) {
+        if crate::window::host_window_of(entity, &child_of, &host_windows) == Some(window_entity)
+            && node.contains(cursor)
+        {
             hovered_pane = Some(entity);
             break;
         }
@@ -2070,6 +2080,9 @@ fn native_window_cursor_position(window_entity: Entity, window: &Window) -> Opti
 
 #[cfg(target_os = "macos")]
 fn apply_pending_hover(
+    focused_window: Res<crate::window::FocusedWindow>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
     leaf_panes: Query<(Entity, &ComputedNode), (With<Pane>, Without<PaneSplit>)>,
     pane_ts: Query<(Entity, &LastActivatedAt), With<Pane>>,
     pane_children: Query<&Children, With<Pane>>,
@@ -2084,9 +2097,14 @@ fn apply_pending_hover(
         return;
     }
     *last_motion_sequence = pointer.motion_sequence;
+    let Some(window_entity) = focused_window.0 else {
+        return;
+    };
     let mut target = None;
     for (entity, node) in leaf_panes.iter() {
-        if node.contains(pointer.position_px) {
+        if crate::window::host_window_of(entity, &child_of, &host_windows) == Some(window_entity)
+            && node.contains(pointer.position_px)
+        {
             target = Some(entity);
             break;
         }
@@ -2111,7 +2129,9 @@ fn apply_pending_hover(
 fn warp_cursor_to_active_pane(
     mut pending: ResMut<PendingCursorWarp>,
     pane_ui_q: Query<&ComputedNode, (With<Pane>, Without<PaneSplit>)>,
-    mut windows: Query<&mut Window, With<PrimaryWindow>>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
+    mut windows: Query<&mut Window>,
 ) {
     let Some(target) = pending.target else {
         return;
@@ -2123,13 +2143,18 @@ fn warp_cursor_to_active_pane(
         return;
     }
     pending.target = None;
-    if let Ok(mut window) = windows.single_mut() {
+    let Some(window_entity) = crate::window::host_window_of(target, &child_of, &host_windows)
+    else {
+        return;
+    };
+    if let Ok(mut window) = windows.get_mut(window_entity) {
         window.set_physical_cursor_position(Some(rect.center.as_dvec2()));
     }
 }
 
 fn pane_gap_drag_resize(
-    windows: Query<&Window, With<PrimaryWindow>>,
+    windows: Query<&Window>,
+    focused_window: Res<crate::window::FocusedWindow>,
 
     splits: Query<(Entity, &PaneSplit, &Children), Without<PaneDrag>>,
     active_drags: Query<(Entity, &PaneDrag, &PaneSplit)>,
@@ -2140,7 +2165,12 @@ fn pane_gap_drag_resize(
     mouse: Res<ButtonInput<MouseButton>>,
     mut commands: Commands,
 ) {
-    let Ok(window) = windows.single() else { return };
+    let Some(window_entity) = focused_window.0 else {
+        return;
+    };
+    let Ok(window) = windows.get(window_entity) else {
+        return;
+    };
     let Some(cursor_pos) = window.physical_cursor_position() else {
         return;
     };
@@ -5075,6 +5105,8 @@ mod tests {
             .world_mut()
             .spawn((Window::default(), PrimaryWindow))
             .id();
+        app.insert_resource(crate::window::FocusedWindow(Some(window)));
+        let root = app.world_mut().spawn(HostWindow(window)).id();
         app.world_mut()
             .entity_mut(window)
             .get_mut::<Window>()
@@ -5082,7 +5114,7 @@ mod tests {
             .set_physical_cursor_position(Some(bevy::math::DVec2::new(400.0, 450.0)));
         let tab = app
             .world_mut()
-            .spawn((Tab::default(), LastActivatedAt(1)))
+            .spawn((Tab::default(), LastActivatedAt(1), ChildOf(root)))
             .id();
         let split = app
             .world_mut()

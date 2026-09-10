@@ -1,6 +1,6 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use bevy_cef::prelude::{Browsers, WebviewWindowed};
+use bevy_cef::prelude::{Browsers, HostWindow, WebviewWindowed};
 use vmux_core::KeyboardOwner;
 use vmux_core::overlay::{OverlayState, OverlayStateQuery, WindowOverlay};
 use vmux_layout::Header;
@@ -86,7 +86,8 @@ pub(crate) fn compute_host_focus_intent(
         ),
         With<WindowOverlay>,
     >,
-    layout_keyboard_q: Query<(), crate::present::LayoutKeyboardHost>,
+    layout_keyboard_q: Query<(Entity, Option<&HostWindow>), crate::present::LayoutKeyboardHost>,
+    focused_window: Option<Res<vmux_layout::window::FocusedWindow>>,
     native_q: Query<(), With<vmux_core::host::page::HostsPage>>,
     mut intent: ResMut<HostFocusIntent>,
 ) {
@@ -109,7 +110,12 @@ pub(crate) fn compute_host_focus_intent(
         } else {
             HostFocusIntent::WinitHost
         }
-    } else if !layout_keyboard_q.is_empty() {
+    } else if layout_keyboard_q.iter().any(|(_, host)| match host {
+        Some(host) => focused_window
+            .as_deref()
+            .is_none_or(|focused| focused.0 == Some(host.0)),
+        None => true,
+    }) {
         HostFocusIntent::LayoutView
     } else {
         let active = focus.stack.and_then(|stack| {

@@ -48,6 +48,7 @@ pub(crate) mod shortcut;
 mod tray;
 #[cfg(feature = "updater")]
 pub mod updater;
+mod window_manager;
 mod window_state;
 use bevy::prelude::*;
 use bevy::window::{
@@ -62,14 +63,7 @@ pub struct VmuxPlugin;
 
 impl Plugin for VmuxPlugin {
     fn build(&self, app: &mut App) {
-        let title = match env!("VMUX_BUILD_PROFILE") {
-            "release" => "Vmux".to_string(),
-            "local" => format!("Vmux ({})", env!("VMUX_GIT_HASH")),
-            "dev" => format!("Vmux Dev ({})", env!("VMUX_GIT_HASH")),
-            other => format!("Vmux ({})", other),
-        };
-
-        let primary_window = primary_window_config(title);
+        let primary_window = window_config(false);
         let window_plugin = WindowPlugin {
             primary_window: Some(primary_window),
             close_when_requested: false,
@@ -96,9 +90,9 @@ impl Plugin for VmuxPlugin {
 const DEFAULT_WINDOW_WIDTH: u32 = 1280;
 const DEFAULT_WINDOW_HEIGHT: u32 = 800;
 
-fn primary_window_config(title: String) -> NativeWindow {
+pub(crate) fn window_config(secondary: bool) -> NativeWindow {
     NativeWindow {
-        title,
+        title: window_title(),
         transparent: true,
         composite_alpha_mode: CompositeAlphaMode::PostMultiplied,
         decorations: true,
@@ -111,9 +105,22 @@ fn primary_window_config(title: String) -> NativeWindow {
         resizable: true,
         ime_enabled: true,
         visible: !cfg!(all(target_os = "macos", feature = "native-glass")),
-        position: WindowPosition::Centered(MonitorSelection::Primary),
+        position: if secondary {
+            WindowPosition::Automatic
+        } else {
+            WindowPosition::Centered(MonitorSelection::Primary)
+        },
         resolution: WindowResolution::new(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT),
         ..default()
+    }
+}
+
+fn window_title() -> String {
+    match env!("VMUX_BUILD_PROFILE") {
+        "release" => "Vmux".to_string(),
+        "local" => format!("Vmux ({})", env!("VMUX_GIT_HASH")),
+        "dev" => format!("Vmux Dev ({})", env!("VMUX_GIT_HASH")),
+        other => format!("Vmux ({})", other),
     }
 }
 
@@ -123,14 +130,14 @@ mod tests {
 
     #[test]
     fn primary_window_enables_ime_input() {
-        let window = primary_window_config("Vmux".to_string());
+        let window = window_config(false);
 
         assert!(window.ime_enabled);
     }
 
     #[test]
     fn primary_window_starts_hidden_when_native_glass_needs_backdrop_setup() {
-        let window = primary_window_config("Vmux".to_string());
+        let window = window_config(false);
 
         assert_eq!(
             window.visible,
@@ -140,7 +147,7 @@ mod tests {
 
     #[test]
     fn primary_window_defaults_to_centered_default_size() {
-        let window = primary_window_config("Vmux".to_string());
+        let window = window_config(false);
 
         assert!(matches!(
             window.position,
@@ -148,6 +155,11 @@ mod tests {
         ));
         assert_eq!(window.resolution.physical_width(), DEFAULT_WINDOW_WIDTH);
         assert_eq!(window.resolution.physical_height(), DEFAULT_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn secondary_window_uses_system_positioning() {
+        assert_eq!(window_config(true).position, WindowPosition::Automatic);
     }
 
     #[test]

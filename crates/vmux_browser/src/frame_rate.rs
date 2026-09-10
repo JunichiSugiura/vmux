@@ -4,7 +4,7 @@ use bevy::{
         mouse::{MouseButton, MouseButtonInput, MouseWheel},
     },
     prelude::*,
-    window::{CursorMoved, PrimaryWindow},
+    window::CursorMoved,
     winit::{EventLoopProxyWrapper, WinitUserEvent},
 };
 use bevy_cef::prelude::*;
@@ -65,18 +65,22 @@ fn keep_asset_replies_moving(
 #[cfg(target_os = "macos")]
 fn refresh_layout_cef_hover(
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     suppress: Res<CefSuppressPointerInput>,
-    layout_q: Query<Entity, With<LayoutCef>>,
+    layout_q: Query<(Entity, &HostWindow), With<LayoutCef>>,
 ) {
-    if layout_q.single().is_err() || suppress.0 {
+    if suppress.0 {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         return;
     }
-    let Ok(window_entity) = primary_window.single() else {
+    let Some(window_entity) = focused_window.0 else {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         return;
     };
+    if !layout_q.iter().any(|(_, host)| host.0 == window_entity) {
+        NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
+        return;
+    }
     let Ok(window) = windows.get(window_entity) else {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         return;
@@ -92,14 +96,22 @@ fn refresh_layout_cef_hover(
     browsers: NonSend<Browsers>,
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     suppress: Res<CefSuppressPointerInput>,
-    layout_q: Query<Entity, With<LayoutCef>>,
+    layout_q: Query<(Entity, &HostWindow), With<LayoutCef>>,
     pointer_capture_q: Query<(), (With<LayoutCef>, LayoutPointerCapture)>,
     cef_regions: CefPointerRegionQuery<'_, '_>,
     mut state: Local<LayoutHoverRefreshState>,
 ) {
-    let Ok(layout) = layout_q.single() else {
+    let Some(window_entity) = focused_window.0 else {
+        NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
+        *state = LayoutHoverRefreshState::default();
+        return;
+    };
+    let Some(layout) = layout_q
+        .iter()
+        .find_map(|(entity, host)| (host.0 == window_entity).then_some(entity))
+    else {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         *state = LayoutHoverRefreshState::default();
         return;
@@ -109,11 +121,6 @@ fn refresh_layout_cef_hover(
         reset_layout_cef_hover(&browsers, &buttons, layout, &mut state);
         return;
     }
-    let Ok(window_entity) = primary_window.single() else {
-        NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
-        reset_layout_cef_hover(&browsers, &buttons, layout, &mut state);
-        return;
-    };
     let Ok(window) = windows.get(window_entity) else {
         NATIVE_LAYOUT_POINTER_INSIDE.store(false, Ordering::Relaxed);
         reset_layout_cef_hover(&browsers, &buttons, layout, &mut state);
@@ -155,7 +162,7 @@ fn refresh_active_windowed_hover(
     browsers: NonSend<Browsers>,
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     overlay_q: OverlayStateQuery,
     active_q: Query<
         (Entity, &Transform, &ComputedNode, Option<&HostWindow>),
@@ -187,10 +194,7 @@ fn refresh_active_windowed_hover(
         *state = WindowedHoverRefreshState::default();
         return;
     }
-    let Some(window_entity) = host_window
-        .map(|host| host.0)
-        .or_else(|| primary_window.single().ok())
-    else {
+    let Some(window_entity) = host_window.map(|host| host.0).or(focused_window.0) else {
         *state = WindowedHoverRefreshState::default();
         return;
     };
@@ -282,11 +286,17 @@ fn sync_layout_cef_frame_rate(
     mut wheel_events: MessageReader<MouseWheel>,
     mut key_events: MessageReader<KeyboardInput>,
     buttons: Res<ButtonInput<MouseButton>>,
-    mut layout_q: Query<(&mut WebviewMaxFrameRate, Has<KeyboardOwner>), With<LayoutCef>>,
+    mut layout_q: Query<
+        (&HostWindow, &mut WebviewMaxFrameRate, Has<KeyboardOwner>),
+        With<LayoutCef>,
+    >,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     burst: Res<LayoutFrameRateBurst>,
     mut state: Local<LayoutFrameRateState>,
 ) {
-    let owns_keyboard = layout_q.iter().any(|(_, keyboard_target)| keyboard_target);
+    let owns_keyboard = layout_q.iter().any(|(host, _, keyboard_target)| {
+        host.0 == focused_window.0.unwrap_or(Entity::PLACEHOLDER) && keyboard_target
+    });
     let inside = NativeLayout::pointer_is_inside();
     let pointer = vmux_layout::native_pointer::snapshot();
     let native_changed = pointer.is_some_and(|pointer| {
@@ -321,11 +331,15 @@ fn sync_layout_cef_frame_rate(
         state.last_input.max(burst.last_emit),
         state.dragging_layout,
     );
-    let Ok((mut cap, _)) = layout_q.single_mut() else {
-        return;
-    };
-    if cap.0 != desired {
-        cap.0 = desired;
+    for (host, mut cap, _) in &mut layout_q {
+        let target = if Some(host.0) == focused_window.0 {
+            desired
+        } else {
+            LAYOUT_IDLE_FRAME_RATE
+        };
+        if cap.0 != target {
+            cap.0 = target;
+        }
     }
 }
 

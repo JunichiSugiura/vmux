@@ -3,7 +3,9 @@ use std::sync::mpsc;
 use bevy::prelude::*;
 use bevy::tasks::{IoTaskPool, Task, futures_lite::future};
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
-use bevy_cef::prelude::{BinEventEmitterPlugin, BinHostEmitEvent, BinReceive, Browsers};
+use bevy_cef::prelude::{
+    BinEventEmitterPlugin, BinHostEmitEvent, BinReceive, Browsers, HostWindow,
+};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use vmux_core::knowledge::{
     KNOWLEDGE_CREATE_RESULT_EVENT, KNOWLEDGE_SEARCH_EVENT, KNOWLEDGE_TREE_EVENT,
@@ -256,39 +258,59 @@ impl KnowledgeExpansion<'_, '_> {
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct KnowledgeTreeEmitter<'w, 's> {
+    browsers: NonSend<'w, Browsers>,
+    layout: Query<'w, 's, (Entity, Ref<'static, PageReady>, &'static HostWindow), With<LayoutCef>>,
+    focused_window: Res<'w, vmux_layout::window::FocusedWindow>,
+    last_revision: Local<'s, std::collections::HashMap<Entity, u64>>,
+    pending: Local<'s, std::collections::HashSet<Entity>>,
+    commands: Commands<'w, 's>,
+}
+
+impl KnowledgeTreeEmitter<'_, '_> {
+    fn emit(&mut self, state: &KnowledgeState, expansion: &KnowledgeExpansion) {
+        if !state.loaded {
+            return;
+        }
+        let Some((entity, page_ready, _)) = self
+            .focused_window
+            .0
+            .and_then(|window| self.layout.iter().find(|(_, _, host)| host.0 == window))
+            .or_else(|| self.layout.iter().next())
+        else {
+            return;
+        };
+        if self.last_revision.get(&entity) != Some(&state.revision)
+            || page_ready.is_changed()
+            || expansion.just_moved()
+        {
+            self.pending.insert(entity);
+        }
+        if !self.pending.contains(&entity) {
+            return;
+        }
+        if !self.browsers.can_emit_to(&entity) {
+            return;
+        }
+        let mut tree = state.tree.clone();
+        expansion.stamp(&mut tree);
+        self.commands.trigger(BinHostEmitEvent::from_rkyv(
+            entity,
+            KNOWLEDGE_TREE_EVENT,
+            &tree,
+        ));
+        self.pending.remove(&entity);
+        self.last_revision.insert(entity, state.revision);
+    }
+}
+
 fn emit_knowledge_tree(
     state: Res<KnowledgeState>,
-    browsers: NonSend<Browsers>,
-    layout: Query<(Entity, Ref<PageReady>), With<LayoutCef>>,
     expansion: KnowledgeExpansion,
-    mut last_revision: Local<u64>,
-    mut pending: Local<bool>,
-    mut commands: Commands,
+    mut emitter: KnowledgeTreeEmitter,
 ) {
-    if !state.loaded {
-        return;
-    }
-    let Ok((entity, page_ready)) = layout.single() else {
-        return;
-    };
-    if state.revision != *last_revision || page_ready.is_changed() || expansion.just_moved() {
-        *pending = true;
-    }
-    if !*pending {
-        return;
-    }
-    if !browsers.can_emit_to(&entity) {
-        return;
-    }
-    let mut tree = state.tree.clone();
-    expansion.stamp(&mut tree);
-    commands.trigger(BinHostEmitEvent::from_rkyv(
-        entity,
-        KNOWLEDGE_TREE_EVENT,
-        &tree,
-    ));
-    *pending = false;
-    *last_revision = state.revision;
+    emitter.emit(&state, &expansion);
 }
 
 fn on_knowledge_search(

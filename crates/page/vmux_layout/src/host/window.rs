@@ -24,9 +24,12 @@ impl Plugin for WindowLayoutPlugin {
         app.register_type::<WindowGeometry>()
             .register_type::<Option<IVec2>>()
             .register_type::<Option<Vec2>>()
+            .init_resource::<FocusedWindow>()
             .add_systems(
                 Startup,
-                setup.in_set(LayoutStartupSet::Window).after(PageEmbedSet),
+                setup_window_shells
+                    .in_set(LayoutStartupSet::Window)
+                    .after(PageEmbedSet),
             )
             .add_systems(
                 Startup,
@@ -58,11 +61,15 @@ impl Plugin for WindowLayoutPlugin {
             .add_systems(
                 Update,
                 (
+                    sync_focused_window.in_set(WindowFocusSet),
+                    setup_window_shells,
+                    bevy::ecs::schedule::ApplyDeferred,
                     crate::stack::open_startup_url_if_no_stacks.before(PageOpenSet::ResolveTarget),
                     spawn_requested_tab_layouts
                         .after(ReadAppCommands)
                         .before(PageOpenSet::ResolveTarget),
-                ),
+                )
+                    .chain(),
             )
             .add_systems(Update, handle_window_commands.in_set(ReadAppCommands));
 
@@ -70,6 +77,15 @@ impl Plugin for WindowLayoutPlugin {
             .init_resource::<WindowBackground>();
     }
 }
+
+#[derive(Resource, Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FocusedWindow(pub Option<Entity>);
+
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct WindowFocusSet;
+
+#[derive(Component)]
+pub struct NewWindowWorkspace;
 
 pub const SIDE_SHEET_TOP_PADDING_PX: f32 = 22.0;
 
@@ -111,11 +127,13 @@ impl Default for WindowBackground {
 
 fn handle_window_commands(
     mut reader: MessageReader<AppCommand>,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+    focused_window: Res<FocusedWindow>,
 ) {
     for cmd in reader.read() {
         if let AppCommand::Layout(LayoutCommand::Window(WindowCommand::Minimize)) = cmd {
-            let entity = *primary_window;
+            let Some(entity) = focused_window.0 else {
+                continue;
+            };
             WINIT_WINDOWS.with_borrow(|winit_windows| {
                 if let Some(winit_win) = winit_windows.get_window(entity) {
                     winit_win.set_minimized(true);
@@ -128,6 +146,8 @@ fn handle_window_commands(
 #[derive(Bundle)]
 struct WindowBundle {
     marker: VmuxWindow,
+    host_window: HostWindow,
+    viewport: FlexViewport,
     surface: WindowSurface,
     transform: Transform,
     node: Node,
@@ -155,17 +175,100 @@ pub struct WindowGeometry {
     pub size: Option<Vec2>,
 }
 
-fn setup(
-    window: Single<&Window, With<PrimaryWindow>>,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+fn sync_focused_window(
+    windows: Query<(Entity, &Window, Has<PrimaryWindow>)>,
+    mut focused: ResMut<FocusedWindow>,
+) {
+    let next = windows
+        .iter()
+        .find_map(|(entity, window, _)| (window.visible && window.focused).then_some(entity))
+        .or_else(|| {
+            focused.0.filter(|entity| {
+                windows
+                    .get(*entity)
+                    .is_ok_and(|(_, window, _)| window.visible)
+            })
+        })
+        .or_else(|| {
+            windows
+                .iter()
+                .find_map(|(entity, window, primary)| (primary && window.visible).then_some(entity))
+        })
+        .or_else(|| {
+            windows
+                .iter()
+                .find_map(|(entity, window, _)| window.visible.then_some(entity))
+        })
+        .or_else(|| windows.iter().next().map(|(entity, _, _)| entity));
+    if focused.0 != next {
+        focused.0 = next;
+    }
+}
+
+pub fn host_window_of(
+    entity: Entity,
+    child_of: &Query<&ChildOf>,
+    host_windows: &Query<&HostWindow>,
+) -> Option<Entity> {
+    let mut current = entity;
+    loop {
+        if let Ok(host) = host_windows.get(current) {
+            return Some(host.0);
+        }
+        current = child_of.get(current).ok()?.parent();
+    }
+}
+
+fn setup_window_shells(
+    windows: Query<(Entity, &Window, Has<NewWindowWorkspace>)>,
+    roots: Query<&HostWindow, With<VmuxWindow>>,
+    spaces: Query<&crate::space::SpaceId, With<crate::space::Space>>,
+    effective_startup_url: Option<Res<vmux_core::EffectiveStartupUrl>>,
+    mut requests: MessageWriter<TabLayoutSpawnRequest>,
     mut commands: Commands,
     settings: Res<LayoutSettings>,
 ) {
+    let mut existing_space_ids: std::collections::HashSet<String> =
+        spaces.iter().map(|id| id.0.clone()).collect();
+    let mut next_space_number = existing_space_ids.len() + 1;
+    for (window_entity, window, new_workspace) in &windows {
+        if roots.iter().any(|root| root.0 == window_entity) {
+            continue;
+        }
+        let main = spawn_window_shell(&mut commands, window_entity, window, &settings);
+        if new_workspace {
+            while existing_space_ids.contains(&format!("space-{next_space_number}")) {
+                next_space_number += 1;
+            }
+            let id = format!("space-{next_space_number}");
+            let name = format!("Space {next_space_number}");
+            existing_space_ids.insert(id.clone());
+            next_space_number += 1;
+            spawn_new_window_workspace(
+                &mut commands,
+                &mut requests,
+                window_entity,
+                main,
+                id,
+                name,
+                effective_startup_url.as_deref(),
+            );
+        }
+    }
+}
+
+fn spawn_window_shell(
+    commands: &mut Commands,
+    window_entity: Entity,
+    window: &Window,
+    settings: &LayoutSettings,
+) -> Entity {
     let m = window.meters();
-    let pw = *primary_window;
 
     let root_commands = commands.spawn(WindowBundle {
         marker: VmuxWindow,
+        host_window: HostWindow(window_entity),
+        viewport: FlexViewport(window_entity),
         surface: WindowSurface,
         transform: Transform {
             translation: Vec3::new(0.0, m.y * 0.5, 0.0),
@@ -240,16 +343,18 @@ fn setup(
         ChildOf(main_column),
     ));
 
-    commands.spawn((
-        Main,
-        Transform::default(),
-        Node {
-            flex_grow: 1.0,
-            min_height: Val::Px(0.0),
-            ..default()
-        },
-        ChildOf(main_column),
-    ));
+    let main = commands
+        .spawn((
+            Main,
+            Transform::default(),
+            Node {
+                flex_grow: 1.0,
+                min_height: Val::Px(0.0),
+                ..default()
+            },
+            ChildOf(main_column),
+        ))
+        .id();
 
     commands.spawn((
         SideSheet,
@@ -283,12 +388,55 @@ fn setup(
         ChildOf(root),
     ));
 
-    commands.spawn((layout_cef_bundle(pw), ChildOf(root)));
+    commands.spawn((layout_cef_bundle(window_entity), ChildOf(root)));
+    main
+}
+
+fn spawn_new_window_workspace(
+    commands: &mut Commands,
+    requests: &mut MessageWriter<TabLayoutSpawnRequest>,
+    window: Entity,
+    main: Entity,
+    id: String,
+    name: String,
+    effective_startup_url: Option<&vmux_core::EffectiveStartupUrl>,
+) {
+    let space = commands
+        .spawn((
+            crate::space::Space,
+            crate::space::SpaceId(id.clone()),
+            Name::new(name),
+            vmux_core::Order(0),
+            vmux_core::Active,
+            LastActivatedAt::now(),
+            crate::space::space_view_bundle(),
+            ChildOf(main),
+        ))
+        .id();
+    requests.write(TabLayoutSpawnRequest {
+        space,
+        primary_window: window,
+        name: None,
+        startup_dir: None,
+        content: effective_startup_url
+            .map(|url| url.0.as_str())
+            .filter(|url| !url.is_empty())
+            .map(|url| TabLayoutSpawnContent::Url {
+                url: url.to_string(),
+                pending_prompt: None,
+            })
+            .unwrap_or(TabLayoutSpawnContent::StartupUrlOrPrompt),
+        clear_pending_stack: false,
+        focus: true,
+    });
+    commands.entity(window).remove::<NewWindowWorkspace>();
 }
 
 fn request_default_layout(
     tab_q: Query<(), With<Tab>>,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
     space_file: Option<Res<SpaceFilePresent>>,
     effective_startup_dir: Option<Res<crate::settings::EffectiveStartupDir>>,
     mut requests: MessageWriter<TabLayoutSpawnRequest>,
@@ -305,7 +453,9 @@ fn request_default_layout(
     };
     requests.write(TabLayoutSpawnRequest {
         space,
-        primary_window: *primary_window,
+        primary_window: host_window_of(space, &child_of, &host_windows)
+            .or_else(|| primary_window.single().ok())
+            .unwrap_or(Entity::PLACEHOLDER),
         name: None,
         startup_dir: startup_dir.clone(),
         content: TabLayoutSpawnContent::StartupUrlOrPrompt,
@@ -455,7 +605,10 @@ pub fn spawn_requested_tab_layouts(
 fn sync_window_layout_to_settings(
     settings: Res<LayoutSettings>,
     hidden: Option<Res<crate::toggle::LayoutHidden>>,
-    mut window_q: Query<&mut Node, (With<VmuxWindow>, Without<SideSheet>, Without<MainColumn>)>,
+    mut window_q: Query<
+        (&HostWindow, &mut Node),
+        (With<VmuxWindow>, Without<SideSheet>, Without<MainColumn>),
+    >,
     mut main_column_q: Query<
         &mut Node,
         (With<MainColumn>, Without<VmuxWindow>, Without<SideSheet>),
@@ -476,9 +629,10 @@ fn sync_window_layout_to_settings(
     let pad_left = settings.window.pad_left();
     let gap = crate::event::PANE_GAP_PX;
     let cfg_width = crate::event::SIDE_SHEET_WIDTH_PX;
-    let full_padding = hidden.as_deref().is_some_and(|hidden| hidden.0);
-
-    if let Ok(mut node) = window_q.single_mut() {
+    for (host, mut node) in &mut window_q {
+        let full_padding = hidden
+            .as_deref()
+            .is_some_and(|hidden| hidden.is_hidden(host.0));
         node.padding = UiRect {
             top: Val::Px(if full_padding { pad_top } else { 0.0 }),
             left: Val::Px(if full_padding { pad_left } else { 0.0 }),
@@ -488,7 +642,7 @@ fn sync_window_layout_to_settings(
         node.column_gap = Val::Px(gap);
     }
 
-    let _ = main_column_q.single_mut();
+    for _ in &mut main_column_q {}
 
     if sheet_width.0 <= 0.0 {
         sheet_width.0 = cfg_width;
@@ -545,17 +699,22 @@ fn sync_main_column_gap_to_pane_count(
 }
 
 pub fn fit_window_to_screen(
-    window: Single<&bevy::window::Window, With<PrimaryWindow>>,
-    mut last_size: Local<Vec2>,
-    mut q: Query<&mut Transform, With<VmuxWindow>>,
+    windows: Query<&bevy::window::Window>,
+    mut last_sizes: Local<std::collections::HashMap<Entity, Vec2>>,
+    mut roots: Query<(&HostWindow, &mut Transform), With<VmuxWindow>>,
 ) {
-    let m = window.meters();
-    if (m.x - last_size.x).abs() < 0.001 && (m.y - last_size.y).abs() < 0.001 {
-        return;
-    }
-    *last_size = m;
-
-    for mut transform in &mut q {
+    for (host, mut transform) in &mut roots {
+        let Ok(window) = windows.get(host.0) else {
+            continue;
+        };
+        let m = window.meters();
+        if last_sizes
+            .get(&host.0)
+            .is_some_and(|last| (m.x - last.x).abs() < 0.001 && (m.y - last.y).abs() < 0.001)
+        {
+            continue;
+        }
+        last_sizes.insert(host.0, m);
         transform.translation = Vec3::new(0.0, m.y * 0.5, 0.0);
         transform.scale = Vec3::new(m.x, m.y, 1.0);
     }
@@ -643,7 +802,8 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(test_settings(8.0))
-            .init_resource::<Assets<WindowMaterial>>();
+            .init_resource::<Assets<WindowMaterial>>()
+            .add_message::<TabLayoutSpawnRequest>();
         app.world_mut().spawn((
             Window {
                 resolution: (1200, 800).into(),
@@ -651,7 +811,7 @@ mod tests {
             },
             PrimaryWindow,
         ));
-        app.add_systems(Startup, setup);
+        app.add_systems(Startup, setup_window_shells);
         app
     }
 
@@ -691,6 +851,63 @@ mod tests {
             .count();
 
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn setup_spawns_one_layout_root_per_native_window() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(test_settings(8.0))
+            .init_resource::<Assets<WindowMaterial>>()
+            .add_message::<TabLayoutSpawnRequest>()
+            .add_systems(Update, setup_window_shells);
+        let first = app.world_mut().spawn(Window::default()).id();
+        let second = app.world_mut().spawn(Window::default()).id();
+
+        app.update();
+
+        let hosts = app
+            .world_mut()
+            .query_filtered::<(&HostWindow, &FlexViewport), With<VmuxWindow>>()
+            .iter(app.world())
+            .map(|(host, viewport)| (host.0, viewport.0))
+            .collect::<std::collections::HashSet<_>>();
+        let expected: std::collections::HashSet<_> =
+            [(first, first), (second, second)].into_iter().collect();
+        assert_eq!(hosts, expected);
+    }
+
+    #[test]
+    fn a_new_window_gets_its_own_space_and_tab_request() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(test_settings(8.0))
+            .init_resource::<Assets<WindowMaterial>>()
+            .add_message::<TabLayoutSpawnRequest>()
+            .add_systems(
+                Update,
+                (setup_window_shells, bevy::ecs::schedule::ApplyDeferred).chain(),
+            );
+        let window = app
+            .world_mut()
+            .spawn((Window::default(), NewWindowWorkspace))
+            .id();
+
+        app.update();
+
+        let space = app
+            .world_mut()
+            .query_filtered::<Entity, With<crate::space::Space>>()
+            .single(app.world())
+            .expect("space");
+        let request = app
+            .world_mut()
+            .resource_mut::<Messages<TabLayoutSpawnRequest>>()
+            .drain()
+            .next()
+            .expect("tab request");
+        assert_eq!(request.space, space);
+        assert_eq!(request.primary_window, window);
     }
 
     #[test]
@@ -1047,7 +1264,7 @@ mod tests {
     fn visible_fills_monitor_window_sync_clears_top_left_padding() {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
-            .insert_resource(crate::toggle::LayoutHidden(false))
+            .init_resource::<crate::toggle::LayoutHidden>()
             .insert_resource(LayoutSettings {
                 radius: 0.0,
                 window: crate::settings::WindowSettings { padding: 16.0 },
@@ -1057,13 +1274,16 @@ mod tests {
             })
             .insert_resource(SideSheetWidth(0.0))
             .add_systems(Update, sync_window_layout_to_settings);
-        app.world_mut().spawn((
-            Window {
-                resolution: (1200, 800).into(),
-                ..default()
-            },
-            PrimaryWindow,
-        ));
+        let window = app
+            .world_mut()
+            .spawn((
+                Window {
+                    resolution: (1200, 800).into(),
+                    ..default()
+                },
+                PrimaryWindow,
+            ))
+            .id();
         app.world_mut().spawn(Monitor {
             name: None,
             physical_width: 1200,
@@ -1073,7 +1293,10 @@ mod tests {
             scale_factor: 1.0,
             video_modes: Vec::new(),
         });
-        let root = app.world_mut().spawn((VmuxWindow, Node::default())).id();
+        let root = app
+            .world_mut()
+            .spawn((VmuxWindow, HostWindow(window), Node::default()))
+            .id();
 
         app.update();
 

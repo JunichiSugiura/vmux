@@ -1,7 +1,8 @@
 use bevy::prelude::*;
+use bevy_cef::prelude::HostWindow;
 use vmux_command::snapshot::{CommandBarSpacesSnapshot, SpaceSummary};
 use vmux_core::Order;
-use vmux_layout::space::{ActiveSpaceId, Space, SpaceId};
+use vmux_layout::space::{Space, SpaceId};
 
 use crate::event::SPACES_PAGE_URL;
 
@@ -17,16 +18,39 @@ impl Plugin for SpaceSnapshotPlugin {
 }
 
 fn update_spaces_snapshot(
-    spaces: Query<(&SpaceId, &Name, Option<&Order>), With<Space>>,
-    active_id: Res<ActiveSpaceId>,
-    active_name: Query<&Name, (With<Space>, With<vmux_core::Active>)>,
+    spaces: Query<
+        (
+            Entity,
+            &SpaceId,
+            &Name,
+            Has<vmux_core::Active>,
+            Option<&Order>,
+        ),
+        With<Space>,
+    >,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
     mut snapshot: ResMut<CommandBarSpacesSnapshot>,
 ) {
     let profile = crate::model::bootstrap_profile_name();
     let mut rows: Vec<(u32, SpaceSummary)> = Vec::new();
-    for (id, name, order) in &spaces {
+    let mut active_space_id = String::new();
+    let mut active_space_name = String::new();
+    for (entity, id, name, is_active, order) in &spaces {
+        let local = vmux_layout::window::host_window_of(entity, &child_of, &host_windows)
+            == focused_window.0;
+        if local && is_active {
+            active_space_id.clone_from(&id.0);
+            active_space_name = name.to_string();
+        }
+        let order = order.map(|order| order.0).unwrap_or(u32::MAX);
+        if let Some((existing_order, _)) = rows.iter_mut().find(|(_, summary)| summary.id == id.0) {
+            *existing_order = (*existing_order).min(order);
+            continue;
+        }
         rows.push((
-            order.map(|o| o.0).unwrap_or(u32::MAX),
+            order,
             SpaceSummary {
                 id: id.0.clone(),
                 name: name.to_string(),
@@ -38,12 +62,8 @@ fn update_spaces_snapshot(
 
     snapshot.set_if_neq(CommandBarSpacesSnapshot {
         spaces: rows.into_iter().map(|(_, summary)| summary).collect(),
-        active_space_id: active_id.0.clone().unwrap_or_default(),
-        active_space_name: active_name
-            .iter()
-            .next()
-            .map(|name| name.to_string())
-            .unwrap_or_default(),
+        active_space_id,
+        active_space_name,
         spaces_page_url: SPACES_PAGE_URL.to_string(),
     });
 }
@@ -61,13 +81,17 @@ mod tests {
         fn of_one() -> Self {
             let mut app = App::new();
             app.init_resource::<CommandBarSpacesSnapshot>()
-                .insert_resource(ActiveSpaceId(Some("space-1".to_string())))
                 .add_systems(Update, update_spaces_snapshot);
+            let window = app.world_mut().spawn_empty().id();
+            app.insert_resource(vmux_layout::window::FocusedWindow(Some(window)));
+            let root = app.world_mut().spawn(HostWindow(window)).id();
+            let main = app.world_mut().spawn(ChildOf(root)).id();
             app.world_mut().spawn((
                 Space,
                 SpaceId("space-1".to_string()),
                 Name::new("Space 1"),
                 vmux_core::Active,
+                ChildOf(main),
             ));
             let published_at = Self::changed_tick(&app);
             Self { app, published_at }
@@ -135,5 +159,43 @@ mod tests {
 
         assert!(spaces.republished(), "a rename has to reach the bar");
         assert_eq!(spaces.snapshot().active_space_name, "Renamed");
+    }
+
+    #[test]
+    fn publishes_global_spaces_with_the_focused_windows_active_space() {
+        let mut app = App::new();
+        app.init_resource::<CommandBarSpacesSnapshot>()
+            .add_systems(Update, update_spaces_snapshot);
+        let first_window = app.world_mut().spawn_empty().id();
+        let second_window = app.world_mut().spawn_empty().id();
+        app.insert_resource(vmux_layout::window::FocusedWindow(Some(first_window)));
+        for (window, id) in [(first_window, "first"), (second_window, "second")] {
+            let root = app.world_mut().spawn(HostWindow(window)).id();
+            let main = app.world_mut().spawn(ChildOf(root)).id();
+            app.world_mut().spawn((
+                Space,
+                SpaceId(id.to_string()),
+                Name::new(id.to_string()),
+                vmux_core::Active,
+                ChildOf(main),
+            ));
+        }
+
+        app.update();
+
+        let snapshot = app.world().resource::<CommandBarSpacesSnapshot>();
+        assert_eq!(snapshot.active_space_id, "first");
+        assert_eq!(snapshot.spaces.len(), 2);
+        assert_eq!(snapshot.spaces[0].id, "first");
+        assert_eq!(snapshot.spaces[1].id, "second");
+
+        app.world_mut()
+            .resource_mut::<vmux_layout::window::FocusedWindow>()
+            .0 = Some(second_window);
+        app.update();
+
+        let snapshot = app.world().resource::<CommandBarSpacesSnapshot>();
+        assert_eq!(snapshot.active_space_id, "second");
+        assert_eq!(snapshot.spaces.len(), 2);
     }
 }

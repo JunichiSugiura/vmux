@@ -1,7 +1,7 @@
 use bevy::{
     ecs::relationship::Relationship,
     prelude::*,
-    window::{PrimaryWindow, WindowResized},
+    window::WindowResized,
     winit::{EventLoopProxyWrapper, WinitUserEvent},
 };
 use bevy_cef::prelude::*;
@@ -67,13 +67,37 @@ pub(crate) type LayoutKeyboardCapture = Or<(
 )>;
 
 pub(crate) type LayoutKeyboardHost = (With<LayoutCef>, LayoutKeyboardCapture);
+
+#[derive(bevy::ecs::system::SystemParam)]
+struct WindowHierarchy<'w, 's> {
+    child_of: Query<'w, 's, &'static ChildOf>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
+}
+
+impl WindowHierarchy<'_, '_> {
+    fn host_of(&self, entity: Entity) -> Option<Entity> {
+        vmux_layout::window::host_window_of(entity, &self.child_of, &self.host_windows)
+    }
+}
+
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct WindowFrameQueries<'w, 's> {
+    hierarchy: WindowHierarchy<'w, 's>,
+    pane_rect: Query<'w, 's, &'static ComputedNode, With<Pane>>,
+    header_rect: Query<'w, 's, (Entity, &'static ComputedNode), (With<Header>, With<Open>)>,
+    tabs: Query<'w, 's, (Entity, &'static LastActivatedAt), With<Tab>>,
+    all_children: Query<'w, 's, &'static Children>,
+    leaf_panes: Query<'w, 's, Entity, (With<Pane>, Without<PaneSplit>)>,
+}
+
 fn sync_keyboard_target(
     focus: Res<vmux_layout::stack::FocusedStack>,
     child_of_q: Query<&ChildOf>,
     status_q: Query<(), With<Header>>,
     side_sheet_q: Query<(), With<SideSheet>>,
     modal_q: Query<(Entity, &Node, Has<KeyboardOwner>), With<WindowOverlay>>,
-    layout_keyboard_q: Query<Entity, LayoutKeyboardHost>,
+    layout_keyboard_q: Query<(Entity, &HostWindow), LayoutKeyboardHost>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     content_q: Query<(Entity, Has<KeyboardOwner>), With<Browser>>,
     mut commands: Commands,
 ) {
@@ -88,7 +112,10 @@ fn sync_keyboard_target(
         return;
     }
 
-    if layout_keyboard_q.single().is_ok() {
+    if layout_keyboard_q
+        .iter()
+        .any(|(_, host)| Some(host.0) == focused_window.0)
+    {
         for (browser_e, has_kb) in &content_q {
             if has_kb {
                 commands.entity(browser_e).try_remove::<KeyboardOwner>();
@@ -142,6 +169,7 @@ fn tab_ancestor(
 fn sync_children_to_ui(
     mut browser_q: Query<
         (
+            Entity,
             &mut Transform,
             &ComputedNode,
             &ChildOf,
@@ -158,19 +186,16 @@ fn sync_children_to_ui(
         ),
         With<Browser>,
     >,
-    child_of_q: Query<&ChildOf>,
+    hierarchy: WindowHierarchy,
     pane_rect: Query<&ComputedNode, With<Pane>>,
     pane_children: Query<&Children, With<Pane>>,
     tab_ts: Query<(Entity, &LastActivatedAt), With<Stack>>,
     tabs_q: Query<(Entity, &LastActivatedAt), With<Tab>>,
     active_tab_q: Query<(), (With<Tab>, With<vmux_core::Active>)>,
-    glass: Single<(Entity, &ComputedNode), With<VmuxWindow>>,
+    roots: Query<(Entity, &HostWindow, &ComputedNode), With<VmuxWindow>>,
 ) {
-    let &(glass_entity, glass_node) = &*glass;
-    let glass_rect = *glass_node;
-    let glass_size_px = glass_rect.padding_box();
-
     for (
+        browser,
         mut tf,
         self_computed,
         child_of,
@@ -186,8 +211,22 @@ fn sync_children_to_ui(
         is_windowed,
     ) in browser_q.iter_mut()
     {
+        let Some(host_window) = hierarchy.host_of(browser) else {
+            continue;
+        };
+        let Some((glass_entity, _, glass_node)) =
+            roots.iter().find(|(_, host, _)| host.0 == host_window)
+        else {
+            continue;
+        };
+        let glass_rect = *glass_node;
+        let glass_size_px = glass_rect.padding_box();
         let parent = child_of.get();
-        let pane_entity = child_of_q.get(parent).map(|co| co.get()).unwrap_or(parent);
+        let pane_entity = hierarchy
+            .child_of
+            .get(parent)
+            .map(|co| co.get())
+            .unwrap_or(parent);
         let computed = match pane_rect.get(pane_entity) {
             Ok(cn) => cn,
             Err(_) => self_computed,
@@ -201,7 +240,7 @@ fn sync_children_to_ui(
 
         let under_inactive_tab = parent != glass_entity
             && !is_cef_ui
-            && match tab_ancestor(parent, &child_of_q, &tabs_q) {
+            && match tab_ancestor(parent, &hierarchy.child_of, &tabs_q) {
                 Some(tab) => !active_tab_q.contains(tab),
                 None => false,
             };
@@ -353,21 +392,15 @@ pub(crate) fn sync_windowed_frames(
             Without<WindowOverlay>,
         ),
     >,
-    child_of_q: Query<&ChildOf>,
-    pane_rect: Query<&ComputedNode, With<Pane>>,
-    header_rect: Query<&ComputedNode, (With<Header>, With<Open>)>,
-    all_children: Query<&Children>,
-    leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
+    queries: WindowFrameQueries,
     mut memory: Local<FrameSyncMemory>,
     mut last_windowed_pages: Local<Vec<Entity>>,
     mut pane_frames: ResMut<PaneFrames>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
 ) {
     pane_frames.frames.clear();
     pane_frames.rings.clear();
-    let visible_pane_count =
-        visible_pane_count_for_windowed_sync(focus.tab, &all_children, &leaf_panes);
-    pane_frames.all_corners = windowed_page_all_corners(layout_hidden.0, visible_pane_count);
-    let header_frame = header_rect.iter().find_map(WindowedFrameRect::of);
+    pane_frames.all_corners.clear();
     let force_raise = layout_hidden.is_changed();
     let mut hidden = Vec::new();
     let mut visible = Vec::new();
@@ -379,8 +412,30 @@ pub(crate) fn sync_windowed_frames(
         }
         visible.push(entity);
         let parent = child_of.get();
-        let pane_entity = child_of_q.get(parent).map(|co| co.get()).unwrap_or(parent);
-        let computed = pane_rect.get(pane_entity).unwrap_or(self_computed);
+        let pane_entity = queries
+            .hierarchy
+            .child_of
+            .get(parent)
+            .map(|co| co.get())
+            .unwrap_or(parent);
+        let computed = queries.pane_rect.get(pane_entity).unwrap_or(self_computed);
+        let host_window = queries.hierarchy.host_of(entity);
+        let layout_is_hidden = host_window.is_some_and(|window| layout_hidden.is_hidden(window));
+        let header_frame = host_window.and_then(|host_window| {
+            queries.header_rect.iter().find_map(|(header, rect)| {
+                if queries.hierarchy.host_of(header) == Some(host_window) {
+                    WindowedFrameRect::of(rect)
+                } else {
+                    None
+                }
+            })
+        });
+        let active_tab = tab_ancestor(parent, &queries.hierarchy.child_of, &queries.tabs);
+        let visible_pane_count = visible_pane_count_for_windowed_sync(
+            active_tab,
+            &queries.all_children,
+            &queries.leaf_panes,
+        );
         let Some(pane_frame) = WindowedFrameRect::of(computed) else {
             continue;
         };
@@ -388,7 +443,7 @@ pub(crate) fn sync_windowed_frames(
         let frame = windowed_page_frame_rect(
             pane_frame,
             header_frame,
-            layout_hidden.0,
+            layout_is_hidden,
             visible_pane_count,
         );
         if let Some(logical) = PaneFrame::of(frame, scale) {
@@ -406,7 +461,8 @@ pub(crate) fn sync_windowed_frames(
             frame.height,
             scale,
         );
-        let all_corners = windowed_page_all_corners(layout_hidden.0, visible_pane_count);
+        let all_corners = windowed_page_all_corners(layout_is_hidden, visible_pane_count);
+        pane_frames.all_corners.insert(entity, all_corners);
         browsers.set_windowed_corner_radius(
             &entity,
             settings.layout.radius * scale,
@@ -451,7 +507,9 @@ pub(crate) fn sync_windowed_frames(
             [cover_rgb.red, cover_rgb.green, cover_rgb.blue],
         );
         if browsers.has_browser(entity) {
-            memory.visible_frames.push(frame);
+            if host_window == focused_window.0 {
+                memory.visible_frames.push(frame);
+            }
             let key = (
                 frame.left.round() as i32,
                 frame.top.round() as i32,
@@ -501,7 +559,7 @@ pub(crate) struct FrameSyncMemory {
 pub(crate) struct PaneFrames {
     frames: std::collections::HashMap<Entity, PaneFrame>,
     rings: std::collections::HashMap<Entity, FocusRing>,
-    all_corners: bool,
+    all_corners: std::collections::HashMap<Entity, bool>,
 }
 
 impl PaneFrames {
@@ -516,8 +574,8 @@ impl PaneFrames {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn all_corners(&self) -> bool {
-        self.all_corners
+    pub(crate) fn all_corners(&self, page: Entity) -> bool {
+        self.all_corners.get(&page).copied().unwrap_or_default()
     }
 }
 
@@ -643,13 +701,11 @@ fn sync_windowed_layout(
     browsers: NonSend<Browsers>,
     layout_q: Query<(Entity, Option<&HostWindow>), (With<LayoutCef>, With<WebviewWindowed>)>,
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     mut last_raised_frame: Local<std::collections::HashMap<Entity, (i32, i32, i32, i32)>>,
 ) {
     for (entity, host_window) in &layout_q {
-        let window_entity = host_window
-            .map(|h| h.0)
-            .or_else(|| primary_window.single().ok());
+        let window_entity = host_window.map(|h| h.0).or(focused_window.0);
         let Some(window_entity) = window_entity else {
             continue;
         };
@@ -783,7 +839,7 @@ pub(crate) fn sync_windowed_command_bar(
     >,
     native_size_changed: Query<(), Changed<CommandBarNativeSize>>,
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     mut was_open: Local<bool>,
 ) {
     let matched = modal_q.single();
@@ -819,9 +875,7 @@ pub(crate) fn sync_windowed_command_bar(
         publish_native_command_bar_route(owns_input, None, 1.0);
         return;
     }
-    let window_entity = host_window
-        .map(|h| h.0)
-        .or_else(|| primary_window.single().ok());
+    let window_entity = host_window.map(|h| h.0).or(focused_window.0);
     let Some(window_entity) = window_entity else {
         publish_native_command_bar_route(owns_input, None, 1.0);
         if is_windowed {
@@ -965,7 +1019,7 @@ fn sync_cef_webview_resize_after_ui(
     webviews: Query<(Entity, &WebviewSize), (With<Browser>, Without<WindowOverlay>)>,
     host_window: Query<&HostWindow>,
     windows: Query<&Window>,
-    primary_window: Query<Entity, With<PrimaryWindow>>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     proxy: Option<Res<EventLoopProxyWrapper>>,
     mut last_entries: Local<Vec<(u64, Vec2, f32)>>,
     mut window_resized: MessageReader<WindowResized>,
@@ -987,7 +1041,7 @@ fn sync_cef_webview_resize_after_ui(
             .get(entity)
             .ok()
             .map(|h| h.0)
-            .or_else(|| primary_window.single().ok());
+            .or(focused_window.0);
         let device_scale_factor = window_entity
             .and_then(|e| windows.get(e).ok())
             .map(|w| w.resolution.scale_factor())
@@ -1046,7 +1100,9 @@ fn sync_osr_webview_focus(
         ),
         With<WebviewSource>,
     >,
-    primary_window: Single<&Window, With<PrimaryWindow>>,
+    windows: Query<&Window>,
+    host_windows: Query<&HostWindow>,
+    focused_window: Res<vmux_layout::window::FocusedWindow>,
     focus: Res<vmux_layout::stack::FocusedStack>,
     leaf_panes: Query<Entity, (With<Pane>, Without<PaneSplit>)>,
     pane_children_q: Query<&Children, With<Pane>>,
@@ -1062,8 +1118,9 @@ fn sync_osr_webview_focus(
     let mut layout_shells = Vec::new();
     let mut modal_keyboard_target = None;
     let mut layout_keyboard_target = None;
-    let window_visible = primary_window.visible;
-    let window_focused = primary_window.focused;
+    let window = focused_window.0.and_then(|window| windows.get(window).ok());
+    let window_visible = window.is_some_and(|window| window.visible);
+    let window_focused = window.is_some_and(|window| window.focused);
     for (
         entity,
         visibility,
@@ -1080,6 +1137,14 @@ fn sync_osr_webview_focus(
     ) in webviews.iter()
     {
         if !browsers.has_browser(entity) {
+            continue;
+        }
+        if focused_window.0.is_some()
+            && host_windows
+                .get(entity)
+                .is_ok_and(|host| Some(host.0) != focused_window.0)
+        {
+            browsers.set_osr_hidden(&entity);
             continue;
         }
         let size = computed.map(|node| node.size).unwrap_or(Vec2::ONE);
@@ -1393,10 +1458,12 @@ mod tests {
         app.add_plugins((MinimalPlugins, vmux_layout::LayoutContractPlugin))
             .add_systems(Update, sync_children_to_ui);
 
+        let window = app.world_mut().spawn_empty().id();
         let glass = app
             .world_mut()
             .spawn((
                 VmuxWindow,
+                HostWindow(window),
                 ComputedNode {
                     size: Vec2::new(1200.0, 800.0),
                     ..default()
@@ -1419,7 +1486,7 @@ mod tests {
             .id();
         let tab = app
             .world_mut()
-            .spawn((Tab::default(), LastActivatedAt(1)))
+            .spawn((Tab::default(), LastActivatedAt(1), ChildOf(glass)))
             .id();
         let pane = app
             .world_mut()
@@ -1501,6 +1568,7 @@ mod tests {
     fn open_command_bar_is_exclusive_cef_keyboard_target() {
         let mut app = App::new();
         app.add_plugins(vmux_layout::LayoutContractPlugin)
+            .init_resource::<vmux_layout::window::FocusedWindow>()
             .add_systems(Update, sync_keyboard_target);
         let page = app.world_mut().spawn((Browser, KeyboardOwner)).id();
         let modal = app

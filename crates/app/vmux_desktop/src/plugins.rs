@@ -54,6 +54,7 @@ pub(crate) struct NativeWindowPlugin;
 impl Plugin for NativeWindowPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            crate::window_manager::WindowManagerPlugin,
             WindowStatePlugin,
             DisplayPlugin,
             crate::appearance::DesktopAppearancePlugin,

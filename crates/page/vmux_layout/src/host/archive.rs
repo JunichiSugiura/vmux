@@ -291,6 +291,7 @@ pub(crate) struct TabArchiveLayout<'w, 's> {
     splits: Query<'w, 's, &'static PaneSplit>,
     pane_sizes: Query<'w, 's, &'static PaneSize>,
     panes: Query<'w, 's, (), With<Pane>>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -300,7 +301,7 @@ pub(crate) fn handle_close_tab_requests(
     tab_data: Query<&Tab>,
     tab_q: Query<Entity, With<Tab>>,
     layout: TabArchiveLayout,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
     mut layout_requests: MessageWriter<TabLayoutSpawnRequest>,
     mut last_tab_close: ResMut<LastTabCloseAt>,
     mut commands: Commands,
@@ -338,9 +339,17 @@ pub(crate) fn handle_close_tab_requests(
                 .filter(|active| siblings.contains(active) && closing.contains(active))
                 .unwrap_or(request.tab);
             if request.tab == preferred_source && !replacement_spaces.contains(&tab_space) {
+                let Some(window) = crate::window::host_window_of(
+                    request.tab,
+                    &layout.child_of,
+                    &layout.host_windows,
+                )
+                .or_else(|| primary_window.single().ok()) else {
+                    continue;
+                };
                 layout_requests.write(TabLayoutSpawnRequest {
                     space: tab_space,
-                    primary_window: *primary_window,
+                    primary_window: window,
                     name: Some("Tab 1".to_string()),
                     startup_dir: None,
                     content: TabLayoutSpawnContent::StartupUrlOrPrompt,
@@ -462,6 +471,7 @@ struct ReopenLayout<'w, 's> {
     pane_ids: Query<'w, 's, (Entity, &'static PaneId)>,
     leaf_panes: Query<'w, 's, (), (With<Pane>, Without<PaneSplit>)>,
     child_of: Query<'w, 's, &'static ChildOf>,
+    host_windows: Query<'w, 's, &'static HostWindow>,
     children_q: Query<'w, 's, &'static Children>,
     stacks_q: Query<'w, 's, (), With<Stack>>,
     tabs: Query<'w, 's, (), With<Tab>>,
@@ -484,8 +494,9 @@ fn handle_reopen_closed_page(
     any_space: Query<Entity, With<Space>>,
     layout: ReopenLayout,
     active_space: Res<ActiveSpaceEntity>,
+    focused_window: Option<Res<crate::window::FocusedWindow>>,
     settings: Res<LayoutSettings>,
-    primary_window: Single<Entity, With<PrimaryWindow>>,
+    primary_window: Query<Entity, With<PrimaryWindow>>,
     mut commands: Commands,
 ) {
     let mut reopen = false;
@@ -509,14 +520,28 @@ fn handle_reopen_closed_page(
         return;
     };
 
+    let focused_window = focused_window.as_deref().and_then(|focused| focused.0);
     let origin_space = spaces
         .iter()
-        .find(|(_, id)| id.0 == page.space_id)
+        .filter(|(_, id)| id.0 == page.space_id)
+        .find(|(space, _)| {
+            focused_window.is_some_and(|focused| {
+                crate::window::host_window_of(*space, &layout.child_of, &layout.host_windows)
+                    == Some(focused)
+            })
+        })
+        .or_else(|| spaces.iter().find(|(_, id)| id.0 == page.space_id))
         .map(|(e, _)| e);
     let target_space = origin_space
         .or_else(|| active_space.0.filter(|e| any_space.get(*e).is_ok()))
         .or_else(|| any_space.iter().next());
     let Some(space) = target_space else {
+        return;
+    };
+    let Some(window) = crate::window::host_window_of(space, &layout.child_of, &layout.host_windows)
+        .or(focused_window)
+        .or_else(|| primary_window.single().ok())
+    else {
         return;
     };
 
@@ -539,7 +564,7 @@ fn handle_reopen_closed_page(
             &tab,
             entries,
             &mut commands,
-            *primary_window,
+            window,
         );
         for (entry, stack) in restored {
             reopen_page_content(&entry.page, stack, &mut commands);
@@ -556,7 +581,7 @@ fn handle_reopen_closed_page(
         position.as_ref(),
         &layout,
         &mut commands,
-        *primary_window,
+        window,
         settings.pane.gap,
     );
     commands.entity(stack).insert(PageMetadata {
@@ -2039,6 +2064,49 @@ mod tests {
                 .iter(app.world())
                 .any(|(_, m)| m.url == "https://a.example")
         );
+    }
+
+    #[test]
+    fn reopen_prefers_the_focused_windows_view_of_the_origin_space() {
+        let mut app = reopen_app();
+        let primary_window = app
+            .world_mut()
+            .query_filtered::<Entity, With<PrimaryWindow>>()
+            .single(app.world())
+            .unwrap();
+        let secondary_window = app.world_mut().spawn(Window::default()).id();
+        app.insert_resource(crate::window::FocusedWindow(Some(secondary_window)));
+        let primary_root = app.world_mut().spawn(HostWindow(primary_window)).id();
+        let secondary_root = app.world_mut().spawn(HostWindow(secondary_window)).id();
+        let primary_space = app
+            .world_mut()
+            .spawn((Space, SpaceId("shared".to_string()), ChildOf(primary_root)))
+            .id();
+        let secondary_space = app
+            .world_mut()
+            .spawn((
+                Space,
+                SpaceId("shared".to_string()),
+                ChildOf(secondary_root),
+            ))
+            .id();
+        app.world_mut().spawn(ArchivedPage {
+            url: "https://focused.example".to_string(),
+            space_id: "shared".to_string(),
+            closed_at: 5,
+            ..default()
+        });
+
+        dispatch_reopen(&mut app);
+
+        let tab_parents: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<&ChildOf, With<Tab>>()
+            .iter(app.world())
+            .map(ChildOf::parent)
+            .collect();
+        assert!(tab_parents.contains(&secondary_space));
+        assert!(!tab_parents.contains(&primary_space));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_cef::prelude::HostWindow;
 use moonshine_save::prelude::*;
 use vmux_command::ReadAppCommands;
 use vmux_flex::prelude::*;
@@ -16,7 +17,8 @@ impl Plugin for SpaceLayoutPlugin {
                     sync_active_space_entity,
                     sync_active_space_id,
                 )
-                    .chain(),
+                    .chain()
+                    .after(crate::window::WindowFocusSet),
             )
             .add_systems(
                 Update,
@@ -57,9 +59,19 @@ pub struct ActiveSpaceId(pub Option<String>);
 
 pub fn sync_active_space_entity(
     tagged: Query<Entity, (With<Space>, With<vmux_core::Active>)>,
+    focused_window: Res<crate::window::FocusedWindow>,
+    child_of: Query<&ChildOf>,
+    host_windows: Query<&HostWindow>,
     mut active: ResMut<ActiveSpaceEntity>,
 ) {
-    let current = tagged.iter().next();
+    let current = focused_window
+        .0
+        .and_then(|focused| {
+            tagged.iter().find(|space| {
+                crate::window::host_window_of(*space, &child_of, &host_windows) == Some(focused)
+            })
+        })
+        .or_else(|| tagged.iter().next());
     if active.0 != current {
         active.0 = current;
     }
@@ -169,6 +181,7 @@ mod tests {
     fn active_space_entity_tracks_tagged_space() {
         let mut app = App::new();
         app.init_resource::<ActiveSpaceEntity>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_systems(Update, sync_active_space_entity);
         let space = app
             .world_mut()
@@ -182,6 +195,7 @@ mod tests {
     fn active_space_entity_clears_when_no_tag() {
         let mut app = App::new();
         app.init_resource::<ActiveSpaceEntity>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_systems(Update, sync_active_space_entity);
         app.insert_resource(ActiveSpaceEntity(Some(Entity::from_bits(42))));
         app.update();
@@ -193,6 +207,7 @@ mod tests {
         let mut app = App::new();
         app.init_resource::<ActiveSpaceEntity>()
             .init_resource::<ActiveSpaceId>()
+            .init_resource::<crate::window::FocusedWindow>()
             .add_systems(
                 Update,
                 (sync_active_space_entity, sync_active_space_id).chain(),

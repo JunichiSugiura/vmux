@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy::window::{Monitor, MonitorSelection, PrimaryWindow, Window, WindowPosition};
+use bevy::window::{Monitor, MonitorSelection, Window, WindowPosition};
 
 impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
@@ -26,7 +26,7 @@ fn relocate_window_to_live_display(
     monitors_added: Query<(), Added<Monitor>>,
     monitors_removed: RemovedComponents<Monitor>,
     monitors: Query<&Monitor>,
-    mut window: Query<&mut Window, With<PrimaryWindow>>,
+    mut windows: Query<&mut Window>,
 ) {
     if monitors_added.is_empty() && monitors_removed.is_empty() {
         return;
@@ -34,24 +34,23 @@ fn relocate_window_to_live_display(
     if monitors.is_empty() {
         return;
     }
-    let Ok(mut window) = window.single_mut() else {
-        return;
-    };
-    let WindowPosition::At(pos) = window.position else {
-        return;
-    };
-    let size = window.resolution.physical_size().as_ivec2();
-    let window_rect = IRect::from_corners(pos, pos + size);
     let monitor_rects: Vec<IRect> = monitors.iter().map(monitor_rect).collect();
-    if window_off_all_monitors(window_rect, &monitor_rects) {
-        window.position = WindowPosition::Centered(MonitorSelection::Primary);
+    for mut window in &mut windows {
+        let WindowPosition::At(pos) = window.position else {
+            continue;
+        };
+        let size = window.resolution.physical_size().as_ivec2();
+        let window_rect = IRect::from_corners(pos, pos + size);
+        if window_off_all_monitors(window_rect, &monitor_rects) {
+            window.position = WindowPosition::Centered(MonitorSelection::Primary);
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy::window::OnMonitor;
+    use bevy::window::{OnMonitor, PrimaryWindow};
 
     fn test_monitor(x: i32, y: i32, w: u32, h: u32) -> Monitor {
         Monitor {

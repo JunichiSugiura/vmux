@@ -1295,6 +1295,14 @@ fn pairing_qr_svg(value: &str) -> Option<String> {
     )
 }
 
+struct PageUrl;
+
+impl PageUrl {
+    fn matches(left: &str, right: &str) -> bool {
+        left.trim_end_matches('/') == right.trim_end_matches('/')
+    }
+}
+
 #[component]
 fn BookmarksSection(
     bookmarks: BookmarksHostEvent,
@@ -1338,6 +1346,7 @@ fn BookmarksSection(
         .as_ref()
         .map(|optimistic| optimistic.apply(&pins))
         .unwrap_or(pins);
+    let active_url = active_page.as_ref().map(|page| page.url.clone());
     let rendered_pin_order = Rc::new(pins.iter().map(|pin| pin.uuid.clone()).collect::<Vec<_>>());
     let root_targeted = bookmark_drop_targeted(drag_state, &BookmarkDropTarget::Root);
     let root_drop_label = drag_state()
@@ -1429,6 +1438,7 @@ fn BookmarksSection(
                                         row: pin.clone(),
                                         index,
                                         pin_order: rendered_pin_order.clone(),
+                                        active: active_url.as_ref().is_some_and(|active_url| PageUrl::matches(active_url, &pin.metadata.url)),
                                     }
                                 }
                             }
@@ -2882,7 +2892,7 @@ fn ExtensionMenuRow(extension: Rc<ExtRow>, on_close: EventHandler<()>) -> Elemen
 }
 
 #[component]
-fn PinTile(row: BookmarkRow, index: usize, pin_order: Rc<Vec<String>>) -> Element {
+fn PinTile(row: BookmarkRow, index: usize, pin_order: Rc<Vec<String>>, active: bool) -> Element {
     let drag_state: Signal<Option<BookmarkDragState>> = use_context();
     let url_open = row.metadata.url.clone();
     let uuid_unpin = row.uuid.clone();
@@ -2921,8 +2931,10 @@ fn PinTile(row: BookmarkRow, index: usize, pin_order: Rc<Vec<String>>) -> Elemen
                         style: "{visual.style()}",
                         class: if visual.dragging {
                             "absolute inset-0 flex cursor-grabbing select-none items-center justify-center rounded-md bg-white/5"
+                        } else if active {
+                            "absolute inset-0 flex cursor-pointer select-none items-center justify-center rounded-md bg-primary/15 text-primary ring-1 ring-inset ring-primary/30 transition-colors hover:bg-primary/20"
                         } else {
-                            "absolute inset-0 flex cursor-pointer select-none items-center justify-center rounded-md bg-white/5 hover:bg-white/10"
+                            "absolute inset-0 flex cursor-pointer select-none items-center justify-center rounded-md bg-white/5 transition-colors hover:bg-white/10"
                         },
                         onclick: {
                             let u = url_open.clone();
@@ -4156,6 +4168,13 @@ fn SheetNewButton(label: String, icon: Element, onclick: EventHandler<MouseEvent
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn page_url_matches_with_or_without_a_trailing_slash() {
+        assert!(PageUrl::matches("vmux://start", "vmux://start/"));
+        assert!(PageUrl::matches("vmux://start/", "vmux://start"));
+        assert!(!PageUrl::matches("vmux://start", "vmux://projects"));
+    }
 
     #[test]
     fn active_session_matches_the_agent_by_session_id() {

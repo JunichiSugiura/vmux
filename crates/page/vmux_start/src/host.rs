@@ -700,6 +700,7 @@ mod tests {
             .init_resource::<CommandBarPagesSnapshot>()
             .init_resource::<CommandBarWorkSnapshot>()
             .init_resource::<vmux_command::snapshot::CommandBarAgentModels>()
+            .init_resource::<vmux_command::snapshot::CommandBarAgentModes>()
             .init_resource::<EmittedIds>()
             .add_observer(on_start_data_request)
             .add_observer(capture_emit);

@@ -2,7 +2,6 @@ use dioxus::prelude::*;
 
 use crate::util::cn;
 
-const FONT_PX: f64 = 16.0;
 const DEFAULT_COLUMNS: usize = 120;
 const COLUMN_GLYPHS: usize = 96;
 const GLYPHS: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜﾝ0123456789";
@@ -37,7 +36,7 @@ pub fn MatrixRain(
                         div {
                             key: "{index}",
                             class: "absolute top-0 whitespace-pre",
-                            style: "{column.style()}",
+                            style: "{column.style(columns)}",
                             div {
                                 class: "absolute left-0 top-0 text-[var(--vmux-rain-trail)] [-webkit-mask-image:linear-gradient(to_bottom,transparent_0%,rgb(0_0_0/.08)_18%,rgb(0_0_0/.4)_65%,#000_100%)] [-webkit-mask-repeat:no-repeat] [-webkit-mask-size:100%_320px] [mask-image:linear-gradient(to_bottom,transparent_0%,rgb(0_0_0/.08)_18%,rgb(0_0_0/.4)_65%,#000_100%)] [mask-repeat:no-repeat] [mask-size:100%_320px] motion-reduce:!animate-none motion-reduce:opacity-[0.08] motion-reduce:[-webkit-mask-image:none] motion-reduce:[mask-image:none]",
                                 style: "{column.animation_style()}",
@@ -74,12 +73,9 @@ pub fn MatrixLoader(
             role: "status",
             "aria-busy": "true",
             div { class: "relative h-full w-full overflow-hidden bg-background",
-                div { class: "absolute left-1/2 top-0 h-full w-[1024px] -translate-x-1/2 overflow-hidden",
-                    MatrixRain {
-                        accent_rgb: "var(--primary)".to_string(),
-                        words,
-                        columns: 64,
-                    }
+                MatrixRain {
+                    accent_rgb: "var(--primary)".to_string(),
+                    words,
                 }
                 div { class: "relative z-10 flex h-full w-full items-center justify-center",
                     div { class: "glass max-w-[min(28rem,calc(100%-3rem))] rounded-2xl px-5 py-3 text-center text-sm font-medium text-foreground ring-1 ring-inset ring-border/70 backdrop-blur-xl",
@@ -124,8 +120,9 @@ impl RainColumn {
         }
     }
 
-    fn style(&self) -> String {
-        format!("left:{}px;", self.index as f64 * FONT_PX)
+    fn style(&self, columns: usize) -> String {
+        let columns = columns.max(1);
+        format!("left:{:.4}%;", self.index as f64 * 100.0 / columns as f64)
     }
 
     fn animation_style(&self) -> String {

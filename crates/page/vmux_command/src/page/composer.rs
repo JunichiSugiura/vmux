@@ -263,7 +263,7 @@ impl ComposerMenuSet {
         match kind {
             ComposerMenuKind::Agent => self.agent.options.len(),
             ComposerMenuKind::Model => self.model.models.len(),
-            ComposerMenuKind::Effort => 0,
+            ComposerMenuKind::Effort | ComposerMenuKind::Permission => 0,
             ComposerMenuKind::Project => self.roots().len() + 1,
             ComposerMenuKind::Branch => self.branch.branches.len(),
         }
@@ -283,7 +283,7 @@ impl ComposerMenuSet {
                 };
                 self.model.on_select.call(model.clone());
             }
-            ComposerMenuKind::Effort => return false,
+            ComposerMenuKind::Effort | ComposerMenuKind::Permission => return false,
             ComposerMenuKind::Project => {
                 let roots = self.roots();
                 if index == roots.len() {

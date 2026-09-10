@@ -1,6 +1,7 @@
 pub const CHAT_SNAPSHOT_EVENT: &str = "chat_snapshot";
 pub const CHAT_HISTORY_PAGE_EVENT: &str = "chat_history_page";
 pub const COMPOSER_CONTEXT_EVENT: &str = "composer_context";
+pub const MODE_STATE_EVENT: &str = "mode_state";
 pub const CHAT_INITIAL_ITEM_LIMIT: u32 = 48;
 pub const CHAT_HISTORY_PAGE_SIZE: u32 = 40;
 pub const CHAT_HISTORY_MAX_PAGE_SIZE: u32 = 80;
@@ -111,6 +112,37 @@ pub struct ComposerContext {
     pub can_manage_workspace: bool,
     pub auto_allow_count: u32,
     pub projects: Vec<vmux_core::event::ProjectRow>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct ModeState {
+    pub current_mode_id: String,
+    pub modes: Vec<vmux_service::protocol::AcpModeOption>,
+}
+
+#[derive(
+    Clone,
+    Debug,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct SelectMode {
+    pub mode_id: String,
 }
 
 #[derive(

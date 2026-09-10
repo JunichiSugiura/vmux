@@ -1,12 +1,12 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::{BinEventEmitterPlugin, BinHostEmitEvent, BinReceive, Browsers};
 
-use crate::client::acp::AcpModelState;
+use crate::client::acp::{AcpModeState, AcpModelState};
 use crate::events::AgentCommandRequest;
 use crate::strategy::{AgentStrategies, acp_agent_kind, kind_supports_cross_runtime};
 use vmux_chat::event::{
-    MODEL_STATE_EVENT, ModelOptionEntry, ModelState, SLASH_COMMANDS_EVENT, SelectModel,
-    SetAgentEffort, SlashCommands,
+    MODE_STATE_EVENT, MODEL_STATE_EVENT, ModeState, ModelOptionEntry, ModelState,
+    SLASH_COMMANDS_EVENT, SelectMode, SelectModel, SetAgentEffort, SlashCommands,
 };
 use vmux_command::event::StartSelectModel;
 use vmux_service::client::ServiceClient;
@@ -19,16 +19,19 @@ pub(super) struct ChatModelPlugin;
 impl Plugin for ChatModelPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AcpModelRequestCounter>()
+            .init_resource::<AcpModeRequestCounter>()
             .init_resource::<AgentModelSelections>()
             .init_resource::<vmux_command::snapshot::CommandBarAgentModels>()
             .add_message::<AcpSetModelRequest>()
+            .add_message::<AcpSetModeRequest>()
+            .add_message::<ModeSelectRequest>()
             .add_message::<ModelSelectRequest>()
             .add_message::<EffortSetRequest>()
-            .add_plugins(
-                BinEventEmitterPlugin::<(SelectModel, SetAgentEffort)>::for_hosts(
-                    super::CHAT_EVENT_HOSTS,
-                ),
-            )
+            .add_plugins(BinEventEmitterPlugin::<(
+                SelectModel,
+                SetAgentEffort,
+                SelectMode,
+            )>::for_hosts(super::CHAT_EVENT_HOSTS))
             .add_plugins(BinEventEmitterPlugin::<(StartSelectModel,)>::for_hosts(&[
                 "start",
             ]))
@@ -37,6 +40,7 @@ impl Plugin for ChatModelPlugin {
                 (load_agent_model_selections, seed_cli_model_lists).chain(),
             )
             .add_observer(on_select_model)
+            .add_observer(on_select_mode)
             .add_observer(on_set_agent_effort)
             .add_observer(on_start_select_model)
             .add_systems(
@@ -44,11 +48,15 @@ impl Plugin for ChatModelPlugin {
                 (
                     answer_remote_model_commands,
                     apply_model_selection,
+                    apply_mode_selection,
                     apply_effort_setting,
                     push_acp_model_state_to_page,
                     push_removed_acp_model_state_to_page,
+                    push_acp_mode_state_to_page,
+                    push_removed_acp_mode_state_to_page,
                     apply_last_used_acp_model.after(crate::client::acp::apply_acp_model_info),
                     send_acp_model_requests,
+                    send_acp_mode_requests,
                     remember_acp_model_lists,
                     publish_agent_models.after(remember_acp_model_lists),
                     save_agent_model_selections
@@ -201,6 +209,20 @@ struct AcpSetModelRequest {
     model_id: String,
 }
 
+#[derive(Message)]
+struct AcpSetModeRequest {
+    sid: String,
+    request_id: u64,
+    config_id: String,
+    mode_id: String,
+}
+
+#[derive(Message)]
+struct ModeSelectRequest {
+    sid: String,
+    mode_id: String,
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct AgentModelSelections {
     by_agent: std::collections::BTreeMap<String, AgentModelMemory>,
@@ -278,6 +300,9 @@ fn save_agent_model_selections(mut models: ResMut<AgentModelSelections>) {
 #[derive(Resource, Default)]
 struct AcpModelRequestCounter(u64);
 
+#[derive(Resource, Default)]
+struct AcpModeRequestCounter(u64);
+
 fn model_state_of(state: Option<&AcpModelState>) -> ModelState {
     let Some(state) = state else {
         return ModelState::default();
@@ -324,6 +349,25 @@ pub(super) fn emit_model_state(
         webview,
         SLASH_COMMANDS_EVENT,
         &SlashCommands::for_agent(cross_runtime, model_state.is_some()),
+    ));
+}
+
+pub(super) fn emit_mode_state(
+    webview: Entity,
+    mode_state: Option<&AcpModeState>,
+    commands: &mut Commands,
+) {
+    let state = match mode_state {
+        Some(state) => ModeState {
+            current_mode_id: state.display_mode_id().to_string(),
+            modes: state.modes.clone(),
+        },
+        None => ModeState::default(),
+    };
+    commands.trigger(BinHostEmitEvent::from_rkyv(
+        webview,
+        MODE_STATE_EVENT,
+        &state,
     ));
 }
 
@@ -470,6 +514,46 @@ fn push_removed_acp_model_state_to_page(
     }
 }
 
+fn push_acp_mode_state_to_page(
+    sessions: Query<(Entity, &AcpModeState), Changed<AcpModeState>>,
+    children: Query<&Children>,
+    is_browser: Query<(), With<vmux_layout::Browser>>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
+) {
+    for (stack, mode_state) in &sessions {
+        let Ok(kids) = children.get(stack) else {
+            continue;
+        };
+        let Some(webview) = kids.iter().find(|&entity| is_browser.contains(entity)) else {
+            continue;
+        };
+        if browsers.can_emit_to(&webview) {
+            emit_mode_state(webview, Some(mode_state), &mut commands);
+        }
+    }
+}
+
+fn push_removed_acp_mode_state_to_page(
+    mut removed: RemovedComponents<AcpModeState>,
+    children: Query<&Children>,
+    is_browser: Query<(), With<vmux_layout::Browser>>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
+) {
+    for stack in removed.read() {
+        let Ok(kids) = children.get(stack) else {
+            continue;
+        };
+        let Some(webview) = kids.iter().find(|&entity| is_browser.contains(entity)) else {
+            continue;
+        };
+        if browsers.can_emit_to(&webview) {
+            emit_mode_state(webview, None, &mut commands);
+        }
+    }
+}
+
 fn on_select_model(
     trigger: On<BinReceive<SelectModel>>,
     child_of: Query<&ChildOf>,
@@ -486,6 +570,56 @@ fn on_select_model(
         sid: session.sid.clone(),
         model_id: trigger.event().payload.model_id.clone(),
     });
+}
+
+fn on_select_mode(
+    trigger: On<BinReceive<SelectMode>>,
+    child_of: Query<&ChildOf>,
+    sessions: Query<&AcpSession>,
+    mut selects: MessageWriter<ModeSelectRequest>,
+) {
+    let Ok(parent) = child_of.get(trigger.event().webview) else {
+        return;
+    };
+    let Ok(session) = sessions.get(parent.parent()) else {
+        return;
+    };
+    selects.write(ModeSelectRequest {
+        sid: session.sid.clone(),
+        mode_id: trigger.event().payload.mode_id.clone(),
+    });
+}
+
+fn apply_mode_selection(
+    mut reader: MessageReader<ModeSelectRequest>,
+    mut sessions: Query<(&AcpSession, &mut AcpModeState)>,
+    mut counter: ResMut<AcpModeRequestCounter>,
+    mut requests: MessageWriter<AcpSetModeRequest>,
+) {
+    for selection in reader.read() {
+        let Some((session, mut state)) = sessions
+            .iter_mut()
+            .find(|(session, _)| session.sid == selection.sid)
+        else {
+            continue;
+        };
+        if state.display_mode_id() == selection.mode_id
+            || !state.modes.iter().any(|mode| mode.id == selection.mode_id)
+        {
+            continue;
+        }
+        let request_id = counter.next();
+        requests.write(AcpSetModeRequest {
+            sid: session.sid.clone(),
+            request_id,
+            config_id: state.config_id.clone(),
+            mode_id: selection.mode_id.clone(),
+        });
+        state.pending = Some(crate::client::acp::PendingAcpModeSelection {
+            request_id,
+            mode_id: selection.mode_id.clone(),
+        });
+    }
 }
 
 fn on_set_agent_effort(
@@ -588,6 +722,23 @@ fn send_acp_model_requests(
     }
 }
 
+fn send_acp_mode_requests(
+    mut requests: MessageReader<AcpSetModeRequest>,
+    service: Option<Res<ServiceClient>>,
+) {
+    let Some(service) = service else {
+        return;
+    };
+    for request in requests.read() {
+        service.0.send(ClientMessage::AcpSetMode {
+            sid: request.sid.clone(),
+            request_id: request.request_id,
+            config_id: request.config_id.clone(),
+            mode_id: request.mode_id.clone(),
+        });
+    }
+}
+
 impl AgentModelSelections {
     fn select(&mut self, agent_id: &str, model_id: &str) {
         let entry = self.by_agent.entry(agent_id.to_string()).or_default();
@@ -646,6 +797,13 @@ impl AgentModelSelections {
 }
 
 impl AcpModelRequestCounter {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
+}
+
+impl AcpModeRequestCounter {
     fn next(&mut self) -> u64 {
         self.0 = self.0.wrapping_add(1);
         self.0
@@ -774,6 +932,68 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[test]
+    fn mode_selection_updates_cached_state_before_response() {
+        let mut app = App::new();
+        app.init_resource::<AcpModeRequestCounter>()
+            .add_message::<AcpSetModeRequest>()
+            .add_message::<ModeSelectRequest>()
+            .add_observer(on_select_mode)
+            .add_systems(Update, apply_mode_selection);
+        let stack = app
+            .world_mut()
+            .spawn((
+                AcpSession {
+                    agent_id: "claude".into(),
+                    sid: "s1".into(),
+                    cwd: "/tmp".into(),
+                    anchor: vmux_core::ProcessId::new(),
+                    resume: None,
+                },
+                AcpModeState {
+                    config_id: String::new(),
+                    current_mode_id: "ask".into(),
+                    pending: None,
+                    modes: vec![
+                        vmux_service::protocol::AcpModeOption {
+                            id: "ask".into(),
+                            name: "Ask".into(),
+                            description: None,
+                        },
+                        vmux_service::protocol::AcpModeOption {
+                            id: "auto".into(),
+                            name: "Auto Allow".into(),
+                            description: None,
+                        },
+                    ],
+                },
+            ))
+            .id();
+        let webview = app.world_mut().spawn(ChildOf(stack)).id();
+
+        app.world_mut().trigger(BinReceive {
+            webview,
+            payload: SelectMode {
+                mode_id: "auto".into(),
+            },
+        });
+        app.update();
+
+        let state = app.world().get::<AcpModeState>(stack).unwrap();
+        assert_eq!(state.current_mode_id, "ask");
+        assert_eq!(state.display_mode_id(), "auto");
+        let requests: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<AcpSetModeRequest>>()
+            .drain()
+            .collect();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].sid, "s1");
+        assert_eq!(requests[0].request_id, 1);
+        assert!(requests[0].config_id.is_empty());
+        assert_eq!(requests[0].mode_id, "auto");
     }
 
     #[test]

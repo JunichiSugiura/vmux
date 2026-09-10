@@ -471,14 +471,18 @@ fn push_projects_host_emit(
             if let Some(info) = cache.get(std::path::Path::new(&row.path)) {
                 row.branch = info.branch.clone();
                 if row.is_active {
+                    let repository = info.project_name();
                     boundary = Some(TabBoundary {
                         effective_dir: row.path.clone(),
                         source: "project".to_string(),
+                        repository,
                         is_git_repo: true,
                         is_worktree: info.is_worktree,
                         branch: info.branch,
+                        base_ref: info.base_ref,
                         uncommitted: info.uncommitted,
                         ahead: info.ahead,
+                        changed_files: info.changed_files,
                         insertions: info.insertions,
                         deletions: info.deletions,
                         ..Default::default()

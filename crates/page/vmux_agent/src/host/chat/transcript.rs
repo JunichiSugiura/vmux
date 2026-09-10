@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 use bevy_cef::prelude::{BinEventEmitterPlugin, BinHostEmitEvent, BinReceive, Browsers};
 
-use super::model::{effort_current_for, emit_model_state};
+use super::model::{effort_current_for, emit_mode_state, emit_model_state};
 use super::{AgentChatView, ChatSynced};
-use crate::client::acp::AcpModelState;
+use crate::client::acp::{AcpModeState, AcpModelState};
 use crate::handoff::ImportedConversation;
 use crate::run_state::{AgentRunState, AgentTurnMeta};
 use crate::strategy::{acp_agent_kind, kind_supports_cross_runtime};
@@ -306,7 +306,7 @@ fn sync_chat_to_ready_views(
         Option<&ImportedConversation>,
         Option<&AgentConversationTitle>,
     )>,
-    acp_sessions: Query<(&AcpSession, Option<&AcpModelState>)>,
+    acp_sessions: Query<(&AcpSession, Option<&AcpModelState>, Option<&AcpModeState>)>,
     choices: Query<&crate::host::PendingAgentChoice>,
     user_profiles: Query<&Profile, With<User>>,
     settings: Option<Res<vmux_setting::AppSettings>>,
@@ -344,19 +344,20 @@ fn sync_chat_to_ready_views(
                 choices.get(webview).ok(),
             ),
         ));
-        let (cross, model_state, agent_key) = acp_sessions
+        let (cross, model_state, mode_state, agent_key) = acp_sessions
             .get(stack)
             .ok()
-            .map(|(acp, model)| {
+            .map(|(acp, model, mode)| {
                 (
                     acp_agent_kind(&acp.agent_id)
                         .map(kind_supports_cross_runtime)
                         .unwrap_or(false),
                     model,
+                    mode,
                     acp.agent_id.clone(),
                 )
             })
-            .unwrap_or((false, None, String::new()));
+            .unwrap_or((false, None, None, String::new()));
         emit_model_state(
             webview,
             model_state,
@@ -365,6 +366,7 @@ fn sync_chat_to_ready_views(
             effort_current_for(settings.as_ref(), &agent_key),
             &mut commands,
         );
+        emit_mode_state(webview, mode_state, &mut commands);
         commands.entity(webview).insert(ChatSynced);
     }
 }

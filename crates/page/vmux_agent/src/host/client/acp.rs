@@ -25,6 +25,8 @@ impl Plugin for AcpAgentPlugin {
             .add_message::<vmux_service::agent_events::PageAgentWorkspaceChanged>()
             .add_message::<vmux_service::agent_events::PageAgentModelInfo>()
             .add_message::<vmux_service::agent_events::PageAgentModelSelectionResult>()
+            .add_message::<vmux_service::agent_events::PageAgentModeInfo>()
+            .add_message::<vmux_service::agent_events::PageAgentModeSelectionResult>()
             .add_message::<vmux_service::agent_events::PageAgentSessionCreated>()
             .add_message::<vmux_service::agent_events::PageAgentAcpTerminalCreated>()
             .add_systems(Startup, start_catalog_fetch)
@@ -37,7 +39,13 @@ impl Plugin for AcpAgentPlugin {
                     receive_catalog,
                     apply_acp_agent_info,
                     apply_acp_workspace_changed,
-                    (apply_acp_model_info, apply_acp_model_selection_result).chain(),
+                    (
+                        apply_acp_model_info,
+                        apply_acp_model_selection_result,
+                        apply_acp_mode_info,
+                        apply_acp_mode_selection_result,
+                    )
+                        .chain(),
                     apply_acp_session_created,
                     apply_acp_terminal_created,
                 ),
@@ -118,6 +126,37 @@ pub struct AcpModelState {
 pub(crate) struct PendingAcpModelSelection {
     pub request_id: u64,
     pub model_id: String,
+}
+
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct AcpModeState {
+    pub config_id: String,
+    pub current_mode_id: String,
+    pub(crate) pending: Option<PendingAcpModeSelection>,
+    pub modes: Vec<vmux_service::protocol::AcpModeOption>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct PendingAcpModeSelection {
+    pub request_id: u64,
+    pub mode_id: String,
+}
+
+impl AcpModeState {
+    pub fn display_mode_id(&self) -> &str {
+        self.pending
+            .as_ref()
+            .map(|pending| pending.mode_id.as_str())
+            .unwrap_or(&self.current_mode_id)
+    }
+
+    pub fn current_name(&self) -> &str {
+        self.modes
+            .iter()
+            .find(|mode| mode.id == self.display_mode_id())
+            .map(|mode| mode.name.as_str())
+            .unwrap_or_else(|| self.display_mode_id())
+    }
 }
 
 impl AcpModelState {
@@ -396,6 +435,62 @@ fn apply_acp_model_selection_result(
             {
                 if event.succeeded {
                     state.current_model_id.clone_from(&event.model_id);
+                }
+                state.pending = None;
+            }
+        }
+    }
+}
+
+fn apply_acp_mode_info(
+    mut reader: MessageReader<vmux_service::agent_events::PageAgentModeInfo>,
+    mut sessions: Query<(Entity, &AcpSession, Option<&mut AcpModeState>)>,
+    mut commands: Commands,
+) {
+    for event in reader.read() {
+        for (entity, session, current) in &mut sessions {
+            if session.sid != event.sid {
+                continue;
+            }
+            if event.modes.is_empty() {
+                if current.is_some() {
+                    commands.entity(entity).remove::<AcpModeState>();
+                }
+                continue;
+            }
+            if let Some(mut current) = current {
+                let pending = current.pending.take();
+                *current = AcpModeState {
+                    config_id: event.config_id.clone(),
+                    current_mode_id: event.current_mode_id.clone(),
+                    pending,
+                    modes: event.modes.clone(),
+                };
+            } else {
+                commands.entity(entity).insert(AcpModeState {
+                    config_id: event.config_id.clone(),
+                    current_mode_id: event.current_mode_id.clone(),
+                    pending: None,
+                    modes: event.modes.clone(),
+                });
+            }
+        }
+    }
+}
+
+fn apply_acp_mode_selection_result(
+    mut reader: MessageReader<vmux_service::agent_events::PageAgentModeSelectionResult>,
+    mut sessions: Query<(&AcpSession, &mut AcpModeState)>,
+) {
+    for event in reader.read() {
+        for (session, mut state) in &mut sessions {
+            if session.sid == event.sid
+                && state.pending.as_ref().is_some_and(|pending| {
+                    pending.request_id == event.request_id && pending.mode_id == event.mode_id
+                })
+            {
+                if event.succeeded {
+                    state.current_mode_id.clone_from(&event.mode_id);
                 }
                 state.pending = None;
             }
@@ -1724,6 +1819,86 @@ mod tests {
         app.update();
         let state = app.world().get::<AcpModelState>(entity).unwrap();
         assert_eq!(state.current_model_id, "fable");
+        assert!(state.pending.is_none());
+    }
+
+    #[test]
+    fn mode_results_preserve_latest_pending_selection() {
+        use vmux_service::agent_events::{PageAgentModeInfo, PageAgentModeSelectionResult};
+        use vmux_service::protocol::AcpModeOption;
+
+        let modes = vec![
+            AcpModeOption {
+                id: "ask".into(),
+                name: "Ask".into(),
+                description: None,
+            },
+            AcpModeOption {
+                id: "auto".into(),
+                name: "Auto Allow".into(),
+                description: None,
+            },
+        ];
+        let mut app = App::new();
+        app.add_message::<PageAgentModeInfo>()
+            .add_message::<PageAgentModeSelectionResult>()
+            .add_systems(
+                Update,
+                (apply_acp_mode_info, apply_acp_mode_selection_result).chain(),
+            );
+        let entity = app
+            .world_mut()
+            .spawn((
+                AcpSession {
+                    agent_id: "claude".into(),
+                    sid: "s1".into(),
+                    cwd: "/tmp".into(),
+                    anchor: vmux_core::ProcessId::new(),
+                    resume: None,
+                },
+                AcpModeState {
+                    config_id: String::new(),
+                    current_mode_id: "ask".into(),
+                    pending: Some(PendingAcpModeSelection {
+                        request_id: 2,
+                        mode_id: "auto".into(),
+                    }),
+                    modes: modes.clone(),
+                },
+            ))
+            .id();
+
+        app.world_mut().write_message(PageAgentModeInfo {
+            sid: "s1".into(),
+            config_id: String::new(),
+            current_mode_id: "ask".into(),
+            modes,
+        });
+        app.world_mut().write_message(PageAgentModeSelectionResult {
+            sid: "s1".into(),
+            request_id: 1,
+            mode_id: "auto".into(),
+            succeeded: false,
+        });
+        app.update();
+
+        let state = app.world().get::<AcpModeState>(entity).unwrap();
+        assert_eq!(state.display_mode_id(), "auto");
+        assert_eq!(
+            state.pending.as_ref().map(|pending| pending.request_id),
+            Some(2)
+        );
+
+        app.world_mut().write_message(PageAgentModeSelectionResult {
+            sid: "s1".into(),
+            request_id: 2,
+            mode_id: "auto".into(),
+            succeeded: true,
+        });
+        app.update();
+
+        let state = app.world().get::<AcpModeState>(entity).unwrap();
+        assert_eq!(state.current_mode_id, "auto");
         assert!(state.pending.is_none());
     }
 

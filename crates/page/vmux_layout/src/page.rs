@@ -900,29 +900,56 @@ fn ActiveSessionPanel(
                 }
                 if let Some(boundary) = boundary {
                     if boundary.is_git_repo {
-                        div { class: "flex min-w-0 items-center gap-2 rounded-md bg-foreground/[0.035] px-2 py-1.5",
-                            LineIconView { icon: LineIcon::GitBranch, class: "size-3.5 shrink-0 text-muted-foreground".to_string() }
-                            span { class: "min-w-0 flex-1 truncate font-mono text-[10px] text-foreground",
-                                if boundary.branch.is_empty() { {translate("composer-git-repository")} } else { "{boundary.branch}" }
-                            }
-                            WorkspaceBadges {
-                                is_git_repo: true,
-                                workspace_known: true,
-                                uncommitted: boundary.uncommitted,
-                                ahead: boundary.ahead,
-                            }
-                            if boundary.insertions > 0 || boundary.deletions > 0 {
-                                span { class: "flex shrink-0 items-center gap-1 font-mono text-[10px]",
-                                    if boundary.insertions > 0 {
-                                        span { class: "text-success", "+{boundary.insertions}" }
-                                    }
-                                    if boundary.deletions > 0 {
-                                        span { class: "text-destructive", "−{boundary.deletions}" }
-                                    }
-                                }
-                            }
-                        }
+                        ActiveSessionGit { boundary }
                     }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn ActiveSessionGit(boundary: crate::event::TabBoundary) -> Element {
+    let repository = if boundary.repository.is_empty() {
+        translate("composer-git-repository")
+    } else {
+        boundary.repository.clone()
+    };
+    let branch = if boundary.branch.is_empty() {
+        repository.clone()
+    } else {
+        boundary.branch.clone()
+    };
+    let relation = if boundary.base_ref.is_empty() || boundary.base_ref == boundary.branch {
+        branch
+    } else {
+        format!("{} → {}", boundary.base_ref, branch)
+    };
+    rsx! {
+        div { class: "min-w-0 rounded-md bg-foreground/[0.035] px-2 py-1.5",
+            div { class: "flex min-w-0 items-center gap-2",
+                LineIconView { icon: LineIcon::GitBranch, class: "size-3.5 shrink-0 text-muted-foreground".to_string() }
+                span { class: "min-w-0 flex-1 truncate text-[10px] font-semibold text-foreground", title: "{repository}", "{repository}" }
+                WorkspaceBadges {
+                    is_git_repo: true,
+                    workspace_known: true,
+                    uncommitted: boundary.uncommitted,
+                    ahead: boundary.ahead,
+                }
+            }
+            div { class: "mt-1 flex min-w-0 items-center gap-2 pl-[22px] font-mono text-[10px]",
+                span { class: "min-w-0 flex-1 truncate text-muted-foreground", title: "{relation}", "{relation}" }
+                if boundary.changed_files > 0 {
+                    span { class: "flex shrink-0 items-center gap-1 text-muted-foreground", title: "Files changed",
+                        LineIconView { icon: LineIcon::File, class: "size-3".to_string() }
+                        "{boundary.changed_files}"
+                    }
+                }
+                if boundary.insertions > 0 {
+                    span { class: "shrink-0 text-success", "+{boundary.insertions}" }
+                }
+                if boundary.deletions > 0 {
+                    span { class: "shrink-0 text-destructive", "−{boundary.deletions}" }
                 }
             }
         }

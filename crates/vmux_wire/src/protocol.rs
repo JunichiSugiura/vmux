@@ -658,6 +658,12 @@ pub enum ClientMessage {
         managed_mcp_servers: Vec<ManagedMcpServer>,
         effort: Option<String>,
     },
+    AcpSetMode {
+        sid: String,
+        request_id: u64,
+        config_id: String,
+        mode_id: String,
+    },
     Status,
     RebindAcpWorkspace {
         sid: String,
@@ -905,10 +911,39 @@ pub enum ServiceMessage {
         succeeded: bool,
     },
     Shared(SharedEvent),
+    AcpModeInfo {
+        sid: String,
+        config_id: String,
+        current_mode_id: String,
+        modes: Vec<AcpModeOption>,
+    },
+    AcpModeSelectionResult {
+        sid: String,
+        request_id: u64,
+        mode_id: String,
+        succeeded: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct AcpModelOption {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    serde::Serialize,
+    serde::Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
+pub struct AcpModeOption {
     pub id: String,
     pub name: String,
     pub description: Option<String>,

@@ -9,10 +9,10 @@ use crate::event::{
     ChatBranchesRequest, ChatCancel, ChatChoiceSelected, ChatEscape, ChatHistoryPage,
     ChatHistoryRequest, ChatItem, ChatMediaEntries, ChatMediaEntry, ChatMediaListRequest,
     ChatPickFiles, ChatProjectBranches, ChatSnapshot, ChatSubmit, ChatSubmitAttachment,
-    ComposerContext, MODEL_STATE_EVENT, ModelOptionEntry, ModelState, QueuedPromptSnapshot,
-    RESUMABLE_SESSIONS_EVENT, ResumableSessionEntry, ResumableSessions, ResumeListRequest,
-    ResumeSession, RuntimeSwitchRequest, SLASH_COMMANDS_EVENT, SelectModel, SlashCommandEntry,
-    SlashCommands as SlashCommandsEvent, latest_tool_location,
+    ComposerContext, MODE_STATE_EVENT, MODEL_STATE_EVENT, ModeState, ModelOptionEntry, ModelState,
+    QueuedPromptSnapshot, RESUMABLE_SESSIONS_EVENT, ResumableSessionEntry, ResumableSessions,
+    ResumeListRequest, ResumeSession, RuntimeSwitchRequest, SLASH_COMMANDS_EVENT, SelectMode,
+    SelectModel, SlashCommandEntry, SlashCommands as SlashCommandsEvent, latest_tool_location,
 };
 use crate::format::composer::{
     ResumeMenuState, SelectorMode, chat_page_title, filter_models, filter_sessions,
@@ -50,6 +50,7 @@ pub struct Chat {
     pub mcp: McpConnections,
     pub models: ModelPicker,
     pub effort: EffortPicker,
+    pub permissions: PermissionPicker,
     pub projects: ProjectPicker,
     pub slash: SlashCommands,
     pub resume: Resume,
@@ -75,6 +76,7 @@ pub fn use_chat() -> Chat {
         mcp: use_mcp_connections(),
         models: use_model_picker(),
         effort: use_effort_picker(),
+        permissions: use_permission_picker(),
         projects: use_project_picker(),
         slash: use_slash_commands(),
         resume: use_resume(),
@@ -150,6 +152,12 @@ impl Chat {
             agent_key.set(state.agent_key.clone());
             menu_sel.set(0);
             loaded.set(true);
+        });
+        let _modes = use_listener::<ModeState, _>(MODE_STATE_EVENT, move |state| {
+            let mut modes = chat.permissions.modes;
+            let mut current_mode_id = chat.permissions.current_mode_id;
+            modes.set(state.modes.clone());
+            current_mode_id.set(state.current_mode_id.clone());
         });
         let _context = use_listener::<ComposerContext, _>(COMPOSER_CONTEXT_EVENT, move |context| {
             let mut composer_context = chat.slash.composer_context;
@@ -660,6 +668,32 @@ impl Chat {
         Some(ComposerChip::ready(label, translate("agent-effort-tooltip")).opens(open))
     }
 
+    pub fn permission_chip(&self) -> Option<ComposerChip> {
+        let modes = self.permissions.modes.read();
+        if modes.is_empty() {
+            return None;
+        }
+        let current_mode_id = (self.permissions.current_mode_id)();
+        let current = modes.iter().find(|mode| mode.id == current_mode_id);
+        let label = current
+            .map(|mode| mode.name.clone())
+            .unwrap_or_else(|| current_mode_id.clone());
+        let title = current
+            .and_then(|mode| mode.description.clone())
+            .filter(|description| !description.is_empty())
+            .unwrap_or_else(|| "Change permission mode".to_string());
+        let selected = modes
+            .iter()
+            .position(|mode| mode.id == current_mode_id)
+            .unwrap_or(0);
+        let chat = *self;
+        let open = EventHandler::new(move |()| {
+            chat.open_menu_at(ComposerMenuKind::Permission, selected);
+            focus_prompt_end(PROMPT_INPUT_ID);
+        });
+        Some(ComposerChip::ready(label, title).opens(open))
+    }
+
     pub fn project_chip(&self) -> Option<ComposerChip> {
         if !(self.projects.loaded)() {
             return Some(ComposerChip::loading());
@@ -834,6 +868,11 @@ impl Chat {
             model_id: model.id.clone(),
         });
         draft.set(String::new());
+    }
+
+    pub fn select_mode(&self, mode_id: String) {
+        let _ = send(&SelectMode { mode_id });
+        focus_prompt_end(PROMPT_INPUT_ID);
     }
 
     pub fn activate_mcp_server(&self, index: usize) {
@@ -1172,6 +1211,19 @@ pub fn use_effort_picker() -> EffortPicker {
         current: use_signal(String::new),
         default_level: use_signal(String::new),
         agent_key: use_signal(String::new),
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct PermissionPicker {
+    pub modes: Signal<Vec<vmux_wire::protocol::AcpModeOption>>,
+    pub current_mode_id: Signal<String>,
+}
+
+pub fn use_permission_picker() -> PermissionPicker {
+    PermissionPicker {
+        modes: use_signal(Vec::new),
+        current_mode_id: use_signal(String::new),
     }
 }
 

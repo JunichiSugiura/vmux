@@ -935,6 +935,22 @@ async fn handle_client(
                 );
             }
 
+            ClientMessage::AcpSetMode {
+                sid,
+                request_id,
+                config_id,
+                mode_id,
+            } => {
+                acp_manager.lock().await.input(
+                    &sid,
+                    crate::acp::AcpInput::SetMode {
+                        request_id,
+                        config_id,
+                        mode_id,
+                    },
+                );
+            }
+
             ClientMessage::Shared(SharedMessage::Agent {
                 sid,
                 action: AgentAction::Cancel,
@@ -1045,6 +1061,10 @@ async fn handle_client(
                     if let Some(model_info) = acp_manager.lock().await.model_info(&sid) {
                         let mut w = writer.lock().await;
                         write_message!(&mut *w, &model_info)?;
+                    }
+                    if let Some(mode_info) = acp_manager.lock().await.mode_info(&sid) {
+                        let mut w = writer.lock().await;
+                        write_message!(&mut *w, &mode_info)?;
                     }
                     if let Some(old) = page_agent_forwarders.remove(&sid) {
                         old.abort();

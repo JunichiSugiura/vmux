@@ -16,8 +16,9 @@ use dioxus::prelude::*;
 use vmux_command::panel::CommandBarPanel;
 use vmux_core::event::team::{TEAM_EVENT, TeamCommandEvent, TeamEvent, TeamMemberRow};
 use vmux_core::event::{
-    EXTENSIONS_LIST_EVENT, ExtActionRequest, ExtListRequest, ExtOpenManagerRequest, ExtPinRequest,
-    ExtRow, ExtensionsEvent,
+    EXTENSION_POPUP_EVENT, EXTENSIONS_LIST_EVENT, ExtActionRequest, ExtListRequest,
+    ExtOpenManagerRequest, ExtPinRequest, ExtRow, ExtensionPopupBoundsRequest,
+    ExtensionPopupCloseRequest, ExtensionPopupEvent, ExtensionsEvent,
 };
 use vmux_core::{PageIcon, PageMetadata};
 use vmux_ui::components::avatar::Avatar;
@@ -108,6 +109,8 @@ pub fn Page() -> Element {
 
     let extensions_state =
         use_event::<ExtensionsEvent>(EXTENSIONS_LIST_EVENT, ExtensionsEvent::default);
+    let extension_popup =
+        use_event::<ExtensionPopupEvent>(EXTENSION_POPUP_EVENT, ExtensionPopupEvent::default);
     use_effect(move || {
         let _ = send(&ExtListRequest);
     });
@@ -245,6 +248,9 @@ pub fn Page() -> Element {
                 }
             }
             CommandBarPanel {}
+            if !extension_popup().id.is_empty() {
+                ExtensionPopupModal { popup: extension_popup }
+            }
             if sheet_resizing() {
                 div {
                     class: "pointer-events-auto fixed inset-0 z-[900] cursor-col-resize",
@@ -263,6 +269,123 @@ pub fn Page() -> Element {
                 }
             }
         }
+    }
+}
+
+#[component]
+fn ExtensionPopupModal(popup: Signal<ExtensionPopupEvent>) -> Element {
+    let current = popup();
+    let state = ExtensionPopupState { popup };
+    let reporter = ExtensionPopupBoundsReporter {
+        region: use_signal(|| None::<Rc<MountedData>>),
+    };
+    let mounted = reporter;
+    let resized = reporter;
+    use_effect(move || {
+        let _ = send(&LayoutOverlayEvent {
+            id: "extension-popup".to_string(),
+            active: true,
+        });
+    });
+    use_drop(move || {
+        let _ = send(&LayoutOverlayEvent {
+            id: "extension-popup".to_string(),
+            active: false,
+        });
+        let _ = send(&ExtensionPopupCloseRequest);
+    });
+
+    rsx! {
+        div {
+            class: "pointer-events-auto fixed inset-0 z-[1000] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm",
+            tabindex: "-1",
+            onmounted: move |event: Event<MountedData>| {
+                let target = event.data();
+                spawn(async move {
+                    let _ = target.set_focus(true).await;
+                });
+            },
+            onkeydown: move |event| {
+                if event.key() == Key::Escape {
+                    event.prevent_default();
+                    state.close();
+                }
+            },
+            onpointerdown: move |_| state.close(),
+            div {
+                class: "glass flex max-h-full max-w-full flex-col overflow-hidden rounded-2xl border border-border/80 bg-background/95 shadow-2xl backdrop-blur-2xl",
+                style: "width:min(420px,calc(100vw - 32px));height:min(560px,calc(100vh - 48px));",
+                onpointerdown: move |event| event.stop_propagation(),
+                header { class: "flex h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3",
+                    if let Some(icon) = current.icon.as_ref() {
+                        img { class: "size-4 shrink-0 rounded object-contain", src: "{icon}", alt: "" }
+                    } else {
+                        Icon { class: "size-4 shrink-0 text-muted-foreground",
+                            path { d: "M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z" }
+                        }
+                    }
+                    h2 { class: "min-w-0 flex-1 truncate text-sm font-semibold text-foreground", "{current.name}" }
+                    button {
+                        r#type: "button",
+                        class: "flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/[0.08] hover:text-foreground",
+                        title: translate("common-close"),
+                        aria_label: translate("common-close"),
+                        onclick: move |_| state.close(),
+                        Icon { class: "size-4",
+                            path { d: "M18 6 6 18" }
+                            path { d: "m6 6 12 12" }
+                        }
+                    }
+                }
+                div {
+                    key: "{current.id}",
+                    class: "relative min-h-0 flex-1 overflow-hidden bg-background",
+                    onmounted: move |event: Event<MountedData>| mounted.mount(event.data()),
+                    onresize: move |_: Event<ResizeData>| resized.publish(),
+                    div { class: "pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-br from-foreground/[0.035] via-transparent to-primary/[0.06]" }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ExtensionPopupState {
+    popup: Signal<ExtensionPopupEvent>,
+}
+
+impl ExtensionPopupState {
+    fn close(mut self) {
+        self.popup.set(ExtensionPopupEvent::default());
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ExtensionPopupBoundsReporter {
+    region: Signal<Option<Rc<MountedData>>>,
+}
+
+impl ExtensionPopupBoundsReporter {
+    fn mount(mut self, region: Rc<MountedData>) {
+        self.region.set(Some(region));
+        self.publish();
+    }
+
+    fn publish(self) {
+        spawn(async move {
+            let Some(region) = (self.region)() else {
+                return;
+            };
+            let Ok(rect) = region.get_client_rect().await else {
+                return;
+            };
+            let _ = send(&ExtensionPopupBoundsRequest {
+                left: rect.origin.x as f32,
+                top: rect.origin.y as f32,
+                width: rect.size.width as f32,
+                height: rect.size.height as f32,
+            });
+        });
     }
 }
 

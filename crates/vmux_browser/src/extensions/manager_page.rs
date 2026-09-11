@@ -7,13 +7,18 @@ use bevy_cef::prelude::{
     WebviewCommittedNavigationEvent,
 };
 use vmux_command::{AppCommand, BrowserCommand, open::OpenCommand};
+use vmux_core::KeyboardOwner;
 use vmux_core::event::{
-    EXT_INSTALL_PROGRESS_EVENT, EXT_STATUS_EVENT, EXTENSIONS_LIST_EVENT, EXTENSIONS_PAGE_URL,
-    ExtActionRequest, ExtBrowseStoreRequest, ExtInstallPhase, ExtInstallProgress, ExtListRequest,
-    ExtOpenManagerRequest, ExtPinRequest, ExtRow, ExtStatus, ExtStatusEvent, ExtToggleRequest,
-    ExtUninstallRequest, ExtensionsEvent,
+    EXT_INSTALL_PROGRESS_EVENT, EXT_STATUS_EVENT, EXTENSION_POPUP_EVENT, EXTENSIONS_LIST_EVENT,
+    EXTENSIONS_PAGE_URL, ExtActionRequest, ExtBrowseStoreRequest, ExtInstallPhase,
+    ExtInstallProgress, ExtListRequest, ExtOpenManagerRequest, ExtPinRequest, ExtRow, ExtStatus,
+    ExtStatusEvent, ExtToggleRequest, ExtUninstallRequest, ExtensionPopupBoundsRequest,
+    ExtensionPopupCloseRequest, ExtensionPopupEvent, ExtensionsEvent,
 };
 use vmux_core::extension::store;
+use vmux_core::overlay::WindowOverlay;
+use vmux_flex::prelude::Visibility;
+use vmux_layout::{Browser, LayoutCef};
 
 #[derive(Component, Default)]
 pub struct Extensions;
@@ -43,12 +48,16 @@ impl Plugin for ExtensionsPlugin {
                 ExtActionRequest,
                 ExtPinRequest,
                 ExtOpenManagerRequest,
+                ExtensionPopupBoundsRequest,
+                ExtensionPopupCloseRequest,
             )>::for_hosts(&["extensions", "layout"]))
             .add_plugins(JsEmitEventPlugin::<AddExtensionRequest>::default())
             .add_observer(on_list_request)
             .add_observer(on_toggle_request)
             .add_observer(on_uninstall_request)
             .add_observer(on_action_request)
+            .add_observer(on_popup_bounds_request)
+            .add_observer(on_popup_close_request)
             .add_observer(on_pin_request)
             .add_observer(on_open_manager_request)
             .add_observer(on_browse_store_request)
@@ -64,6 +73,42 @@ impl Plugin for ExtensionsPlugin {
             );
     }
 }
+
+#[derive(Component)]
+pub(crate) struct ExtensionPopup {
+    owner: Entity,
+}
+
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ExtensionPopupBounds {
+    pub(crate) left: f32,
+    pub(crate) top: f32,
+    pub(crate) width: f32,
+    pub(crate) height: f32,
+}
+
+impl ExtensionPopupBounds {
+    fn of(request: &ExtensionPopupBoundsRequest) -> Option<Self> {
+        if !request.left.is_finite()
+            || !request.top.is_finite()
+            || !request.width.is_finite()
+            || !request.height.is_finite()
+            || request.width <= 0.0
+            || request.height <= 0.0
+        {
+            return None;
+        }
+        Some(Self {
+            left: request.left,
+            top: request.top,
+            width: request.width,
+            height: request.height,
+        })
+    }
+}
+
+#[derive(Component)]
+pub(crate) struct ExtensionPopupPresented;
 
 const PAGE_MANIFEST: vmux_core::page::PageManifest = vmux_core::page::PageManifest {
     host: "extensions",
@@ -279,6 +324,10 @@ fn on_uninstall_request(
 fn on_action_request(
     trigger: On<BinReceive<ExtActionRequest>>,
     mut cmd: MessageWriter<AppCommand>,
+    layouts: Query<(), With<LayoutCef>>,
+    popups: Query<(Entity, &ExtensionPopup)>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
 ) {
     let id = trigger.event().payload.id.clone();
     let idx = store::Index::load(&store::root()).unwrap_or_default();
@@ -291,11 +340,73 @@ fn on_action_request(
     let Some(popup) = entry.popup else {
         return;
     };
+    let url = format!("chrome-extension://{id}/{popup}");
+    let owner = trigger.event().webview;
+    if layouts.contains(owner) {
+        close_popup(owner, &popups, &browsers, &mut commands);
+        commands
+            .spawn(Browser::new_with_title(&url, &entry.name))
+            .insert((
+                Name::new(format!("Extension popup: {}", entry.name)),
+                WindowOverlay,
+                ExtensionPopup { owner },
+                Visibility::Hidden,
+            ));
+        commands.trigger(BinHostEmitEvent::from_rkyv(
+            owner,
+            EXTENSION_POPUP_EVENT,
+            &ExtensionPopupEvent {
+                id,
+                name: entry.name,
+                icon: entry.icon,
+            },
+        ));
+        return;
+    }
     cmd.write(AppCommand::Browser(BrowserCommand::Open(
-        OpenCommand::InNewStack {
-            url: Some(format!("chrome-extension://{id}/{popup}")),
-        },
+        OpenCommand::InNewStack { url: Some(url) },
     )));
+}
+
+fn on_popup_bounds_request(
+    trigger: On<BinReceive<ExtensionPopupBoundsRequest>>,
+    popups: Query<(Entity, &ExtensionPopup)>,
+    mut commands: Commands,
+) {
+    let Some(bounds) = ExtensionPopupBounds::of(&trigger.event().payload) else {
+        return;
+    };
+    for (entity, popup) in &popups {
+        if popup.owner == trigger.event().webview {
+            commands
+                .entity(entity)
+                .insert((bounds, Visibility::Visible, KeyboardOwner));
+        }
+    }
+}
+
+fn on_popup_close_request(
+    trigger: On<BinReceive<ExtensionPopupCloseRequest>>,
+    popups: Query<(Entity, &ExtensionPopup)>,
+    browsers: NonSend<Browsers>,
+    mut commands: Commands,
+) {
+    close_popup(trigger.event().webview, &popups, &browsers, &mut commands);
+}
+
+fn close_popup(
+    owner: Entity,
+    popups: &Query<(Entity, &ExtensionPopup)>,
+    browsers: &Browsers,
+    commands: &mut Commands,
+) {
+    for (entity, popup) in popups {
+        if popup.owner != owner {
+            continue;
+        }
+        browsers.set_windowed_hidden(&entity, true);
+        commands.entity(entity).try_despawn();
+    }
 }
 
 fn on_pin_request(
